@@ -1,0 +1,69 @@
+export const dynamic = 'force-dynamic';
+import { NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth/session';
+import { query, transaction } from '@/lib/db/mysql';
+const randomUUID = () => crypto.randomUUID();
+
+export async function GET(req: Request) {
+  try {
+    await requireAuth();
+    const { searchParams } = new URL(req.url);
+    const from = searchParams.get('from'), to = searchParams.get('to');
+    const limit = parseInt(searchParams.get('limit') ?? '50');
+
+    let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id`;
+    const params: unknown[] = [];
+    const where: string[] = [];
+    if (from) { where.push('s.date>=?'); params.push(from); }
+    if (to)   { where.push('s.date<=?'); params.push(to); }
+    if (where.length) sql += ' WHERE ' + where.join(' AND ');
+    sql += ' ORDER BY s.date DESC LIMIT ?'; params.push(limit);
+    return NextResponse.json(await query(sql, params));
+  } catch(e){ if(e instanceof Error&&e.message==='UNAUTHORIZED') return NextResponse.json({error:'No autorizado'},{status:401}); return NextResponse.json({error:'Error interno'},{status:500}); }
+}
+
+export async function POST(req: Request) {
+  try {
+    const sessionUser = await requireAuth();
+    const { items, payment, customer_id, notes, date } = await req.json();
+    if (!items?.length) return NextResponse.json({ error: 'La venta debe tener al menos un producto' }, { status: 400 });
+    if (payment?.method === 'credit' && !customer_id) return NextResponse.json({ error: 'Las ventas a crédito requieren cliente' }, { status: 400 });
+
+    const saleId = randomUUID();
+    const ts = new Date().toISOString().slice(0,19).replace('T',' ');
+    const saleDate = date ? new Date(date).toISOString().slice(0,19).replace('T',' ') : ts;
+    const total = items.reduce((a: number, i: { quantity: number; unit_price: number }) => a + i.quantity * i.unit_price, 0);
+    const status = payment?.method === 'credit' ? 'pending' : 'completed';
+
+    await transaction(async (conn) => {
+      await conn.execute(
+        'INSERT INTO sales (id,customer_id,user_id,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
+        [saleId, customer_id??null, sessionUser.id, saleDate, total, status, notes??null, ts, ts]
+      );
+      for (const item of items) {
+        await conn.execute(
+          'INSERT INTO sale_items (id,sale_id,product_id,quantity,unit_price,cost,created_at) VALUES (?,?,?,?,?,?,?)',
+          [randomUUID(), saleId, item.product_id, item.quantity, item.unit_price, item.cost??0, ts]
+        );
+        await conn.execute('UPDATE products SET stock=GREATEST(0,stock-?),updated_at=? WHERE id=?',[item.quantity, ts, item.product_id]);
+        await conn.execute(
+          "INSERT INTO stock_movements (id,product_id,type,quantity,reason,reference_id,user_id,date,created_at) VALUES (?,?,'out',?,?,?,?,?,?)",
+          [randomUUID(), item.product_id, item.quantity, 'Venta', saleId, sessionUser.id, saleDate, ts]
+        );
+      }
+
+      const method = payment?.method ?? 'cash';
+      const amountCash = method === 'cash' ? total : (payment?.amount_cash ?? 0);
+      const amountTransfer = method === 'transfer' ? total : (payment?.amount_transfer ?? 0);
+      await conn.execute(
+        'INSERT INTO payments (id,sale_id,method,amount_cash,amount_transfer,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?)',
+        [randomUUID(), saleId, method, amountCash, amountTransfer, saleDate, payment?.notes??null, ts]
+      );
+
+      if (method === 'credit' && customer_id) {
+        await conn.execute('UPDATE customers SET balance=balance+?,updated_at=? WHERE id=?',[total, ts, customer_id]);
+      }
+    });
+    return NextResponse.json({ id: saleId, total, status }, { status: 201 });
+  } catch(e){ if(e instanceof Error&&e.message==='UNAUTHORIZED') return NextResponse.json({error:'No autorizado'},{status:401}); console.error(e); return NextResponse.json({error:'Error al registrar venta'},{status:500}); }
+}
