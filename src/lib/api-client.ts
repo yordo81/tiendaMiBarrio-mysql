@@ -102,4 +102,9 @@ export const api = {
     return apiFetch<Record<string,unknown>[]>(`/api/location-movements${qs ? '?' + qs : ''}`);
   },
   createLocationMovement: (data: unknown) => apiFetch('/api/location-movements', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Accounting / Contabilidad
+  getAccounting: () => apiFetch<Record<string, unknown>>('/api/accounting'),
+  getCashRegister: () => apiFetch<Record<string, unknown>[]>('/api/cash-register'),
+  createCashRegisterEntry: (data: unknown) => apiFetch('/api/cash-register', { method: 'POST', body: JSON.stringify(data) }),
 };

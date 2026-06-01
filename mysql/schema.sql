@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   category_id      CHAR(36)      NULL,
   description      VARCHAR(500)  NOT NULL,
   amount           DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  payment_method   ENUM('cash','transfer','mixed') NULL DEFAULT NULL,
   product_id       CHAR(36)      NULL,
   product_quantity DECIMAL(12,3) NULL,
   date             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -264,7 +265,23 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   INDEX idx_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- LOCATION MOVEMENTS (new - tracks all stock movements per location)
+-- ============================================================
+-- CASH REGISTER (contabilidad — saldo inicial y ajustes manuales)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cash_register (
+  id               CHAR(36)      NOT NULL PRIMARY KEY,
+  type             ENUM('initial','adjustment') NOT NULL DEFAULT 'adjustment',
+  cash_amount      DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  transfer_amount  DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  notes            TEXT          NULL,
+  date             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  user_id          CHAR(36)      NULL,
+  created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- LOCATION MOVEMENTS (tracks all stock movements per location)
 CREATE TABLE IF NOT EXISTS location_movements (
   id          CHAR(36)      NOT NULL PRIMARY KEY,
   location_id CHAR(36)      NOT NULL,

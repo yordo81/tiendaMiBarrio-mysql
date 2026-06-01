@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, transaction } from '@/lib/db/mysql';
 import { logAudit } from '@/lib/db/audit';
 import { handle, ok, err, notFound, forbidden } from '@/lib/api-helpers';
+import { validateExpensePaymentMethodOrDefault } from '@/lib/validate';
 const randomUUID = () => crypto.randomUUID();
 
 export const GET = handle(async (req: Request) => {
@@ -25,9 +26,12 @@ export const POST = handle(async (req: Request) => {
   const date = body.date ? new Date(body.date).toISOString().slice(0,19).replace('T',' ') : ts;
 
   await transaction(async (conn) => {
+    const paymentMethod = body.payment_method
+      ? validateExpensePaymentMethodOrDefault(body.payment_method)
+      : null;
     await conn.execute(
-      'INSERT INTO expenses (id,category_id,description,amount,product_id,product_quantity,date,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [id,body.category_id??null,body.description,Number(body.amount??0),body.product_id??null,body.product_quantity??null,date,sessionUser.id,ts,ts]
+      'INSERT INTO expenses (id,category_id,description,amount,payment_method,product_id,product_quantity,date,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      [id,body.category_id??null,body.description,Number(body.amount??0),paymentMethod,body.product_id??null,body.product_quantity??null,date,sessionUser.id,ts,ts]
     );
     if (body.product_id && body.product_quantity) {
       const productId = body.product_id;

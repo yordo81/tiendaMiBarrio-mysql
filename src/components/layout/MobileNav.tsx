@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Package, ShoppingCart, Warehouse, BarChart2, MoveHorizontal, ShoppingBag, Shield } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Warehouse, BarChart2, MoveHorizontal, ShoppingBag, Shield, DollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 const nav = [
   { href: '/dashboard',            label: 'Inicio',     icon: LayoutDashboard },
@@ -10,6 +10,7 @@ const nav = [
   { href: '/dashboard/compras',    label: 'Compras',    icon: ShoppingBag },
   { href: '/dashboard/almacenes',  label: 'Almacenes',  icon: Warehouse },
   { href: '/dashboard/ventas',     label: 'Ventas',     icon: ShoppingCart },
+  { href: '/dashboard/contabilidad',label: 'Caja',      icon: DollarSign },
   { href: '/dashboard/reportes',   label: 'Reportes',   icon: BarChart2 },
   { href: '/dashboard/auditoria',label: 'Auditoría', icon: Shield },
 ];

@@ -15,6 +15,10 @@ export const VALID = {
   CUSTOMER_PAYMENT_METHODS: ['cash', 'transfer', 'mixed'] as const,
   // stock_movements.type
   STOCK_MOVEMENT_TYPES: ['in', 'out', 'adjust', 'expense'] as const,
+  // expenses.payment_method
+  EXPENSE_PAYMENT_METHODS: ['cash', 'transfer', 'mixed'] as const,
+  // cash_register.type
+  CASH_REGISTER_TYPES: ['initial', 'adjustment'] as const,
   // locations.type
   LOCATION_TYPES: ['warehouse', 'store'] as const,
   // location_movements.type
@@ -30,6 +34,8 @@ export type CustomerPaymentMethod = ExtractType<typeof VALID.CUSTOMER_PAYMENT_ME
 export type StockMovementType = ExtractType<typeof VALID.STOCK_MOVEMENT_TYPES>;
 export type LocationType = ExtractType<typeof VALID.LOCATION_TYPES>;
 export type LocationMovementType = ExtractType<typeof VALID.LOCATION_MOVEMENT_TYPES>;
+export type ExpensePaymentMethod = ExtractType<typeof VALID.EXPENSE_PAYMENT_METHODS>;
+export type CashRegisterType = ExtractType<typeof VALID.CASH_REGISTER_TYPES>;
 
 /**
  * Valida que `value` esté dentro del conjunto de valores permitidos.
@@ -117,6 +123,17 @@ export function validateCustomerPaymentMethodOrDefault(
   defaultMethod: CustomerPaymentMethod = 'cash',
 ): CustomerPaymentMethod {
   return validateEnumOrDefault(method, VALID.CUSTOMER_PAYMENT_METHODS, 'Método de pago', defaultMethod);
+}
+
+export function validateExpensePaymentMethod(method: string | undefined | null): ExpensePaymentMethod {
+  return validateEnum(method, VALID.EXPENSE_PAYMENT_METHODS, 'Método de pago del gasto');
+}
+
+export function validateExpensePaymentMethodOrDefault(
+  method: string | undefined | null,
+  defaultMethod: ExpensePaymentMethod = 'cash',
+): ExpensePaymentMethod {
+  return validateEnumOrDefault(method, VALID.EXPENSE_PAYMENT_METHODS, 'Método de pago del gasto', defaultMethod);
 }
 
 export function validateLocationMovementType(type: string | undefined | null): LocationMovementType {

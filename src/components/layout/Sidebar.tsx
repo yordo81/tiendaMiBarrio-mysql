@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useCallback, useState } from 'react';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { classifyRole, cn } from '@/lib/utils';
-import { LayoutDashboard, Package, ShoppingCart, Users, Truck, TrendingDown, BarChart2, UserCog, LogOut, Wifi, WifiOff, Warehouse, ArrowRightLeft, ShoppingBag, Shield } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Users, Truck, TrendingDown, BarChart2, UserCog, LogOut, Wifi, WifiOff, Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import type { AppUser } from '@/types';
 
@@ -18,6 +18,7 @@ const navItems = [
   { href: '/dashboard/clientes',    icon: Users,           label: 'Clientes',     roles: ['owner','admin','seller'] },
   { href: '/dashboard/proveedores', icon: Truck,           label: 'Proveedores',  roles: ['owner','admin','warehouse'] },
   { href: '/dashboard/gastos',      icon: TrendingDown,    label: 'Gastos',       roles: ['owner','admin'] },
+  { href: '/dashboard/contabilidad', icon: DollarSign,     label: 'Contabilidad', roles: ['owner','admin'] },
   { href: '/dashboard/reportes',    icon: BarChart2,       label: 'Reportes',     roles: ['owner','admin'] },
   { href: '/dashboard/auditoria',  icon: Shield,          label: 'Auditoría',   roles: ['owner','admin'] },
   { href: '/dashboard/usuarios',    icon: UserCog,         label: 'Usuarios',     roles: ['owner'] },
