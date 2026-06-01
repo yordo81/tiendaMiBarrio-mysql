@@ -6,7 +6,7 @@ import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/toaster';
-import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw } from 'lucide-react';
+import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw, Package, DollarSign, Layers } from 'lucide-react';
 type R = Record<string,unknown>;
 
 const movLabel:Record<string,string> = { entrada:'Entrada', salida:'Salida', traslado_out:'Traslado (salida)', traslado_in:'Traslado (entrada)', venta:'Venta', ajuste:'Ajuste' };
@@ -20,6 +20,7 @@ export default function AlmacenesPage() {
   const [products, setProducts] = useState<R[]>([]);
   const [transfers, setTransfers] = useState<R[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stockSummary, setStockSummary] = useState<R[]>([]);
   const [selLoc, setSelLoc] = useState<R|null>(null);
   const [locStock, setLocStock] = useState<R[]>([]);
   const [locMoves, setLocMoves] = useState<R[]>([]);
@@ -37,8 +38,8 @@ export default function AlmacenesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [locs, prods, trans] = await Promise.all([api.getLocations(), api.getProducts(), api.getTransfers()]);
-    setLocations(locs); setProducts(prods); setTransfers(trans); setLoading(false);
+    const [locs, prods, trans, summary] = await Promise.all([api.getLocations(), api.getProducts(), api.getTransfers(), api.getLocationStockSummary()]);
+    setLocations(locs); setProducts(prods); setTransfers(trans); setStockSummary(summary); setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -103,6 +104,44 @@ export default function AlmacenesPage() {
 
       {tab==='almacenes'&&(
         <>
+          {/* Summary cards */}
+          {!loading && stockSummary.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {stockSummary.map(s => {
+                const qty = Number(s.total_quantity);
+                const val = Number(s.total_value);
+                const count = Number(s.product_count);
+                return (
+                  <div key={String(s.location_id)} className="card p-4 flex flex-col gap-2 border-l-4 border-l-brand-500">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-[#e6edf3] truncate">{String(s.location_name)}</p>
+                      <span className={s.location_type === 'store' ? 'badge-success' : 'badge-info'}>
+                        {s.location_type === 'warehouse' ? 'Almacén' : 'Punto de venta'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 mt-1">
+                      <div className="flex flex-col items-center p-2 rounded-lg bg-[#0d1117] border border-[#21262d]">
+                        <Layers className="w-4 h-4 text-blue-400 mb-1" />
+                        <p className="text-lg font-bold text-[#e6edf3]">{count}</p>
+                        <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">Productos</p>
+                      </div>
+                      <div className="flex flex-col items-center p-2 rounded-lg bg-[#0d1117] border border-[#21262d]">
+                        <Package className="w-4 h-4 text-green-400 mb-1" />
+                        <p className="text-lg font-bold text-[#e6edf3]">{qty.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">Cantidad</p>
+                      </div>
+                      <div className="flex flex-col items-center p-2 rounded-lg bg-[#0d1117] border border-[#21262d]">
+                        <DollarSign className="w-4 h-4 text-yellow-400 mb-1" />
+                        <p className="text-lg font-bold text-[#e6edf3]">{'$' + val.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">Valor</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex items-center justify-between flex-wrap gap-3">
             <p className="text-sm text-[#8b949e]">{locations.length} ubicación(es)</p>
             <div className="flex gap-2 flex-wrap">
@@ -292,8 +331,7 @@ export default function AlmacenesPage() {
       </Modal>
 
       {/* Location CRUD Modal */}
-      <Modal open={showLocModal} onClose={()=>setShowLocModal(false)} title={editLoc?'Editar ubicación':'Nueva ubicación'} size="sm">
-        <div className="space-y-4">
+      <Modal open={showLocModal} onClose={()=>setShowLocModal(false)} title={editLoc?'Editar ubicación':'Nueva ubicación'} size="sm">  <div className="space-y-4">
           <div><label className="label">Nombre *</label><input className="input" placeholder="Ej: Almacén Central, Sucursal Norte..." value={locForm.name} onChange={e=>setLocForm(f=>({...f,name:e.target.value}))}/></div>
           <div><label className="label">Tipo</label>
             <div className="grid grid-cols-2 gap-2">

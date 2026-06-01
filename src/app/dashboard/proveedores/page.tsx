@@ -1,15 +1,18 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatDate, cn } from '@/lib/utils';
+import { useAuthStore } from '@/lib/stores/auth-store';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
+import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
 import { Truck, Plus, Search, Edit2, Trash2, TrendingDown, History } from 'lucide-react';
 type R = Record<string,unknown>;
 
 export default function ProveedoresPage() {
+  const { user } = useAuthStore();
   const [suppliers, setSuppliers] = useState<R[]>([]);
   const [products, setProducts] = useState<R[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,6 +27,10 @@ export default function ProveedoresPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name:'', contact:'', phone:'', notes:'' });
   const [priceForm, setPriceForm] = useState({ product_id:'', supplier_id:'', price:0, notes:'' });
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const load = useCallback(async () => {
     const [s, p] = await Promise.all([api.getSuppliers(), api.getProducts()]);
@@ -64,6 +71,10 @@ export default function ProveedoresPage() {
   }
 
   const filtered = suppliers.filter(s => String(s.name).toLowerCase().includes(search.toLowerCase()));
+  const paginated = pageSize === 0 ? filtered : filtered.slice(0, page * pageSize).slice((page - 1) * pageSize);
+
+  // Reset page when search changes
+  useEffect(() => { setPage(1); }, [search]);
 
   return (
     <div className="space-y-5">
@@ -76,24 +87,25 @@ export default function ProveedoresPage() {
       </div>
       <div className="card overflow-hidden">
         {loading?<div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"/></div>
-        :filtered.length===0?<EmptyState icon={Truck} title="Sin proveedores" description="Agrega tu primer proveedor" action={<button onClick={()=>setShowModal(true)} className="btn-primary">Agregar proveedor</button>}/>:(
+        :paginated.length===0?<EmptyState icon={Truck} title="Sin proveedores" description="Agrega tu primer proveedor" action={<button onClick={()=>setShowModal(true)} className="btn-primary">Agregar proveedor</button>}/>:(
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[#21262d]">{['Proveedor','Contacto','Teléfono',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{h}</th>)}</tr></thead>
-              <tbody>{filtered.map(s=>(
+              <tbody>{paginated.map(s=>(
                 <tr key={String(s.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
                   <td className="px-4 py-3 font-medium text-[#e6edf3]">{String(s.name)}</td>
                   <td className="px-4 py-3 text-[#8b949e]">{String(s.contact??'—')}</td>
                   <td className="px-4 py-3 text-[#8b949e]">{String(s.phone??'—')}</td>
                   <td className="px-4 py-3"><div className="flex gap-1">
                     <button onClick={()=>{setEditSupplier(s);setForm({name:String(s.name),contact:String(s.contact??''),phone:String(s.phone??''),notes:String(s.notes??'')});setShowModal(true);}} className="p-1.5 rounded-lg text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
-                    <button onClick={()=>setDeleteTarget(s)} className="p-1.5 rounded-lg text-[#6e7681] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                    {(user?.role==='owner'||user?.role==='admin') && <button onClick={()=>setDeleteTarget(s)} className="p-1.5 rounded-lg text-[#6e7681] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>}
                   </div></td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
         )}
+        <Pagination currentPage={page} totalItems={filtered.length} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
       </div>
 
       {/* Historial de precios por producto */}

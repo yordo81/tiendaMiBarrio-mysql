@@ -2,8 +2,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse } from 'lucide-react';
+import InfoTooltip from '@/components/ui/Tooltip';
 import { exportToCSV } from '@/lib/export';
+import { api } from '@/lib/api-client';
+import { toast } from '@/components/ui/toaster';
 
 function exportCSV(data: R[], filename: string) { exportToCSV(data as Record<string, unknown>[], filename); }
 
@@ -35,58 +38,123 @@ export default function ReportesPage() {
   const [salesData, setSalesData] = useState<R[]>([]);
   const [salesSummary, setSalesSummary] = useState({ total:0, count:0, avg:0, gastos:0, utilidad:0 });
   const [margins, setMargins] = useState<R[]>([]);
+  const [marginSummary, setMarginSummary] = useState({ totalSales:0, totalCost:0, grossProfit:0, expenses:0, netProfit:0, netMarginPct:0 });
   const [priceProducts, setPriceProducts] = useState<R[]>([]);
   const [priceHistory, setPriceHistory] = useState<R[]>([]);
   const [selectedPriceProduct, setSelectedPriceProduct] = useState('');
   const [forecasts, setForecasts] = useState<R[]>([]);
   const [debts, setDebts] = useState<R[]>([]);
   const [totalDebt, setTotalDebt] = useState(0);
+  const [locations, setLocations] = useState<R[]>([]);
+  const [locationFilter, setLocationFilter] = useState('');
 
   const days = range==='7d'?7:range==='30d'?30:90;
 
   const loadSales = useCallback(async () => {
     setLoading(true);
-    const [d, e] = await Promise.all([
-      fetch(`/api/reports?type=sales_detail&days=${days}`).then(r=>r.json()),
-      fetch(`/api/expenses?from=${new Date(Date.now()-days*864e5).toISOString().slice(0,10)}`).then(r=>r.json()),
-    ]);
-    setSalesData(d as R[]);
-    const totalV = (d as R[]).reduce((a,r)=>a+Number(r.total??0),0);
-    const totalG = (e as R[]).reduce((a,r)=>a+Number(r.amount??0),0);
-    const cnt = (d as R[]).reduce((a,r)=>a+Number(r.count??0),0);
+    const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
+    const fromDate = new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+
+    // Fetch sales data
+    let sales: R[] = [];
+    try {
+      const res = await fetch(`/api/reports?type=sales_detail&days=${days}${locQ}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Error al cargar ventas' }));
+        toast.error(String(err?.error ?? 'Error al cargar ventas'));
+      } else {
+        const d = await res.json();
+        sales = Array.isArray(d) ? d as R[] : [];
+      }
+    } catch(e) { console.error('[loadSales]', e); toast.error('Error de red al cargar ventas'); }
+
+    // Fetch expenses separately so a failure doesn't block sales data
+    let expenses: R[] = [];
+    try {
+      const res = await fetch(`/api/expenses?from=${fromDate}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Error al cargar gastos' }));
+        toast.error(String(err?.error ?? 'Error al cargar gastos'));
+      } else {
+        const e = await res.json();
+        expenses = Array.isArray(e) ? e as R[] : [];
+      }
+    } catch(e) { console.error('[loadSales]', e); toast.error('Error de red al cargar gastos'); }
+
+    setSalesData(sales);
+    const totalV = sales.reduce((a,r)=>a+Number(r.total??0),0);
+    const totalG = expenses.reduce((a,r)=>a+Number(r.amount??0),0);
+    const cnt = sales.reduce((a,r)=>a+Number(r.count??0),0);
     setSalesSummary({ total:totalV, count:cnt, avg:cnt?totalV/cnt:0, gastos:totalG, utilidad:totalV-totalG });
     setLoading(false);
-  }, [days]);
+  }, [days, locationFilter]);
 
   const loadMargins = useCallback(async () => {
     setLoading(true);
-    const d = await fetch(`/api/reports?type=margins&days=${days}`).then(r=>r.json());
-    setMargins(d as R[]); setLoading(false);
-  }, [days]);
+    try {
+      const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
+      const [marginRes, dashRes] = await Promise.all([
+        fetch(`/api/reports?type=margins&days=${days}${locQ}`),
+        fetch(`/api/reports?type=dashboard&days=${days}${locQ}`),
+      ]);
+      const marginsData = await marginRes.json();
+      const dashData = await dashRes.json();
+      setMargins(Array.isArray(marginsData) ? marginsData as R[] : []);
+      if (dashData && typeof dashData === 'object') {
+        const totalSales = Number(dashData.salesMonth ?? 0);
+        const totalCost = Number(dashData.cogsMonth ?? 0);
+        const expenses = Number(dashData.expensesMonth ?? 0);
+        const grossProfit = totalSales - totalCost;
+        const netProfit = Number(dashData.netProfitMonth ?? 0);
+        const netMarginPct = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
+        setMarginSummary({ totalSales, totalCost, grossProfit, expenses, netProfit, netMarginPct });
+      }
+    } catch(e) { console.error('[loadMargins]', e); }
+    finally { setLoading(false); }
+  }, [days, locationFilter]);
 
   const loadPriceHistory = useCallback(async (pid: string) => {
     if (!pid) return;
     setLoading(true);
-    const d = await fetch(`/api/reports?type=price_history&product_id=${pid}`).then(r=>r.json());
-    setPriceHistory(d as R[]); setLoading(false);
+    try {
+      const d = await fetch(`/api/reports?type=price_history&product_id=${pid}`).then(r=>r.json());
+      setPriceHistory(Array.isArray(d) ? d as R[] : []);
+    } catch(e) { console.error('[loadPriceHistory]', e); }
+    finally { setLoading(false); }
   }, []);
 
   const loadProducts = useCallback(async () => {
-    const d = await fetch('/api/products').then(r=>r.json());
-    setPriceProducts(d as R[]);
-    if ((d as R[]).length&&!selectedPriceProduct) { setSelectedPriceProduct(String((d as R[])[0].id)); loadPriceHistory(String((d as R[])[0].id)); }
+    try {
+      const d = await fetch('/api/products').then(r=>r.json());
+      const arr = Array.isArray(d) ? d as R[] : [];
+      setPriceProducts(arr);
+      if (arr.length && !selectedPriceProduct) { setSelectedPriceProduct(String(arr[0].id)); loadPriceHistory(String(arr[0].id)); }
+    } catch(e) { console.error('[loadProducts]', e); }
   }, [selectedPriceProduct, loadPriceHistory]);
 
   const loadForecasts = useCallback(async () => {
     setLoading(true);
-    const d = await fetch('/api/reports?type=restock').then(r=>r.json());
-    setForecasts(d as R[]); setLoading(false);
+    try {
+      const d = await fetch('/api/reports?type=restock').then(r=>r.json());
+      setForecasts(Array.isArray(d) ? d as R[] : []);
+    } catch(e) { console.error('[loadForecasts]', e); }
+    finally { setLoading(false); }
   }, []);
 
   const loadDebts = useCallback(async () => {
     setLoading(true);
-    const d = await fetch('/api/reports?type=debts').then(r=>r.json());
-    setDebts(d as R[]); setTotalDebt((d as R[]).reduce((a,r)=>a+Number(r.balance??0),0)); setLoading(false);
+    try {
+      const d = await fetch('/api/reports?type=debts').then(r=>r.json());
+      const arr = Array.isArray(d) ? d as R[] : [];
+      setDebts(arr);
+      setTotalDebt(arr.reduce((a,r)=>a+Number(r.balance??0),0));
+    } catch(e) { console.error('[loadDebts]', e); }
+    finally { setLoading(false); }
+  }, []);
+
+  // Cargar ubicaciones al montar
+  useEffect(() => {
+    api.getLocations().then(setLocations).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -95,19 +163,34 @@ export default function ReportesPage() {
     else if (tab==='precios') loadProducts();
     else if (tab==='reabastecimiento') loadForecasts();
     else if (tab==='cuentas') loadDebts();
-  }, [tab, range]);
+  }, [tab, range, locationFilter]);
 
   const urgencyBadge = (u: string) => u==='critical'?<span className="badge-danger">Crítico</span>:u==='soon'?<span className="badge-warning">Pronto</span>:<span className="badge-success">OK</span>;
 
   return (
-    <div className="space-y-5">
-      <div className="flex gap-1 overflow-x-auto pb-1">
-        {tabs.map(t=>(
-          <button key={t.key} onClick={()=>setTab(t.key)} className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-sm whitespace-nowrap transition-colors', tab===t.key?'bg-brand-600/20 text-brand-400 font-medium':'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#161b22]')}>
-            <t.icon size={15}/>{t.label}
-          </button>
-        ))}
-      </div>
+    <div className="space-y-5">        <div className="flex gap-1 overflow-x-auto pb-1">
+          {tabs.map(t=>(
+            <button key={t.key} onClick={()=>setTab(t.key)} className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-sm whitespace-nowrap transition-colors', tab===t.key?'bg-brand-600/20 text-brand-400 font-medium':'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#161b22]')}>
+              <t.icon size={15}/>{t.label}
+            </button>
+          ))}
+          <div className="flex-1" />
+          {(tab==='ventas'||tab==='rentabilidad')&&locations.length>0&&(
+            <div className="flex items-center gap-2">
+              <Warehouse size={14} className="text-[#6e7681] shrink-0" />
+              <select
+                value={locationFilter}
+                onChange={e => setLocationFilter(e.target.value)}
+                className="input py-1.5 px-2 text-xs max-w-[180px]"
+              >
+                <option value="">Todos los almacenes</option>
+                {locations.map(l => (
+                  <option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
 
       {(tab==='ventas'||tab==='rentabilidad')&&(
         <div className="flex gap-2">
@@ -124,8 +207,8 @@ export default function ReportesPage() {
       {!loading&&tab==='ventas'&&(
         <div className="space-y-5">
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {[{label:'Total ventas',value:formatCurrency(salesSummary.total),color:'text-blue-400'},{label:'Nº ventas',value:String(salesSummary.count),color:'text-[#e6edf3]'},{label:'Ticket prom.',value:formatCurrency(salesSummary.avg),color:'text-purple-400'},{label:'Gastos',value:formatCurrency(salesSummary.gastos),color:'text-red-400'},{label:'Utilidad',value:formatCurrency(salesSummary.utilidad),color:salesSummary.utilidad>=0?'text-green-400':'text-red-400'}].map(c=>(
-              <div key={c.label} className="card p-4"><p className="text-xs text-[#6e7681] mb-1">{c.label}</p><p className={cn('text-lg font-semibold',c.color)}>{c.value}</p></div>
+            {[{label:'Total ventas',value:formatCurrency(salesSummary.total),color:'text-blue-400',tip:'Suma total de ventas en el período (sin descuentos ni devoluciones)'},{label:'Nº ventas',value:String(salesSummary.count),color:'text-[#e6edf3]',tip:''},{label:'Ticket prom.',value:formatCurrency(salesSummary.avg),color:'text-purple-400',tip:'Valor promedio por venta = Total ventas ÷ Nº ventas'},{label:'Gastos',value:formatCurrency(salesSummary.gastos),color:'text-red-400',tip:'Suma de gastos operativos registrados en el período'},{label:'Utilidad',value:formatCurrency(salesSummary.utilidad),color:salesSummary.utilidad>=0?'text-green-400':'text-red-400',tip:'Ventas totales menos gastos del período'}].map(c=>(
+              <div key={c.label} className="card p-4"><p className="text-xs text-[#6e7681] mb-1">{c.tip ? <InfoTooltip content={c.tip} iconClassName="w-3 h-3 ml-0.5 inline-block -mt-0.5">{c.label}</InfoTooltip> : c.label}</p><p className={cn('text-lg font-semibold',c.color)}>{c.value}</p></div>
             ))}
           </div>
           <div className="card p-5">
@@ -148,28 +231,87 @@ export default function ReportesPage() {
       )}
 
       {!loading&&tab==='rentabilidad'&&(
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-[#e6edf3]">Margen por producto</h3>
-            <button onClick={()=>exportCSV(margins,'rentabilidad')} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
+        <div className="space-y-5">
+          {/* Resumen de costos y márgenes */}
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+            {[
+              { label:'Ventas totales', value:formatCurrency(marginSummary.totalSales), color:'text-blue-400', tip:'Suma total de ventas en el período' },
+              { label:'Costo ventas (COGS)', value:formatCurrency(marginSummary.totalCost), color:'text-orange-400', tip:'Costo total de los productos vendidos = Σ(cantidad × costo unitario)' },
+              { label:'Margen bruto', value:formatCurrency(marginSummary.grossProfit), color:'text-green-400', tip:'Ventas totales menos costo de ventas. Ganancia antes de gastos operativos.' },
+              { label:'Gastos operativos', value:formatCurrency(marginSummary.expenses), color:'text-red-400', tip:'Suma de gastos operativos registrados en el período (salarios, servicios, etc.)' },
+              { label:'Margen neto', value:formatCurrency(marginSummary.netProfit), color:marginSummary.netProfit>=0?'text-emerald-400':'text-red-400', tip:'Margen bruto menos gastos operativos. Ganancia real del negocio.' },
+              { label:'% Margen neto', value:`${formatNumber(marginSummary.netMarginPct,1)}%`, color:marginSummary.netMarginPct>=15?'text-emerald-400':marginSummary.netMarginPct>=5?'text-yellow-400':'text-red-400', tip:'Porcentaje de margen neto sobre ventas = (Margen neto ÷ Ventas) × 100' },
+            ].map(c=>(
+              <div key={c.label} className="card p-4">
+                <p className="text-xs text-[#6e7681] mb-1">{c.tip ? <InfoTooltip content={c.tip} iconClassName="w-3 h-3 ml-0.5 inline-block -mt-0.5">{c.label}</InfoTooltip> : c.label}</p>
+                <p className={cn('text-lg font-semibold',c.color)}>{c.value}</p>
+              </div>
+            ))}
           </div>
-          {margins.length===0?<p className="text-center text-[#6e7681] py-8 text-sm">Sin datos en este período</p>:(
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-[#21262d]">{['Producto','P.Venta','Costo','Margen','%','Total'].map(h=><th key={h} className="px-3 py-2 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{h}</th>)}</tr></thead>
-                <tbody>{margins.map((m,i)=>(
-                  <tr key={i} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
-                    <td className="px-3 py-2.5 text-[#e6edf3] font-medium">{String(m.name)}</td>
-                    <td className="px-3 py-2.5 text-[#8b949e]">{formatCurrency(Number(m.sale_price))}</td>
-                    <td className="px-3 py-2.5 text-[#8b949e]">{formatCurrency(Number(m.cost))}</td>
-                    <td className="px-3 py-2.5 text-green-400">{formatCurrency(Number(m.margin))}</td>
-                    <td className="px-3 py-2.5"><div className="flex items-center gap-2"><div className="flex-1 bg-[#21262d] rounded-full h-1.5 max-w-[60px]"><div className="h-1.5 rounded-full bg-brand-500" style={{width:`${Math.min(100,Number(m.margin_pct))}%`}}/></div><span className={cn('text-xs font-medium',Number(m.margin_pct)>=20?'text-green-400':Number(m.margin_pct)>=10?'text-yellow-400':'text-red-400')}>{formatNumber(Number(m.margin_pct),1)}%</span></div></td>
-                    <td className="px-3 py-2.5 text-[#8b949e]">{formatCurrency(Number(m.total_sold))}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+
+          {/* Barra visual de desglose */}
+          {marginSummary.totalSales > 0 && (
+            <div className="card p-5">
+              <h3 className="text-sm font-semibold text-[#e6edf3] mb-3">Desglose de cada peso vendido</h3>
+              <div className="flex h-8 rounded-lg overflow-hidden text-xs font-medium">
+                {(() => {
+                  const costPct = (marginSummary.totalCost / marginSummary.totalSales) * 100;
+                  const expensePct = (marginSummary.expenses / marginSummary.totalSales) * 100;
+                  const profitPct = (marginSummary.netProfit / marginSummary.totalSales) * 100;
+                  const totalPct = costPct + expensePct + Math.max(0, profitPct);
+                  const norm = (v: number) => totalPct > 0 ? (v / totalPct) * 100 : 0;
+                  return (
+                    <>
+                      {costPct > 0 && <div className="flex items-center justify-center bg-orange-600/70 text-orange-200" style={{width:`${norm(costPct)}%`}}>Costo {formatNumber(costPct,1)}%</div>}
+                      {expensePct > 0 && <div className="flex items-center justify-center bg-red-600/70 text-red-200" style={{width:`${norm(expensePct)}%`}}>Gastos {formatNumber(expensePct,1)}%</div>}
+                      {profitPct >= 0 && <div className="flex items-center justify-center bg-green-600/70 text-green-200" style={{width:`${norm(profitPct)}%`}}>Ganancia {formatNumber(profitPct,1)}%</div>}
+                      {profitPct < 0 && <div className="flex items-center justify-center bg-red-800/70 text-red-300" style={{width:`${norm(Math.abs(profitPct))}%`}}>Pérdida {formatNumber(Math.abs(profitPct),1)}%</div>}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
           )}
+
+          {/* Tabla de margen por producto */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-[#e6edf3]">Margen por producto</h3>
+              <button onClick={()=>exportCSV(margins,'rentabilidad')} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
+            </div>
+            {margins.length===0?<p className="text-center text-[#6e7681] py-8 text-sm">Sin datos en este período</p>:(
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-[#21262d]">{['Producto','P.Venta','Costo','Margen','%','Vendido','Costo total','Ganancia bruta'].map(h=>{
+                const tips: Record<string,string> = {
+                  'P.Venta':'Precio de venta al público promedio en el período',
+                  'Costo':'Costo unitario promedio del producto',
+                  'Margen':'Ganancia bruta por unidad = Precio de venta - Costo',
+                  '%':'Porcentaje de margen sobre el precio de venta',
+                  'Vendido':'Total vendido del producto en el período (cantidad × precio)',
+                  'Costo total':'Costo total de las unidades vendidas = Σ(cantidad × costo)',
+                  'Ganancia bruta':'Utilidad bruta total = Vendido - Costo total',
+                };
+                return <th key={h} className="px-3 py-2 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{tips[h] ? <InfoTooltip content={tips[h]} iconClassName="w-3 h-3 ml-0.5 inline-block -mt-0.5">{h}</InfoTooltip> : h}</th>;
+              })}</tr></thead>
+                  <tbody>{margins.map((m,i)=>{
+                    const gProfit = Number(m.gross_profit ?? 0);
+                    return (
+                    <tr key={i} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
+                      <td className="px-3 py-2.5 text-[#e6edf3] font-medium">{String(m.name)}</td>
+                      <td className="px-3 py-2.5 text-[#8b949e]">{formatCurrency(Number(m.sale_price))}</td>
+                      <td className="px-3 py-2.5 text-[#8b949e]">{formatCurrency(Number(m.cost))}</td>
+                      <td className="px-3 py-2.5 text-green-400">{formatCurrency(Number(m.margin))}</td>
+                      <td className="px-3 py-2.5"><div className="flex items-center gap-2"><div className="flex-1 bg-[#21262d] rounded-full h-1.5 max-w-[60px]"><div className="h-1.5 rounded-full bg-brand-500" style={{width:`${Math.min(100,Number(m.margin_pct))}%`}}/></div><span className={cn('text-xs font-medium',Number(m.margin_pct)>=20?'text-green-400':Number(m.margin_pct)>=10?'text-yellow-400':'text-red-400')}>{formatNumber(Number(m.margin_pct),1)}%</span></div></td>
+                      <td className="px-3 py-2.5 text-[#8b949e]">{formatCurrency(Number(m.total_sold))}</td>
+                      <td className="px-3 py-2.5 text-orange-400">{formatCurrency(Number(m.total_cost))}</td>
+                      <td className="px-3 py-2.5"><span className={cn('font-medium',gProfit>=0?'text-green-400':'text-red-400')}>{formatCurrency(gProfit)}</span></td>
+                    </tr>
+                  )})}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -211,7 +353,15 @@ export default function ReportesPage() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead><tr className="border-b border-[#21262d]">{['Producto','Stock actual','Venta/día','Días restantes','Fecha pedido','Urgencia'].map(h=><th key={h} className="px-3 py-2 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                <thead><tr className="border-b border-[#21262d]">{['Producto','Stock actual','Venta/día','Días restantes','Fecha pedido','Urgencia'].map(h=>{
+              const tips: Record<string,string> = {
+                'Venta/día':'Promedio de unidades vendidas por día en los últimos 30 días',
+                'Días restantes':'Días estimados hasta agotar stock según el ritmo actual de ventas',
+                'Fecha pedido':'Fecha estimada en la que se debe realizar el pedido al proveedor',
+                'Urgencia':'Prioridad de reabastecimiento basada en los días restantes',
+              };
+              return <th key={h} className="px-3 py-2 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{tips[h] ? <InfoTooltip content={tips[h]} iconClassName="w-3 h-3 ml-0.5 inline-block -mt-0.5">{h}</InfoTooltip> : h}</th>;
+            })}</tr></thead>
                 <tbody>{forecasts.map(f=>(
                   <tr key={String(f.id)} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
                     <td className="px-3 py-2.5 text-[#e6edf3] font-medium">{String(f.name)}</td>
@@ -231,7 +381,7 @@ export default function ReportesPage() {
       {!loading&&tab==='cuentas'&&(
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-4">
-            <div className="card p-5"><p className="text-xs text-[#6e7681] mb-1">Total por cobrar</p><p className="text-2xl font-semibold text-red-400">{formatCurrency(totalDebt)}</p></div>
+            <div className="card p-5"><p className="text-xs text-[#6e7681] mb-1"><InfoTooltip content="Suma total de saldos pendientes de todos los clientes" iconClassName="w-3 h-3 ml-0.5 inline-block -mt-[1px]">Total por cobrar</InfoTooltip></p><p className="text-2xl font-semibold text-red-400">{formatCurrency(totalDebt)}</p></div>
             <div className="card p-5"><p className="text-xs text-[#6e7681] mb-1">Clientes con deuda</p><p className="text-2xl font-semibold text-[#e6edf3]">{debts.length}</p></div>
           </div>
           <div className="card p-5">

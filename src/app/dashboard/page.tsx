@@ -40,7 +40,7 @@ export default function DashboardPage() {
         <StatCard title="Ventas hoy" value={formatCurrency(data?.salesToday ?? 0)} icon={DollarSign} variant="default" loading={loading} />
         <StatCard title="Esta semana" value={formatCurrency(data?.salesWeek ?? 0)} icon={BarChart2} variant="info" loading={loading} />
         <StatCard title="Este mes" value={formatCurrency(data?.salesMonth ?? 0)} icon={TrendingUp} variant="success" loading={loading} />
-        <StatCard title="Utilidad neta" value={formatCurrency(data?.netProfitMonth ?? 0)} icon={data?.netProfitMonth && data.netProfitMonth >= 0 ? TrendingUp : TrendingDown} variant={data?.netProfitMonth && data.netProfitMonth >= 0 ? 'success' : 'danger'} loading={loading} />
+        <StatCard title="Ganancia neta" value={formatCurrency(data?.netProfitMonth ?? 0)} icon={data?.netProfitMonth && data.netProfitMonth >= 0 ? TrendingUp : TrendingDown} variant={data?.netProfitMonth && data.netProfitMonth >= 0 ? 'success' : 'danger'} loading={loading} />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -5,8 +5,10 @@ import { useAuthStore } from '@/lib/stores/auth-store';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
+import Pagination from '@/components/ui/Pagination';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/toaster';
-import { ShoppingCart, Plus, Search, X, Eye } from 'lucide-react';
+import { ShoppingCart, Plus, Search, X, Eye, CreditCard, CheckCircle, Ban } from 'lucide-react';
 
 type AnyRecord = Record<string,unknown>;
 type PayMethod = 'cash'|'transfer'|'mixed'|'credit';
@@ -17,13 +19,20 @@ export default function VentasPage() {
   const [sales, setSales] = useState<AnyRecord[]>([]);
   const [products, setProducts] = useState<AnyRecord[]>([]);
   const [customers, setCustomers] = useState<AnyRecord[]>([]);
+  const [locations, setLocations] = useState<AnyRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [selectedSale, setSelectedSale] = useState<AnyRecord|null>(null);
+  const [showPaySale, setShowPaySale] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [paySaleForm, setPaySaleForm] = useState({ amount: 0, method: 'cash', notes: '' });
+  const [paySaleSaving, setPaySaleSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [cart, setCart] = useState<{product:AnyRecord;quantity:number;unit_price:number}[]>([]);
+  const [locationId, setLocationId] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [payMethod, setPayMethod] = useState<PayMethod>('cash');
   const [amountCash, setAmountCash] = useState(0);
@@ -32,9 +41,19 @@ export default function VentasPage() {
   const [saving, setSaving] = useState(false);
   const { user } = useAuthStore();
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   const load = useCallback(async () => {
-    const [s, p, c] = await Promise.all([api.getSales('limit=50'), api.getProducts(), api.getCustomers()]);
-    setSales(s); setProducts(p); setCustomers(c); setLoading(false);
+    try {
+      const [s, p, c, l] = await Promise.all([api.getSales('limit=50'), api.getProducts(), api.getCustomers(), api.getLocations()]);
+      setSales(s); setProducts(p); setCustomers(c); setLocations(l);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al cargar los datos');
+    } finally {
+      setLoading(false);
+    }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -43,12 +62,40 @@ export default function VentasPage() {
     setCart(prev => { const ex = prev.find(i=>i.product.id===p.id); return ex ? prev.map(i=>i.product.id===p.id?{...i,quantity:i.quantity+1}:i) : [...prev,{product:p,quantity:1,unit_price:Number(p.sale_price)}]; });
     setProductSearch('');
   }
-  function resetForm() { setCart([]); setCustomerId(''); setPayMethod('cash'); setAmountCash(0); setAmountTransfer(0); setSaleNotes(''); }
+  function resetForm() { setCart([]); setLocationId(locations.length > 0 ? String(locations[0].id) : ''); setCustomerId(''); setPayMethod('cash'); setAmountCash(0); setAmountTransfer(0); setSaleNotes(''); }
 
   async function openDetail(sale: AnyRecord) {
     const detail = await api.getSaleDetail(String(sale.id));
-    setSelectedSale({ ...sale, items: detail.items, payments: detail.payments });
+    setSelectedSale({ ...sale, items: detail.items, payments: detail.payments, customer_payments: detail.customer_payments, total_paid: detail.total_paid });
     setShowDetail(true);
+  }
+
+  async function handleCancelSale() {
+    if (!selectedSale) return;
+    setCancelling(true);
+    try {
+      await api.cancelSale(String(selectedSale.id));
+      toast.success('Venta cancelada — inventario y saldos restaurados');
+      setShowCancelConfirm(false);
+      setShowDetail(false);
+      setSelectedSale(null);
+      load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Error al cancelar venta'); } finally { setCancelling(false); }
+  }
+
+  async function handlePaySale() {
+    if (!selectedSale || paySaleForm.amount <= 0) return;
+    setPaySaleSaving(true);
+    try {
+      await api.paySale(String(selectedSale.id), paySaleForm);
+      toast.success('Pago registrado');
+      setShowPaySale(false);
+      setPaySaleForm({ amount: 0, method: 'cash', notes: '' });
+      // Recargar detalle
+      const detail = await api.getSaleDetail(String(selectedSale.id));
+      setSelectedSale(prev => ({ ...prev, ...detail, items: detail.items, payments: detail.payments, customer_payments: detail.customer_payments, total_paid: detail.total_paid }));
+      load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Error al registrar pago'); } finally { setPaySaleSaving(false); }
   }
 
   async function handleSave() {
@@ -61,6 +108,7 @@ export default function VentasPage() {
         items: cart.map(i => ({ product_id: i.product.id, quantity: i.quantity, unit_price: i.unit_price, cost: Number(i.product.cost??0) })),
         payment: { method: payMethod, amount_cash: payMethod==='cash'?total:payMethod==='mixed'?amountCash:0, amount_transfer: payMethod==='transfer'?total:payMethod==='mixed'?amountTransfer:0 },
         customer_id: customerId || null,
+        location_id: locationId || null,
         notes: saleNotes || null,
       });
       toast.success('Venta registrada'); setShowNew(false); resetForm(); load();
@@ -68,6 +116,10 @@ export default function VentasPage() {
   }
 
   const filteredSales = sales.filter(s => String(s.customer_name??'').toLowerCase().includes(search.toLowerCase()));
+  const paginatedSales = pageSize === 0 ? filteredSales : filteredSales.slice(0, page * pageSize).slice((page - 1) * pageSize);
+
+  // Reset page when search changes
+  useEffect(() => { setPage(1); }, [search]);
   const filteredProducts = products.filter(p => String(p.name).toLowerCase().includes(productSearch.toLowerCase())).slice(0,8);
 
   return (
@@ -79,11 +131,11 @@ export default function VentasPage() {
 
       <div className="card overflow-hidden">
         {loading?<div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"/></div>
-        :filteredSales.length===0?<EmptyState icon={ShoppingCart} title="Sin ventas" description="Registra tu primera venta" action={<button onClick={()=>setShowNew(true)} className="btn-primary">Nueva venta</button>}/>:(
+        :paginatedSales.length===0?<EmptyState icon={ShoppingCart} title="Sin ventas" description="Registra tu primera venta" action={<button onClick={()=>setShowNew(true)} className="btn-primary">Nueva venta</button>}/>:(
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[#21262d]">{['Fecha','Cliente','Total','Tipo','Estado',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{h}</th>)}</tr></thead>
-              <tbody>{filteredSales.map(s=>(
+              <tbody>{paginatedSales.map(s=>(
                 <tr key={String(s.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
                   <td className="px-4 py-3 text-[#8b949e] text-xs">{s.date?formatDateTime(String(s.date)):'—'}</td>
                   <td className="px-4 py-3 text-[#e6edf3]">{s.customer_name?String(s.customer_name):<span className="text-[#6e7681] italic">Sin cliente</span>}</td>
@@ -96,6 +148,7 @@ export default function VentasPage() {
             </table>
           </div>
         )}
+        <Pagination currentPage={page} totalItems={filteredSales.length} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
       </div>
 
       {/* New Sale Modal */}
@@ -124,9 +177,9 @@ export default function VentasPage() {
                     <div className="flex-1 min-w-0"><p className="text-sm text-[#e6edf3] truncate">{String(item.product.name)}</p></div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:Math.max(0.01,i.quantity-1)}:i))} className="w-6 h-6 rounded-md bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] flex items-center justify-center text-xs">−</button>
-                      <input type="number" min="0.01" step="0.01" value={item.quantity} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:parseFloat(e.target.value)||0.01}:i))} className="w-14 input text-center text-xs py-1"/>
+                      <input type="number" min="0" step="1" value={item.quantity} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:parseFloat(e.target.value)||0.01}:i))} className="w-14 input text-center text-xs py-1"/>
                       <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:i.quantity+1}:i))} className="w-6 h-6 rounded-md bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] flex items-center justify-center text-xs">+</button>
-                      <input type="number" min="0" step="0.01" value={item.unit_price} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,unit_price:parseFloat(e.target.value)||0}:i))} className="w-20 input text-right text-xs py-1"/>
+                      <input type="number" min="0" step="1" value={item.unit_price} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,unit_price:parseFloat(e.target.value)||0}:i))} className="w-20 input text-right text-xs py-1"/>
                       <button onClick={()=>setCart(prev=>prev.filter(i=>i.product.id!==item.product.id))} className="text-[#6e7681] hover:text-red-400"><X className="w-4 h-4"/></button>
                     </div>
                   </div>
@@ -136,6 +189,12 @@ export default function VentasPage() {
             )}
           </div>
           <div className="space-y-4">
+            <div><label className="label">Almacén de salida *</label>
+              <select className="input" value={locationId} onChange={e=>setLocationId(e.target.value)}>
+                {locations.length === 0 && <option value="">Cargando ubicaciones...</option>}
+                {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
+              </select>
+            </div>
             <div><label className="label">Cliente (opcional)</label>
               <select className="input" value={customerId} onChange={e=>setCustomerId(e.target.value)}>
                 <option value="">Sin cliente</option>
@@ -194,15 +253,102 @@ export default function VentasPage() {
                 </div>
               </div>
             )}
+            {/* Payment method info */}
             {(selectedSale.payments as AnyRecord[]|undefined)?.map(pay=>(
               <div key={String(pay.id)} className="flex justify-between items-center text-sm p-3 bg-[#0d1117] rounded-xl border border-[#21262d]">
                 <span className="text-[#8b949e] capitalize">{({cash:'Efectivo',transfer:'Transferencia',mixed:'Mixto',credit:'Crédito'} as Record<string,string>)[String(pay.method)]??String(pay.method)}</span>
                 <span className="text-[#e6edf3] font-medium">{pay.method==='mixed'?`Ef: ${formatCurrency(Number(pay.amount_cash))} / Tr: ${formatCurrency(Number(pay.amount_transfer))}`:formatCurrency(Number(pay.amount_cash)+Number(pay.amount_transfer))}</span>
               </div>
             ))}
+            {/* Abonos vinculados */}
+            {(selectedSale as any).customer_payments?.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-[#8b949e] uppercase tracking-wide mb-2">Abonos recibidos</p>
+                <div className="space-y-2">
+                  {(selectedSale as any).customer_payments.map((cp: AnyRecord) => (
+                    <div key={String(cp.id)} className="flex justify-between items-center text-sm p-3 bg-green-500/5 rounded-xl border border-green-500/20">
+                      <div>
+                        <span className="text-green-400 font-medium">{formatCurrency(Number(cp.amount))}</span>
+                        <span className="text-xs text-[#6e7681] ml-2">{cp.date ? formatDateTime(String(cp.date)) : '—'} · {String(cp.method)}</span>
+                      </div>
+                      {cp.notes ? <span className="text-xs text-[#8b949e]">{String(cp.notes)}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Botón Cobrar si está pendiente/parcial */}
+            {(selectedSale.status === 'pending' || selectedSale.status === 'partial') && !!selectedSale.customer_id && (
+              <button
+                onClick={() => {
+                  setPaySaleForm({
+                    amount: Number(selectedSale.total) - Number((selectedSale as any).total_paid ?? 0),
+                    method: 'cash',
+                    notes: '',
+                  });
+                  setShowPaySale(true);
+                }}
+                className="btn-primary w-full flex items-center justify-center gap-2 py-3 text-base"
+              >
+                <CreditCard className="w-5 h-5" />
+                Cobrar — {formatCurrency(Number(selectedSale.total) - Number((selectedSale as any).total_paid ?? 0))} restantes
+              </button>
+            )}
+            {/* Botón Cancelar (para cualquier venta no cancelada) — solo admin/owner */}
+            {selectedSale.status !== 'cancelled' && (user?.role === 'owner' || user?.role === 'admin') && (
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                className="btn-danger w-full flex items-center justify-center gap-2 py-3 text-base"
+              >
+                <Ban className="w-5 h-5" />
+                Cancelar venta
+              </button>
+            )}
           </div>
         )}
       </Modal>
+
+      {/* Pay Sale Modal */}
+      <Modal open={showPaySale} onClose={() => setShowPaySale(false)} title={`Registrar pago — ${String(selectedSale?.customer_name ?? '')}`} size="sm">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 bg-[#0d1117] rounded-xl border border-[#21262d] text-sm">
+              <p className="text-xs text-[#6e7681]">Total venta</p>
+              <p className="text-[#e6edf3] font-semibold">{formatCurrency(Number(selectedSale?.total ?? 0))}</p>
+            </div>
+            <div className="p-3 bg-[#0d1117] rounded-xl border border-[#21262d] text-sm">
+              <p className="text-xs text-[#6e7681]">Pagado</p>
+              <p className="text-green-400 font-semibold">{formatCurrency(Number((selectedSale as any)?.total_paid ?? 0))}</p>
+            </div>
+          </div>
+          <div><label className="label">Monto a cobrar *</label><input type="number" min="0.01" step="0.01" className="input" value={paySaleForm.amount || ''} onChange={e => setPaySaleForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} /></div>
+          <div><label className="label">Método</label>
+            <select className="input" value={paySaleForm.method} onChange={e => setPaySaleForm(f => ({ ...f, method: e.target.value }))}>
+              <option value="cash">Efectivo</option>
+              <option value="transfer">Transferencia</option>
+              <option value="mixed">Mixto</option>
+            </select>
+          </div>
+          <div><label className="label">Notas</label><input className="input" value={paySaleForm.notes} onChange={e => setPaySaleForm(f => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="flex gap-3">
+            <button onClick={() => setShowPaySale(false)} className="btn-secondary flex-1">Cancelar</button>
+            <button onClick={handlePaySale} disabled={paySaleSaving || paySaleForm.amount <= 0} className="btn-primary flex-1 disabled:opacity-50">
+              {paySaleSaving ? 'Registrando...' : <span className="flex items-center justify-center gap-2"><CheckCircle className="w-4 h-4" />Confirmar pago</span>}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Cancel Sale — solo admin/owner */}
+      <ConfirmDialog
+        open={showCancelConfirm}
+        onClose={() => setShowCancelConfirm(false)}
+        onConfirm={handleCancelSale}
+        title="Cancelar venta"
+        message={`¿Estás seguro de cancelar esta venta por ${formatCurrency(Number(selectedSale?.total ?? 0))}? Se restaurará el inventario y, si es crédito, se ajustará el saldo del cliente. Esta acción no se puede deshacer.`}
+        confirmLabel={cancelling ? 'Cancelando...' : 'Sí, cancelar venta'}
+        loading={cancelling}
+      />
     </div>
   );
 }
