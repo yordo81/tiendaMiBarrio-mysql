@@ -1,14 +1,17 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Package, ShoppingCart, Warehouse, BarChart2 } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Warehouse, BarChart2, MoveHorizontal, ShoppingBag, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 const nav = [
   { href: '/dashboard',            label: 'Inicio',     icon: LayoutDashboard },
   { href: '/dashboard/inventario', label: 'Inventario', icon: Package },
+  { href: '/dashboard/movimientos',label: 'Movimientos',icon: MoveHorizontal },
+  { href: '/dashboard/compras',    label: 'Compras',    icon: ShoppingBag },
   { href: '/dashboard/almacenes',  label: 'Almacenes',  icon: Warehouse },
   { href: '/dashboard/ventas',     label: 'Ventas',     icon: ShoppingCart },
   { href: '/dashboard/reportes',   label: 'Reportes',   icon: BarChart2 },
+  { href: '/dashboard/auditoria',label: 'Auditoría', icon: Shield },
 ];
 export default function MobileNav() {
   const pathname = usePathname();

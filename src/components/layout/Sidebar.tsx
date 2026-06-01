@@ -1,22 +1,25 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { classifyRole, cn } from '@/lib/utils';
-import { LayoutDashboard, Package, ShoppingCart, Users, Truck, TrendingDown, BarChart2, UserCog, LogOut, Wifi, WifiOff, Warehouse } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Users, Truck, TrendingDown, BarChart2, UserCog, LogOut, Wifi, WifiOff, Warehouse, ArrowRightLeft, ShoppingBag, Shield } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import type { AppUser } from '@/types';
 
 const navItems = [
   { href: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard',    roles: ['owner','admin','seller','warehouse'] },
   { href: '/dashboard/inventario',  icon: Package,         label: 'Inventario',   roles: ['owner','admin','warehouse'] },
+  { href: '/dashboard/compras',     icon: ShoppingBag,     label: 'Compras',      roles: ['owner','admin','warehouse'] },
+  { href: '/dashboard/movimientos', icon: ArrowRightLeft,  label: 'Movimientos',  roles: ['owner','admin','warehouse'] },
   { href: '/dashboard/almacenes',   icon: Warehouse,       label: 'Almacenes',    roles: ['owner','admin','warehouse'] },
   { href: '/dashboard/ventas',      icon: ShoppingCart,    label: 'Ventas',       roles: ['owner','admin','seller'] },
   { href: '/dashboard/clientes',    icon: Users,           label: 'Clientes',     roles: ['owner','admin','seller'] },
   { href: '/dashboard/proveedores', icon: Truck,           label: 'Proveedores',  roles: ['owner','admin','warehouse'] },
   { href: '/dashboard/gastos',      icon: TrendingDown,    label: 'Gastos',       roles: ['owner','admin'] },
   { href: '/dashboard/reportes',    icon: BarChart2,       label: 'Reportes',     roles: ['owner','admin'] },
+  { href: '/dashboard/auditoria',  icon: Shield,          label: 'Auditoría',   roles: ['owner','admin'] },
   { href: '/dashboard/usuarios',    icon: UserCog,         label: 'Usuarios',     roles: ['owner'] },
 ];
 
@@ -25,6 +28,8 @@ export default function Sidebar() {
   const router = useRouter();
   const { user, setUser } = useAuthStore();
   const isOnline = useOnlineStatus();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   const loadUser = useCallback(async () => {
     if (user) return;
@@ -54,9 +59,9 @@ export default function Sidebar() {
           <span className="text-[10px] text-[#6e7681] uppercase tracking-wider">MySQL Edition</span>
         </div>
       </div>
-      <div className={cn('mx-3 mt-3 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2 font-medium', isOnline ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20')}>
-        {isOnline ? <Wifi className="w-3 h-3"/> : <WifiOff className="w-3 h-3"/>}
-        {isOnline ? 'En línea' : 'Sin conexión'}
+      <div className={cn('mx-3 mt-3 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2 font-medium', !mounted || isOnline ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20')}>
+        {!mounted || isOnline ? <Wifi className="w-3 h-3"/> : <WifiOff className="w-3 h-3"/>}
+        {!mounted || isOnline ? 'En línea' : 'Sin conexión'}
       </div>
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {allowedItems.map(({ href, icon: Icon, label }) => {
