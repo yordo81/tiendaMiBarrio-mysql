@@ -10,7 +10,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import {
   DollarSign, ArrowUpRight, ArrowDownRight,
   Wallet, Banknote, TrendingUp, TrendingDown,
-  Settings, Plus, History, ChevronRight, Minus,
+  Settings, Plus, History, Search,
 } from 'lucide-react';
 
 type R = Record<string, unknown>;
@@ -35,6 +35,7 @@ export default function ContabilidadPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -52,8 +53,9 @@ export default function ContabilidadPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  // Reset page when data changes
+  // Reset page when data or search changes
   useEffect(() => { setPage(1); }, [data]);
+  useEffect(() => { setPage(1); }, [search]);
 
   async function handleInitialBalance() {
     if (!initialForm.cash_amount && !initialForm.transfer_amount) {
@@ -125,7 +127,17 @@ export default function ContabilidadPage() {
 
   const dailyEvolution = (data.daily_evolution ?? []) as R[];
   const hasInitialBalance = entries.some(e => String(e.type) === 'initial');
-  const paginatedMovements = pageSize === 0 ? movements : movements.slice(0, page * pageSize).slice((page - 1) * pageSize);
+
+  // Filtro de búsqueda
+  const q = search.toLowerCase();
+  const filteredMovements = q
+    ? movements.filter(m =>
+        String(m.type ?? '').toLowerCase().includes(q) ||
+        String(m.description ?? '').toLowerCase().includes(q) ||
+        String(m.method ?? '').toLowerCase().includes(q)
+      )
+    : movements;
+  const paginatedMovements = pageSize === 0 ? filteredMovements : filteredMovements.slice((page - 1) * pageSize, page * pageSize);
 
   const ChartTip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
     if (!active || !payload?.length) return null;
@@ -378,11 +390,22 @@ export default function ContabilidadPage() {
 
       {/* Recent Movements */}
       <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-[#21262d] flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[#e6edf3]">Movimientos recientes</h3>
-          <span className="text-xs text-[#6e7681]">{movements.length} registro(s)</span>
+        <div className="px-5 py-4 border-b border-[#21262d] space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-[#e6edf3]">Movimientos recientes</h3>
+            <span className="text-xs text-[#6e7681]">{filteredMovements.length} de {movements.length} registro(s)</span>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+            <input
+              className="input pl-9 text-sm"
+              placeholder="Buscar por tipo, descripción o método de pago..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
         </div>
-        {movements.length === 0 ? (
+        {filteredMovements.length === 0 ? (
           <div className="py-12">
             <EmptyState icon={DollarSign} title="Sin movimientos" description="Aún no hay movimientos registrados" />
           </div>
@@ -451,7 +474,7 @@ export default function ContabilidadPage() {
         )}
         <Pagination
           currentPage={page}
-          totalItems={movements.length}
+          totalItems={filteredMovements.length}
           pageSize={pageSize}
           onPageChange={setPage}
           onPageSizeChange={setPageSize}
