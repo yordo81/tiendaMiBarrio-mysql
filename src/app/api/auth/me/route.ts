@@ -1,8 +1,8 @@
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth/session';
-export async function GET() {
+import { handle, ok, err } from '@/lib/api-helpers';
+export const GET = handle(async () => {
   const user = await getSessionUser();
-  if (!user) return NextResponse.json({ user: null }, { status: 401 });
-  return NextResponse.json({ user });
-}
+  if (!user) return err('No autenticado', 401);
+  return ok({ user });
+});
