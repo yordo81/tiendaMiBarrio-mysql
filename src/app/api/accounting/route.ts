@@ -128,7 +128,7 @@ export const GET = handle(async () => {
     [todayStr]
   );
 
-  // ── Recent movements (last 50) ──
+  // ── Recent movements ──
   const recentMovements = await query<{
     id: string;
     date: string;
@@ -142,7 +142,13 @@ export const GET = handle(async () => {
   }>(`
     (SELECT
       p.id, p.date, 'Venta' AS type,
-      CONCAT('Venta #', LEFT(s.id, 8)) AS description,
+      COALESCE(
+        (SELECT GROUP_CONCAT(CONCAT(si.quantity, 'x ', pr.name) SEPARATOR ', ')
+         FROM sale_items si
+         JOIN products pr ON pr.id = si.product_id
+         WHERE si.sale_id = s.id),
+        CONCAT('Venta #', LEFT(s.id, 8))
+      ) AS description,
       p.method, p.amount_cash AS cash_amount, p.amount_transfer AS transfer_amount,
       (p.amount_cash + p.amount_transfer) AS total_amount,
       s.id AS reference

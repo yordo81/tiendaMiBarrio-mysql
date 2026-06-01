@@ -5,6 +5,7 @@ import { api } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
+import Pagination from '@/components/ui/Pagination';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import {
   DollarSign, ArrowUpRight, ArrowDownRight,
@@ -32,6 +33,8 @@ export default function ContabilidadPage() {
   });
   const [entries, setEntries] = useState<R[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const load = useCallback(async () => {
     try {
@@ -49,6 +52,8 @@ export default function ContabilidadPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  // Reset page when data changes
+  useEffect(() => { setPage(1); }, [data]);
 
   async function handleInitialBalance() {
     if (!initialForm.cash_amount && !initialForm.transfer_amount) {
@@ -120,6 +125,7 @@ export default function ContabilidadPage() {
 
   const dailyEvolution = (data.daily_evolution ?? []) as R[];
   const hasInitialBalance = entries.some(e => String(e.type) === 'initial');
+  const paginatedMovements = pageSize === 0 ? movements : movements.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
   const ChartTip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
     if (!active || !payload?.length) return null;
@@ -382,7 +388,7 @@ export default function ContabilidadPage() {
           </div>
         ) : (
           <div className="divide-y divide-[#21262d]">
-            {movements.map((m, i) => {
+            {paginatedMovements.map((m, i) => {
               const type = String(m.type ?? '');
               const method = String(m.method ?? '');
               const description = String(m.description ?? '');
@@ -443,6 +449,13 @@ export default function ContabilidadPage() {
             })}
           </div>
         )}
+        <Pagination
+          currentPage={page}
+          totalItems={movements.length}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </div>
 
       {/* Modal: Saldo Inicial */}
