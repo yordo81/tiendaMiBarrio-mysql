@@ -129,21 +129,109 @@ pm2 start npm --name tienda -- start
 pm2 save && pm2 startup
 ```
 
-### Opción B: Docker
+### Opción B: Docker (recomendada)
 
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY . .
-RUN npm install && npm run build
-EXPOSE 3000
-CMD ["npm", "start"]
-```
+El proyecto incluye `Dockerfile` y `docker-compose.yml` para levantar la aplicación completa con MySQL incluido.
+
+#### Requisitos
+
+- [Docker](https://docs.docker.com/get-docker/) 24+
+- [Docker Compose](https://docs.docker.com/compose/install/) (incluido con Docker Desktop)
+
+#### 1. Configurar variables de entorno
 
 ```bash
-docker build -t tienda-mi-barrio .
-docker run -p 3000:3000 --env-file .env.local tienda-mi-barrio
+cp .env.example .env
+# Editar .env con tus valores, o dejar los defaults para desarrollo local
 ```
+
+Variables disponibles:
+
+| Variable | Default | Descripción |
+|----------|---------|-------------|
+| `DB_PASSWORD` | `rootpassword` | Contraseña del usuario root de MySQL |
+| `DB_NAME` | `tienda_mi_barrio` | Nombre de la base de datos |
+| `DB_PORT_EXTERNAL` | `3307` | Puerto MySQL hacia el host (evita conflicto con MySQL local) |
+| `APP_PORT` | `3000` | Puerto de la aplicación web |
+| `SESSION_SECRET` | — | Secreto para cifrar sesiones (mín. 32 caracteres) |
+
+Genera un `SESSION_SECRET` seguro:
+```bash
+openssl rand -base64 32
+```
+
+#### 2. Iniciar todos los servicios
+
+```bash
+docker compose up -d
+```
+
+Esto levanta dos contenedores:
+- **`tienda_mb_db`** — MySQL 8.0 con el schema y datos semilla aplicados automáticamente
+- **`tienda_mb_app`** — Next.js en modo producción en `http://localhost:3000`
+
+La primera vez que se ejecuta, Docker:
+1. Construye la imagen de la aplicación (puede tomar 1-2 minutos)
+2. Inicializa el contenedor MySQL creando la base de datos y ejecutando `mysql/init/01-schema.sql`
+3. Espera a que MySQL esté saludable antes de arrancar la app
+
+#### 3. Ver logs
+
+```bash
+docker compose logs -f          # Todos los servicios
+docker compose logs -f app      # Solo la app
+docker compose logs -f db       # Solo la BD
+```
+
+#### 4. Crear el primer usuario (dueño)
+
+Una vez que la app esté corriendo, conecta a MySQL y crea el usuario administrador:
+
+```bash
+# Conectar a MySQL dentro del contenedor
+docker exec -it tienda_mb_db mysql -u root -p"${DB_PASSWORD:-rootpassword}" tienda_mi_barrio
+```
+
+```sql
+INSERT INTO users (id, name, email, password_hash, role, permissions, active, created_at, updated_at)
+VALUES (UUID(), 'Admin', 'admin@tienda.com', '$2a$12$HASH_AQUI', 'owner', '[]', 1, NOW(), NOW());
+```
+
+Para generar el hash de la contraseña (necesitas bcryptjs, se instala con `npm install`):
+```bash
+node -e "const b=require('bcryptjs'); console.log(b.hashSync('tu_contraseña', 12))"
+```
+
+#### 5. Comandos útiles
+
+```bash
+# Detener servicios (sin borrar datos)
+docker compose stop
+
+# Detener y eliminar contenedores (los datos persisten)
+docker compose down
+
+# Detener todo y borrar la base de datos (¡cuidado!)
+docker compose down -v
+
+# Reconstruir la imagen de la app sin cache
+docker compose build --no-cache app
+
+# Acceder a la terminal del contenedor app
+docker exec -it tienda_mb_app sh
+
+# Acceder a MySQL
+docker exec -it tienda_mb_db mysql -u root -p"${DB_PASSWORD:-rootpassword}" tienda_mi_barrio
+```
+
+#### Puertos por defecto
+
+| Servicio | Puerto interno | Puerto host (default) |
+|----------|---------------|----------------------|
+| App web | `3000` | `3000` (configurable con `APP_PORT`) |
+| MySQL | `3306` | `3307` (configurable con `DB_PORT_EXTERNAL`) |
+
+> El puerto de MySQL se mapea al `3307` por defecto para evitar conflictos si ya tienes MySQL corriendo localmente en el puerto `3306`.
 
 ### Opción C: Railway / Render
 

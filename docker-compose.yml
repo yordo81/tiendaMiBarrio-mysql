@@ -1,0 +1,59 @@
+# ============================================================
+# docker-compose.yml — TiendaMiBarrio
+# ============================================================
+# Uso:
+#   docker compose up -d            # Iniciar todos los servicios
+#   docker compose logs -f          # Ver logs
+#   docker compose down -v          # Detener y eliminar volúmenes
+# ============================================================
+# Configura las variables en un archivo .env (ver .env.example)
+# o directamente en el entorno.
+# ============================================================
+
+services:
+  # ---- MySQL 8 ----
+  db:
+    image: mysql:8.0
+    container_name: tienda_mb_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-tienda_mi_barrio}
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    ports:
+      - "${DB_PORT_EXTERNAL:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-rootpassword}"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ---- Next.js App ----
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tienda_mb_app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD:-rootpassword}
+      DB_NAME: ${DB_NAME:-tienda_mi_barrio}
+      SESSION_SECRET: ${SESSION_SECRET:-cambiar_esto_por_un_secreto_de_32_caracteres}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+    name: tienda_mb_data
