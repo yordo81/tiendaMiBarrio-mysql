@@ -84,6 +84,15 @@ VALUES (
 );
 ```
 
+### Migraciones
+
+Si ya tienes la BD creada con una versión anterior del schema, ejecuta las migraciones en orden:
+```bash
+mysql -u root -p < mysql/migration-002-on-delete-set-null.sql
+```
+
+Esta migración agrega `ON DELETE SET NULL` a las FK de `user_id` en las tablas `sales`, `expenses`, `stock_movements`, `stock_transfers` y `location_movements`, evitando errores de FK al eliminar usuarios.
+
 Para generar el hash bcrypt de tu contraseña:
 ```bash
 node -e "const b=require('bcryptjs'); console.log(b.hashSync('tu_contraseña', 12))"

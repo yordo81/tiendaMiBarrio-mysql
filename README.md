@@ -91,6 +91,20 @@ const bcrypt = require('bcryptjs');
 console.log(bcrypt.hashSync('tu_contraseña', 12));
 ```
 
+### Migraciones
+
+Si ya tienes la base de datos creada con una versión anterior del schema, ejecuta las migraciones en orden numérico:
+
+```bash
+mysql -u root -p < mysql/migration-002-on-delete-set-null.sql
+```
+
+| Migración | Descripción |
+|-----------|-------------|
+| `migration-002-on-delete-set-null.sql` | Agrega `ON DELETE SET NULL` a las FK de `user_id` en tablas `sales`, `expenses`, `stock_movements`, `stock_transfers` y `location_movements`. Previene errores de foreign key al eliminar usuarios. |
+
+> **Nota:** Si usaste `npm run db:setup` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo necesitas ejecutarlas manualmente si actualizas una BD existente.
+
 ### 4. Correr en desarrollo
 
 ```bash
