@@ -1,6 +1,7 @@
 import { getIronSession, type IronSession } from 'iron-session';
 import { cookies } from 'next/headers';
-import type { AppUser } from '@/types';
+import type { AppUser, Permission } from '@/types';
+import { queryOne } from '@/lib/db/mysql';
 
 export interface SessionData {
   user?: Pick<AppUser, 'id' | 'name' | 'email' | 'role' | 'permissions' | 'active'>;
@@ -26,8 +27,41 @@ export async function getSessionUser(): Promise<SessionData['user'] | null> {
   return session.user ?? null;
 }
 
+/**
+ * Verifica que el usuario esté autenticado **y** que aún exista en la base de datos.
+ * Si el usuario fue eliminado después de crear la sesión, lanza UNAUTHORIZED.
+ * Esto evita errores de FK constraint (como location_movements.user_id → users.id).
+ */
 export async function requireAuth(): Promise<NonNullable<SessionData['user']>> {
-  const user = await getSessionUser();
-  if (!user) throw new Error('UNAUTHORIZED');
-  return user;
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) throw new Error('UNAUTHORIZED');
+
+  // Verificar que el usuario aún exista en la BD (evita FK constraint failures)
+  const dbUser = await queryOne<{ id: string; name: string; email: string; role: string; permissions: string; active: boolean }>(
+    'SELECT id, name, email, role, permissions, active FROM users WHERE id = ? AND active = 1 LIMIT 1',
+    [sessionUser.id]
+  );
+  if (!dbUser) {
+    // El usuario fue eliminado — limpiar sesión y rechazar
+    const session = await getSession();
+    session.destroy();
+    await session.save();
+    throw new Error('UNAUTHORIZED');
+  }
+
+  // Retornar datos frescos desde la BD (incluyendo rol/permisos actualizados)
+  let permissions: Permission[] = [];
+  try {
+    permissions = typeof dbUser.permissions === 'string' ? JSON.parse(dbUser.permissions) : (dbUser.permissions ?? []);
+  } catch {
+    permissions = [];
+  }
+  return {
+    id: dbUser.id,
+    name: dbUser.name,
+    email: dbUser.email,
+    role: dbUser.role as AppUser['role'],
+    permissions,
+    active: Boolean(dbUser.active),
+  };
 }

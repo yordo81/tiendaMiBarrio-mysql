@@ -6,8 +6,8 @@ export async function apiFetch<T = unknown>(url: string, options?: RequestInit):
     ...options,
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error ?? 'Error en la solicitud');
+    const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+    throw new Error(err?.error ?? 'Error en la solicitud');
   }
   return res.json() as Promise<T>;
 }
@@ -31,6 +31,9 @@ export const api = {
   updateSupplier: (data: unknown) => apiFetch('/api/suppliers', { method: 'PUT', body: JSON.stringify(data) }),
   deleteSupplier: (id: string) => apiFetch('/api/suppliers', { method: 'DELETE', body: JSON.stringify({ id }) }),
 
+  // Audit logs
+  getAuditLogs: (params?: string) => apiFetch<Record<string,unknown>[]>(`/api/audit-logs${params ? '?' + params : ''}`),
+
   // Purchase prices
   getPurchasePrices: (productId?: string) => apiFetch<Record<string,unknown>[]>(`/api/purchase-prices${productId ? '?product_id=' + productId : ''}`),
   createPurchasePrice: (data: unknown) => apiFetch('/api/purchase-prices', { method: 'POST', body: JSON.stringify(data) }),
@@ -39,17 +42,21 @@ export const api = {
   getCustomers: (withDebt?: boolean) => apiFetch<Record<string,unknown>[]>(`/api/customers${withDebt ? '?with_debt=true' : ''}`),
   createCustomer: (data: unknown) => apiFetch('/api/customers', { method: 'POST', body: JSON.stringify(data) }),
   updateCustomer: (data: unknown) => apiFetch('/api/customers', { method: 'PUT', body: JSON.stringify(data) }),
+  deleteCustomer: (id: string) => apiFetch('/api/customers', { method: 'DELETE', body: JSON.stringify({ id }) }),
   addPayment: (data: unknown) => apiFetch('/api/customer-payments', { method: 'POST', body: JSON.stringify(data) }),
   getPayments: (customerId?: string) => apiFetch<Record<string,unknown>[]>(`/api/customer-payments${customerId ? '?customer_id=' + customerId : ''}`),
+  paySale: (id: string, data: unknown) => apiFetch(`/api/sales/${id}/pay`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Sales
   getSales: (params?: string) => apiFetch<Record<string,unknown>[]>(`/api/sales${params ? '?' + params : ''}`),
-  getSaleDetail: (id: string) => apiFetch<{items: Record<string,unknown>[]; payments: Record<string,unknown>[]}>(`/api/sales/${id}`),
+  getSaleDetail: (id: string) => apiFetch<{items: Record<string,unknown>[]; payments: Record<string,unknown>[]; customer_payments?: Record<string,unknown>[]; total_paid?: number}>(`/api/sales/${id}`),
   createSale: (data: unknown) => apiFetch('/api/sales', { method: 'POST', body: JSON.stringify(data) }),
+  cancelSale: (id: string) => apiFetch(`/api/sales/${id}/cancel`, { method: 'POST' }),
 
   // Expenses
   getExpenses: (params?: string) => apiFetch<Record<string,unknown>[]>(`/api/expenses${params ? '?' + params : ''}`),
   createExpense: (data: unknown) => apiFetch('/api/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  deleteExpense: (id: string) => apiFetch('/api/expenses', { method: 'DELETE', body: JSON.stringify({ id }) }),
   getExpenseCategories: () => apiFetch<Record<string,unknown>[]>('/api/expense-categories'),
   createExpenseCategory: (data: unknown) => apiFetch('/api/expense-categories', { method: 'POST', body: JSON.stringify(data) }),
 
@@ -78,7 +85,21 @@ export const api = {
   getMovements: (productId: string) => apiFetch<Record<string,unknown>[]>(`/api/reports?type=stock_movements&product_id=${productId}`),
 
   // Location stock and movements
+  getLocationStockSummary: () => apiFetch<Record<string,unknown>[]>(`/api/locations/stock-summary`),
   getLocationStock: (locationId: string) => apiFetch<Record<string,unknown>[]>(`/api/locations/stock?location_id=${locationId}`),
   getLocationMovements: (locationId: string) => apiFetch<Record<string,unknown>[]>(`/api/location-movements?location_id=${locationId}`),
+  // Purchases
+  getPurchases: (params?: string) => apiFetch<Record<string,unknown>[]>(`/api/purchases${params ? '?' + params : ''}`),
+  registerPurchase: (data: unknown) => apiFetch('/api/purchases', { method: 'POST', body: JSON.stringify(data) }),
+
+  getMovementsFiltered: (params?: { location_id?: string; product_id?: string; from?: string; to?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.location_id) q.set('location_id', params.location_id);
+    if (params?.product_id) q.set('product_id', params.product_id);
+    if (params?.from) q.set('from', params.from);
+    if (params?.to) q.set('to', params.to);
+    const qs = q.toString();
+    return apiFetch<Record<string,unknown>[]>(`/api/location-movements${qs ? '?' + qs : ''}`);
+  },
   createLocationMovement: (data: unknown) => apiFetch('/api/location-movements', { method: 'POST', body: JSON.stringify(data) }),
 };

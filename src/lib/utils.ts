@@ -7,9 +7,7 @@ export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
 // Currency — configurable, defaults to DOP
 export function formatCurrency(n: number, currency = 'DOP') {
-  return new Intl.NumberFormat('es-DO', {
-    style: 'currency', currency, minimumFractionDigits: 2,
-  }).format(n);
+  return `$${new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2 }).format(n)}`;
 }
 
 export function formatNumber(n: number, d = 2) {
