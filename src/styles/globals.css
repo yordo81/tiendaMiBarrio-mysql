@@ -3,8 +3,8 @@
    ======================================================== */
 
 /* Tailwind v4 — single import replaces the three directives */
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,400&display=swap');
+@import "tailwindcss";
 
 /* ── Design Tokens via @theme ──────────────────────────── */
 @theme {
