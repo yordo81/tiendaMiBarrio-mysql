@@ -182,6 +182,75 @@ export const GET = handle(async () => {
     LIMIT 50
   `);
 
+  // ── Daily evolution (last 30 days) ──
+  const dailyInflows = await query<{ date: string; cash: number; transfer: number }>(`
+    SELECT
+      DATE(p.date) AS date,
+      COALESCE(SUM(p.amount_cash), 0) AS cash,
+      COALESCE(SUM(p.amount_transfer), 0) AS transfer
+    FROM payments p
+    JOIN sales s ON s.id = p.sale_id
+    WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    GROUP BY DATE(p.date)
+    ORDER BY DATE(p.date)
+  `);
+
+  const dailyOutflows = await query<{ date: string; cash: number; transfer: number }>(`
+    SELECT
+      DATE(e.date) AS date,
+      COALESCE(SUM(CASE WHEN e.payment_method = 'cash' THEN e.amount WHEN e.payment_method = 'mixed' THEN e.amount / 2 ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN e.payment_method = 'transfer' THEN e.amount WHEN e.payment_method = 'mixed' THEN e.amount / 2 ELSE 0 END), 0) AS transfer
+    FROM expenses e
+    WHERE e.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    GROUP BY DATE(e.date)
+    ORDER BY DATE(e.date)
+  `);
+
+  // Build daily evolution with running balances
+  const dateMap = new Map<string, { date: string; cash_in: number; transfer_in: number; cash_out: number; transfer_out: number; net_cash: number; net_transfer: number }>();
+
+  // Generate last 30 days
+  const today = new Date();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    dateMap.set(key, { date: key, cash_in: 0, transfer_in: 0, cash_out: 0, transfer_out: 0, net_cash: 0, net_transfer: 0 });
+  }
+
+  dailyInflows.forEach(row => {
+    const key = String(row.date).slice(0, 10);
+    if (dateMap.has(key)) {
+      const entry = dateMap.get(key)!;
+      entry.cash_in = Math.round(Number(row.cash) * 100) / 100;
+      entry.transfer_in = Math.round(Number(row.transfer) * 100) / 100;
+    }
+  });
+
+  dailyOutflows.forEach(row => {
+    const key = String(row.date).slice(0, 10);
+    if (dateMap.has(key)) {
+      const entry = dateMap.get(key)!;
+      entry.cash_out = Math.round(Number(row.cash) * 100) / 100;
+      entry.transfer_out = Math.round(Number(row.transfer) * 100) / 100;
+    }
+  });
+
+  // Calculate running net balance for each day
+  let runningCash = registerCash;
+  let runningTransfer = registerTransfer;
+  const dailyEvolution = Array.from(dateMap.values()).map(entry => {
+    runningCash += entry.cash_in - entry.cash_out;
+    runningTransfer += entry.transfer_in - entry.transfer_out;
+    return {
+      ...entry,
+      running_cash: Math.round(runningCash * 100) / 100,
+      running_transfer: Math.round(runningTransfer * 100) / 100,
+      net_cash: Math.round((entry.cash_in - entry.cash_out) * 100) / 100,
+      net_transfer: Math.round((entry.transfer_in - entry.transfer_out) * 100) / 100,
+    };
+  });
+
   return ok({
     // Balances actuales
     cash_balance: Math.round(cashBalance * 100) / 100,
@@ -208,6 +277,9 @@ export const GET = handle(async () => {
     today_transfer_in: Math.round(Number(todayTransferIn[0]?.total ?? 0) * 100) / 100,
     today_cash_out: Math.round(Number(todayCashOut[0]?.total ?? 0) * 100) / 100,
     today_transfer_out: Math.round(Number(todayTransferOut[0]?.total ?? 0) * 100) / 100,
+
+    // Evolución diaria
+    daily_evolution: dailyEvolution,
 
     // Movimientos recientes
     recent_movements: recentMovements,
