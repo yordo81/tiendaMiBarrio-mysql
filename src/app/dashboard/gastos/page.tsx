@@ -126,7 +126,7 @@ export default function GastosPage() {
               </select>
             </div>
             {form.product_id&&<>
-              <div><label className="label">Cantidad</label><input type="number" min="0.01" step="0.01" className="input" value={form.product_quantity||''} onChange={e=>setForm(f=>({...f,product_quantity:parseFloat(e.target.value)||0}))}/></div>
+              <div><label className="label">Cantidad</label><input type="number" min="1" step="1" className="input" value={form.product_quantity||''} onChange={e=>setForm(f=>({...f,product_quantity:parseFloat(e.target.value)||0}))}/></div>
               <div><label className="label">Almacén de origen *</label>
                 <select className="input" value={form.location_id} onChange={e=>setForm(f=>({...f,location_id:e.target.value}))}>
                   <option value="">Seleccionar almacén</option>
@@ -135,7 +135,7 @@ export default function GastosPage() {
               </div>
             </>}
           </div>
-          <div><label className="label">Monto *</label><input type="number" min="0.01" step="0.01" className="input" value={form.amount||''} onChange={e=>setForm(f=>({...f,amount:parseFloat(e.target.value)||0}))}/></div>
+          <div><label className="label">Monto *</label><input type="number" min="1" step="1" className="input" value={form.amount||''} onChange={e=>setForm(f=>({...f,amount:parseFloat(e.target.value)||0}))}/></div>
           <div>
             <label className="label">Método de pago</label>              <div className="flex gap-2 flex-wrap">
               {(['cash','transfer','mixed'] as const).map(m => {

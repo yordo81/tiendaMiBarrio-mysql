@@ -491,14 +491,14 @@ export default function ContabilidadPage() {
           <p className="text-sm text-[#8b949e]">Establece el dinero disponible en caja y banco al inicio de la contabilidad.</p>
           <div>
             <label className="label">Efectivo disponible</label>
-            <input type="number" min="0" step="0.01" className="input"
+            <input type="number" min="0" step="1" className="input"
               value={initialForm.cash_amount || ''}
               onChange={e => setInitialForm(f => ({ ...f, cash_amount: parseFloat(e.target.value) || 0 }))}
             />
           </div>
           <div>
             <label className="label">Transferencia disponible</label>
-            <input type="number" min="0" step="0.01" className="input"
+            <input type="number" min="0" step="1" className="input"
               value={initialForm.transfer_amount || ''}
               onChange={e => setInitialForm(f => ({ ...f, transfer_amount: parseFloat(e.target.value) || 0 }))}
             />
@@ -526,14 +526,14 @@ export default function ContabilidadPage() {
           </p>
           <div>
             <label className="label">Ajuste en efectivo</label>
-            <input type="number" step="0.01" className="input" placeholder="Ej: -5000 o 3000"
+            <input type="number" step="1" className="input" placeholder="Ej: -5000 o 3000"
               value={adjustForm.cash_amount || ''}
               onChange={e => setAdjustForm(f => ({ ...f, cash_amount: parseFloat(e.target.value) || 0 }))}
             />
           </div>
           <div>
             <label className="label">Ajuste en transferencia</label>
-            <input type="number" step="0.01" className="input" placeholder="Ej: -5000 o 3000"
+            <input type="number" step="1" className="input" placeholder="Ej: -5000 o 3000"
               value={adjustForm.transfer_amount || ''}
               onChange={e => setAdjustForm(f => ({ ...f, transfer_amount: parseFloat(e.target.value) || 0 }))}
             />

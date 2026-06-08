@@ -292,7 +292,7 @@ export default function AlmacenesPage() {
             </div>
           </div>
           <div><label className="label">{movForm.type==='ajuste'?'Stock exacto *':'Cantidad *'}</label>
-            <input type="number" min="0.01" step="0.01" className="input" value={movForm.quantity||''} onChange={e=>setMovForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/>
+            <input type="number" min="1" step="1" className="input" value={movForm.quantity||''} onChange={e=>setMovForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/>
             {movForm.type==='entrada'&&movForm.product_id&&(
               <p className="text-xs text-[#6e7681] mt-1">Stock global disponible: <strong className="text-[#e6edf3]">{formatNumber(Number(products.find(p=>String(p.id)===movForm.product_id)?.stock??0),2)}</strong></p>
             )}
@@ -324,7 +324,7 @@ export default function AlmacenesPage() {
               {products.map(p=><option key={String(p.id)} value={String(p.id)}>{String(p.name)}</option>)}
             </select>
           </div>
-          <div><label className="label">Cantidad *</label><input type="number" min="0.01" step="0.01" className="input" value={trForm.quantity||''} onChange={e=>setTrForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/></div>
+          <div><label className="label">Cantidad *</label><input type="number" min="1" step="1" className="input" value={trForm.quantity||''} onChange={e=>setTrForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Notas</label><input className="input" placeholder="Motivo..." value={trForm.notes} onChange={e=>setTrForm(f=>({...f,notes:e.target.value}))}/></div>
           <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowTransfer(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleTransfer} disabled={saving||!trForm.from_location_id||!trForm.to_location_id||!trForm.product_id||trForm.quantity<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Trasladando...':'Confirmar traslado'}</button></div>
         </div>

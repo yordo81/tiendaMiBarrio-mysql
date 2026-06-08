@@ -279,9 +279,9 @@ export default function InventarioPage() {
             </select>
           </div>
           <div><label className="label">Unidad</label><input className="input" value={String(form.unit??'unidad')} onChange={e=>setForm(f=>({...f,unit:e.target.value}))}/></div>
-          <div><label className="label">Precio de venta</label><input type="number" min="0" step="0.01" className="input" value={Number(form.sale_price??0)} onChange={e=>setForm(f=>({...f,sale_price:parseFloat(e.target.value)||0}))}/></div>
-          <div><label className="label">Costo</label><input type="number" min="0" step="0.01" className="input" value={Number(form.cost??0)} onChange={e=>setForm(f=>({...f,cost:parseFloat(e.target.value)||0}))}/></div>
-          <div><label className="label">Stock {editProduct?'actual':'inicial'}</label><input type="number" min="0" step="0.01" className="input" value={Number(form.stock??0)} onChange={e=>setForm(f=>({...f,stock:parseFloat(e.target.value)||0}))}/></div>
+          <div><label className="label">Precio de venta</label><input type="number" min="0" step="1" className="input" value={Number(form.sale_price??0)} onChange={e=>setForm(f=>({...f,sale_price:parseFloat(e.target.value)||0}))}/></div>
+          <div><label className="label">Costo</label><input type="number" min="0" step="1" className="input" value={Number(form.cost??0)} onChange={e=>setForm(f=>({...f,cost:parseFloat(e.target.value)||0}))}/></div>
+          <div><label className="label">Stock {editProduct?'actual':'inicial'}</label><input type="number" min="0" step="1" className="input" value={Number(form.stock??0)} onChange={e=>setForm(f=>({...f,stock:parseFloat(e.target.value)||0}))}/></div>
           {!editProduct && (
             <div><label className="label">Almacén destino</label>
               <select className="input" value={String(form.location_id??'')} onChange={e=>setForm(f=>({...f,location_id:e.target.value}))}>
@@ -291,7 +291,7 @@ export default function InventarioPage() {
               <p className="text-[10px] text-[#6e7681] mt-1">El stock inicial se registrará en este almacén</p>
             </div>
           )}
-          <div><label className="label">Stock mínimo</label><input type="number" min="0" step="0.01" className="input" value={Number(form.min_stock??0)} onChange={e=>setForm(f=>({...f,min_stock:parseFloat(e.target.value)||0}))}/></div>
+          <div><label className="label">Stock mínimo</label><input type="number" min="0" step="1" className="input" value={Number(form.min_stock??0)} onChange={e=>setForm(f=>({...f,min_stock:parseFloat(e.target.value)||0}))}/></div>
           <div className="sm:col-span-2">
             <label className="label">Proveedores</label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 bg-[#0d1117] rounded-lg border border-[#30363d]">
@@ -371,8 +371,8 @@ export default function InventarioPage() {
                 {locations.map(l => <option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
               </select>
             </div>
-            <div><label className="label">Cantidad *</label><input type="number" min="0.01" step="0.01" className="input" value={purchaseForm.quantity || ''} onChange={e => setPurchaseForm(f => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))} /></div>
-            <div><label className="label">Precio unitario *</label><input type="number" min="0" step="0.01" className="input" value={purchaseForm.price || ''} onChange={e => setPurchaseForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))} /></div>
+            <div><label className="label">Cantidad *</label><input type="number" min="1" step="1" className="input" value={purchaseForm.quantity || ''} onChange={e => setPurchaseForm(f => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))} /></div>
+            <div><label className="label">Precio unitario *</label><input type="number" min="0" step="1" className="input" value={purchaseForm.price || ''} onChange={e => setPurchaseForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))} /></div>
           </div>
           <div><label className="label">Notas</label><input className="input" placeholder="Ej: Factura #123, lote..." value={purchaseForm.notes} onChange={e => setPurchaseForm(f => ({ ...f, notes: e.target.value }))} /></div>
 
@@ -416,7 +416,7 @@ export default function InventarioPage() {
               <option value="in">Entrada</option><option value="out">Salida</option><option value="adjust">Ajuste (stock exacto)</option>
             </select>
           </div>
-          <div><label className="label">Cantidad</label><input type="number" min="0.01" step="0.01" className="input" value={moveForm.quantity||''} onChange={e=>setMoveForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/></div>
+          <div><label className="label">Cantidad</label><input type="number" min="1" step="1" className="input" value={moveForm.quantity||''} onChange={e=>setMoveForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Almacén destino</label>
             <select className="input" value={moveForm.location_id} onChange={e=>setMoveForm(f=>({...f,location_id:e.target.value}))}>
               {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}

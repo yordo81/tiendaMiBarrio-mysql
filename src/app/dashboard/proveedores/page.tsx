@@ -158,7 +158,7 @@ export default function ProveedoresPage() {
               {suppliers.map(s=><option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
             </select>
           </div>
-          <div><label className="label">Precio *</label><input type="number" min="0.01" step="0.01" className="input" value={priceForm.price||''} onChange={e=>setPriceForm(f=>({...f,price:parseFloat(e.target.value)||0}))}/></div>
+          <div><label className="label">Precio *</label><input type="number" min="1" step="1" className="input" value={priceForm.price||''} onChange={e=>setPriceForm(f=>({...f,price:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Notas</label><input className="input" value={priceForm.notes} onChange={e=>setPriceForm(f=>({...f,notes:e.target.value}))}/></div>
           <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowPriceModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleAddPrice} disabled={saving||!priceForm.product_id||!priceForm.supplier_id||priceForm.price<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Registrar precio'}</button></div>
         </div>

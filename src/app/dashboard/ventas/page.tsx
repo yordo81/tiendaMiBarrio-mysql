@@ -271,8 +271,8 @@ export default function VentasPage() {
             </div>
             {payMethod==='mixed'&&(
               <div className="grid grid-cols-2 gap-3 p-3 bg-[#0d1117] rounded-xl border border-[#21262d]">
-                <div><label className="label">Efectivo</label><input type="number" min="0" step="0.01" className="input" value={amountCash||''} onChange={e=>setAmountCash(parseFloat(e.target.value)||0)}/></div>
-                <div><label className="label">Transferencia</label><input type="number" min="0" step="0.01" className="input" value={amountTransfer||''} onChange={e=>setAmountTransfer(parseFloat(e.target.value)||0)}/></div>
+                <div><label className="label">Efectivo</label><input type="number" min="0" step="1" className="input" value={amountCash||''} onChange={e=>setAmountCash(parseFloat(e.target.value)||0)}/></div>
+                <div><label className="label">Transferencia</label><input type="number" min="0" step="1" className="input" value={amountTransfer||''} onChange={e=>setAmountTransfer(parseFloat(e.target.value)||0)}/></div>
                 {(amountCash+amountTransfer)!==cartTotal&&cartTotal>0 ? <p className="col-span-2 text-xs text-yellow-400">⚠ La suma no coincide con el total</p> : null}
               </div>
             )}
@@ -384,7 +384,7 @@ export default function VentasPage() {
               <p className="text-green-400 font-semibold">{formatCurrency(Number((selectedSale as any)?.total_paid ?? 0))}</p>
             </div>
           </div>
-          <div><label className="label">Monto a cobrar *</label><input type="number" min="0.01" step="0.01" className="input" value={paySaleForm.amount || ''} onChange={e => setPaySaleForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} /></div>
+          <div><label className="label">Monto a cobrar *</label><input type="number" min="1" step="1" className="input" value={paySaleForm.amount || ''} onChange={e => setPaySaleForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} /></div>
           <div><label className="label">Método</label>
             <select className="input" value={paySaleForm.method} onChange={e => setPaySaleForm(f => ({ ...f, method: e.target.value }))}>
               <option value="cash">Efectivo</option>

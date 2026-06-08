@@ -138,7 +138,7 @@ export default function ClientesPage() {
             </select>
             {payForm.sale_id && <p className="text-xs text-green-400 mt-1">Al pagar el total, la venta se marcará como completada</p>}
           </div>
-          <div><label className="label">Monto del abono *</label><input type="number" min="0.01" step="0.01" className="input" value={payForm.amount||''} onChange={e=>setPayForm(f=>({...f,amount:parseFloat(e.target.value)||0}))}/></div>
+          <div><label className="label">Monto del abono *</label><input type="number" min="1" step="1" className="input" value={payForm.amount||''} onChange={e=>setPayForm(f=>({...f,amount:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Método</label>
             <select className="input" value={payForm.method} onChange={e=>setPayForm(f=>({...f,method:e.target.value}))}>
               <option value="cash">Efectivo</option><option value="transfer">Transferencia</option><option value="mixed">Mixto</option>
