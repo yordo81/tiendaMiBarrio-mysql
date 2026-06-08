@@ -140,7 +140,7 @@ export default function ProveedoresPage() {
           <div><label className="label">Contacto</label><input className="input" value={form.contact} onChange={e=>setForm(f=>({...f,contact:e.target.value}))}/></div>
           <div><label className="label">Teléfono</label><input className="input" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/></div>
           <div><label className="label">Notas</label><input className="input" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
-          <div className="flex gap-3"><button onClick={()=>setShowModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSave} disabled={saving||!form.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editSupplier?'Actualizar':'Crear'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSave} disabled={saving||!form.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editSupplier?'Actualizar':'Crear'}</button></div>
         </div>
       </Modal>
 
@@ -160,7 +160,7 @@ export default function ProveedoresPage() {
           </div>
           <div><label className="label">Precio *</label><input type="number" min="0.01" step="0.01" className="input" value={priceForm.price||''} onChange={e=>setPriceForm(f=>({...f,price:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Notas</label><input className="input" value={priceForm.notes} onChange={e=>setPriceForm(f=>({...f,notes:e.target.value}))}/></div>
-          <div className="flex gap-3"><button onClick={()=>setShowPriceModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleAddPrice} disabled={saving||!priceForm.product_id||!priceForm.supplier_id||priceForm.price<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Registrar precio'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowPriceModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleAddPrice} disabled={saving||!priceForm.product_id||!priceForm.supplier_id||priceForm.price<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Registrar precio'}</button></div>
         </div>
       </Modal>
 

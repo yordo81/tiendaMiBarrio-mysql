@@ -167,6 +167,11 @@ export default function ReportesPage() {
 
   const urgencyBadge = (u: string) => u==='critical'?<span className="badge-danger">Crítico</span>:u==='soon'?<span className="badge-warning">Pronto</span>:<span className="badge-success">OK</span>;
 
+  const maxSalesTotal = salesData.length ? Math.max(...salesData.map(d => Number(d.total ?? 0))) : 0;
+  const yMaxSales = Math.ceil(maxSalesTotal * 1.15 / 1000) * 1000 || 1000;
+  const maxPriceVal = priceHistory.length ? Math.max(...priceHistory.map(d => Number(d.price ?? 0))) : 0;
+  const yMaxPrice = Math.ceil(maxPriceVal * 1.15 / 1000) * 1000 || 1000;
+
   return (
     <div className="space-y-5">        <div className="flex gap-1 overflow-x-auto pb-1">
           {tabs.map(t=>(
@@ -221,7 +226,7 @@ export default function ReportesPage() {
                 <defs><linearGradient id="gv" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2a84ff" stopOpacity={0.3}/><stop offset="95%" stopColor="#2a84ff" stopOpacity={0}/></linearGradient></defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#21262d"/>
                 <XAxis dataKey="date" tick={{fill:'#6e7681',fontSize:10}} tickLine={false} interval={Math.floor(days/7)}/>
-                <YAxis tick={{fill:'#6e7681',fontSize:10}} tickLine={false} axisLine={false}/>
+                <YAxis domain={[0, yMaxSales]} tickFormatter={(v:number)=>v>=1000?`${(v/1000).toFixed(1)}k`:String(v)} tick={{fill:'#6e7681',fontSize:10}} tickLine={false} axisLine={false}/>
                 <Tooltip content={<Tip/>}/>
                 <Area type="monotone" dataKey="total" name="Ventas" stroke="#2a84ff" strokeWidth={2} fill="url(#gv)"/>
               </AreaChart>
@@ -329,7 +334,7 @@ export default function ReportesPage() {
               <LineChart data={priceHistory} margin={{top:4,right:4,left:-15,bottom:0}}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#21262d"/>
                 <XAxis dataKey="date" tick={{fill:'#6e7681',fontSize:10}} tickLine={false}/>
-                <YAxis tick={{fill:'#6e7681',fontSize:10}} tickLine={false} axisLine={false}/>
+                <YAxis domain={[0, yMaxPrice]} tickFormatter={(v:number)=>v>=1000?`${(v/1000).toFixed(1)}k`:String(v)} tick={{fill:'#6e7681',fontSize:10}} tickLine={false} axisLine={false}/>
                 <Tooltip content={<Tip/>}/>
                 <Legend iconSize={10} wrapperStyle={{fontSize:11,color:'#8b949e'}}/>
                 {Array.from(new Set(priceHistory.map(p=>String(p.supplier_name)))).map((s,i)=>(

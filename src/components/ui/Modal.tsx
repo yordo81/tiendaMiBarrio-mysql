@@ -11,7 +11,12 @@ interface ModalProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-const sizes = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-2xl' };
+const sizes = {
+  sm: 'w-full sm:max-w-sm',
+  md: 'w-full sm:max-w-md',
+  lg: 'w-full sm:max-w-lg lg:max-w-xl',
+  xl: 'w-full sm:max-w-xl lg:max-w-3xl',
+};
 
 export default function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
   useEffect(() => {
@@ -29,7 +34,7 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: M
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 lg:p-6">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       {/* Panel */}
@@ -39,7 +44,7 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: M
         sizes[size],
         'max-h-[90vh] flex flex-col'
       )}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#21262d] flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 sm:px-5 sm:py-4 border-b border-[#21262d] flex-shrink-0">
           <h2 className="font-semibold text-[#e6edf3] text-base">{title}</h2>
           <button
             onClick={onClose}
@@ -48,7 +53,7 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: M
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="overflow-y-auto flex-1 p-5">{children}</div>
+        <div className="overflow-y-auto flex-1 p-4 sm:p-5">{children}</div>
       </div>
     </div>
   );

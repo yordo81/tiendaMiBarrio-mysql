@@ -112,7 +112,7 @@ export default function ClientesPage() {
           <div><label className="label">Nombre *</label><input className="input" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Nombre del cliente"/></div>
           <div><label className="label">Teléfono</label><input className="input" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="+1 809..."/></div>
           <div><label className="label">Notas</label><input className="input" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notas opcionales"/></div>
-          <div className="flex gap-3"><button onClick={()=>setShowModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSave} disabled={saving||!form.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editCustomer?'Actualizar':'Crear'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSave} disabled={saving||!form.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editCustomer?'Actualizar':'Crear'}</button></div>
         </div>
       </Modal>
 
@@ -145,7 +145,7 @@ export default function ClientesPage() {
             </select>
           </div>
           <div><label className="label">Notas</label><input className="input" value={payForm.notes} onChange={e=>setPayForm(f=>({...f,notes:e.target.value}))}/></div>
-          <div className="flex gap-3"><button onClick={()=>setShowPayModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handlePay} disabled={saving||payForm.amount<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Registrando...':'Registrar abono'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowPayModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handlePay} disabled={saving||payForm.amount<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Registrando...':'Registrar abono'}</button></div>
         </div>
       </Modal>
 

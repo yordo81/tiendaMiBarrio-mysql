@@ -137,8 +137,7 @@ export default function GastosPage() {
           </div>
           <div><label className="label">Monto *</label><input type="number" min="0.01" step="0.01" className="input" value={form.amount||''} onChange={e=>setForm(f=>({...f,amount:parseFloat(e.target.value)||0}))}/></div>
           <div>
-            <label className="label">Método de pago</label>
-            <div className="flex gap-2">
+            <label className="label">Método de pago</label>              <div className="flex gap-2 flex-wrap">
               {(['cash','transfer','mixed'] as const).map(m => {
                 const labels = { cash:'Efectivo', transfer:'Transferencia', mixed:'Mixto' };
                 return (
@@ -155,7 +154,7 @@ export default function GastosPage() {
             </div>
           </div>
           <div><label className="label">Fecha</label><input type="date" className="input" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/></div>
-          <div className="flex gap-3"><button onClick={()=>setShowModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSave} disabled={saving||!form.description.trim()||form.amount<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Registrar gasto'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSave} disabled={saving||!form.description.trim()||form.amount<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Registrar gasto'}</button></div>
         </div>
       </Modal>
     </div>

@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { format, formatDistanceToNow } from 'date-fns';
+import { tz } from '@date-fns/tz';
 import { es } from 'date-fns/locale';
 
 export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
@@ -16,16 +17,18 @@ export function formatNumber(n: number, d = 2) {
   }).format(n);
 }
 
+const getTz = () => process.env.TIMEZONE ?? 'America/Havana';
+
 export function formatDate(d: string | Date, fmt = 'dd/MM/yyyy') {
-  return format(new Date(d), fmt, { locale: es });
+  return format(d, fmt, { in: tz(getTz()), locale: es });
 }
 
 export function formatDateTime(d: string | Date) {
-  return format(new Date(d), 'dd/MM/yyyy HH:mm', { locale: es });
+  return format(d, 'dd/MM/yyyy HH:mm', { in: tz(getTz()), locale: es });
 }
 
 export function timeAgo(d: string | Date) {
-  return formatDistanceToNow(new Date(d), { addSuffix: true, locale: es });
+  return formatDistanceToNow(d, { in: tz(getTz()), addSuffix: true, locale: es });
 }
 
 export function generateId() { return crypto.randomUUID(); }
@@ -47,5 +50,5 @@ export function classifyRole(role: string) {
 }
 
 export function now() {
-  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+  return format(new Date(), 'yyyy-MM-dd HH:mm:ss', { in: tz(getTz()) });
 }

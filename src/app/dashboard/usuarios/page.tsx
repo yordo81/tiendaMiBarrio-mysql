@@ -152,7 +152,7 @@ export default function UsuariosPage() {
             </select>
           </div>
           <p className="text-xs text-[#6e7681] bg-[#0d1117] rounded-lg p-3 border border-[#21262d]">Los permisos específicos se configuran con el botón 🛡 después de crear el usuario.</p>
-          <div className="flex gap-3"><button onClick={()=>setShowInvite(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleInvite} disabled={saving||!inviteForm.email||!inviteForm.name||!inviteForm.password} className="btn-primary flex-1 disabled:opacity-50">{saving?'Creando...':'Crear usuario'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowInvite(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleInvite} disabled={saving||!inviteForm.email||!inviteForm.name||!inviteForm.password} className="btn-primary flex-1 disabled:opacity-50">{saving?'Creando...':'Crear usuario'}</button></div>
         </div>
       </Modal>
 
@@ -187,7 +187,7 @@ export default function UsuariosPage() {
                 })}</tbody>
               </table>
             </div>
-            <div className="flex gap-3"><button onClick={()=>setShowPerms(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSavePerms} disabled={saving} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Guardar permisos'}</button></div>
+            <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowPerms(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSavePerms} disabled={saving} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Guardar permisos'}</button></div>
           </div>
         )}
       </Modal>

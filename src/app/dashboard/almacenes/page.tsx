@@ -298,7 +298,7 @@ export default function AlmacenesPage() {
             )}
           </div>
           <div><label className="label">Notas</label><input className="input" placeholder="Motivo, referencia..." value={movForm.notes} onChange={e=>setMovForm(f=>({...f,notes:e.target.value}))}/></div>
-          <div className="flex gap-3"><button onClick={()=>setShowMov(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleMovement} disabled={saving||!movForm.location_id||!movForm.product_id||movForm.quantity<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Registrando...':'Registrar'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowMov(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleMovement} disabled={saving||!movForm.location_id||!movForm.product_id||movForm.quantity<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Registrando...':'Registrar'}</button></div>
         </div>
       </Modal>
 
@@ -326,7 +326,7 @@ export default function AlmacenesPage() {
           </div>
           <div><label className="label">Cantidad *</label><input type="number" min="0.01" step="0.01" className="input" value={trForm.quantity||''} onChange={e=>setTrForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Notas</label><input className="input" placeholder="Motivo..." value={trForm.notes} onChange={e=>setTrForm(f=>({...f,notes:e.target.value}))}/></div>
-          <div className="flex gap-3"><button onClick={()=>setShowTransfer(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleTransfer} disabled={saving||!trForm.from_location_id||!trForm.to_location_id||!trForm.product_id||trForm.quantity<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Trasladando...':'Confirmar traslado'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowTransfer(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleTransfer} disabled={saving||!trForm.from_location_id||!trForm.to_location_id||!trForm.product_id||trForm.quantity<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Trasladando...':'Confirmar traslado'}</button></div>
         </div>
       </Modal>
 
@@ -344,7 +344,7 @@ export default function AlmacenesPage() {
           </div>
           <div><label className="label">Dirección</label><input className="input" placeholder="Opcional" value={locForm.address} onChange={e=>setLocForm(f=>({...f,address:e.target.value}))}/></div>
           <div><label className="label">Notas</label><input className="input" placeholder="Opcional" value={locForm.notes} onChange={e=>setLocForm(f=>({...f,notes:e.target.value}))}/></div>
-          <div className="flex gap-3"><button onClick={()=>setShowLocModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSaveLoc} disabled={saving||!locForm.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editLoc?'Actualizar':'Crear'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowLocModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSaveLoc} disabled={saving||!locForm.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editLoc?'Actualizar':'Crear'}</button></div>
         </div>
       </Modal>
 

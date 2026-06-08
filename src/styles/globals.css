@@ -3,7 +3,7 @@
    ======================================================== */
 
 /* Tailwind v4 — single import replaces the three directives */
-@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,400&display=swap');
+/* Google Fonts are loaded via <link> in layout.tsx */
 @import "tailwindcss";
 
 /* ── Design Tokens via @theme ──────────────────────────── */
@@ -30,6 +30,9 @@
   /* Animations */
   --animate-spin: spin 1s linear infinite;
   --animate-pulse: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite;
+
+  /* Responsive breakpoints */
+  --breakpoint-xs: 480px;
 }
 
 /* ── Dark mode variant ─────────────────────────────────── */
@@ -126,6 +129,16 @@ body {
   .input:focus {
     border-color: #2a84ff;
     box-shadow: 0 0 0 3px color-mix(in srgb, #2a84ff 20%, transparent);
+  }
+
+  /* Ocultar flechas de incremento/decremento en inputs number */
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
 
   .label {

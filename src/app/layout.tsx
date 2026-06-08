@@ -13,6 +13,12 @@ export const viewport: Viewport = { themeColor: '#0d1117', width: 'device-width'
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className="dark">
+      <head>
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,400&display=swap"
+        />
+      </head>
       <body className="font-body antialiased">
         <Providers>{children}</Providers>
       </body>
