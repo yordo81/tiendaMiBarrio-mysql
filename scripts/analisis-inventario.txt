@@ -1,0 +1,62 @@
+=====================================================================
+  INVENTARIO — RESUMEN POR PRODUCTO
+  Fecha del análisis: 2026-06-08
+  Generado con: node scripts/analisis-inventario.js
+=====================================================================
+
+Producto                          |      Stock |   Mínimo |   Vendido |  Comprado |  Mov.Net |  Diferencia | Estado       
+--------------------------------------------------------------------------------------------------------------------------------
+A+                                |          1 |        2 |         3 |         0 |       -3 |      +4.000 | STOCK BAJO   
+Diarias                           |         18 |        2 |         2 |         0 |       -2 |     +20.000 | OK           
+Friegasuelos                      |         12 |        1 |         5 |        10 |        5 |      +7.000 | OK           
+Iris                              |          7 |        2 |         6 |        10 |        4 |      +3.000 | OK           
+Jabon Lavar                       |         17 |        5 |         3 |         0 |       -3 |     +20.000 | OK           
+Jumbo                             |          1 |        5 |         1 |         0 |       -1 |      +2.000 | STOCK BAJO   
+Lava Vajilla                      |          4 |        2 |         5 |         0 |       -5 |      +9.000 | OK           
+merca-max                         |         25 |        5 |        20 |         0 |      -21 |     +46.000 | OK           
+Pasta dental                      |          1 |        0 |         4 |         0 |       -5 |      +6.000 | OK           
+Vesta                             |         10 |        2 |        10 |        10 |        0 |     +10.000 | OK           
+Yumy                              |         22 |        5 |        12 |         0 |      -13 |     +35.000 | OK           
+
+=====================================================================
+Leyenda:
+  Mov.Net   = stock según movimientos registrados en stock_movements
+              (entradas - salidas + ajustes - expenses)
+  Diferencia = Stock actual - Mov.Net  (≠0 indica discrepancia)
+=====================================================================
+
+⚠  HAY DISCREPANCIAS entre el stock actual y los movimientos registrados.
+   Revisa si faltan stock_movements o si se editó products.stock manualmente.
+
+── Resumen global ──
+  Stock total:       118
+  Total vendido:     71  (ventas no canceladas)
+  Total comprado:    30
+  Mov. neto total:  -44
+
+── Productos con stock bajo ──
+  A+         → 1 unidad (mínimo: 2)
+  Jumbo      → 1 unidad (mínimo: 5)
+
+── Productos sin stock ──
+  (ninguno)
+
+── Productos sin mínimo definido ──
+  Pasta dental → stock: 1, min_stock: 0
+
+=====================================================================
+  NOTAS
+=====================================================================
+- Todos los productos tienen discrepancia entre el stock actual
+  y el neto de stock_movements. Esto sugiere que:
+  
+  1. Los productos se crearon con stock inicial sin registrar
+     un stock_movement de tipo 'in'
+  2. Algunas compras/ajustes modificaron products.stock directamente
+     sin el correspondiente stock_movement
+  3. El campo products.stock se ha editado manualmente en algunos casos
+  
+- Para corregir, se podría recalcular products.stock desde cero
+  basándose en: compras + ajustes - ventas - expenses
+
+=====================================================================
