@@ -43,7 +43,16 @@ export const GET = handle(async (req: Request) => {
     const salesMonthVal = month[0]?.total ?? 0;
     const expensesMonthVal = expenses[0]?.total ?? 0;
     const netProfitMonth = salesMonthVal - cogsMonth - expensesMonthVal;
-    return ok({ salesToday: today[0]?.total??0, salesWeek: week[0]?.total??0, salesMonth: salesMonthVal, cogsMonth, expensesMonth: expensesMonthVal, netProfitMonth, pendingDebt: debt[0]?.total??0, pendingDebtCount: debt[0]?.count??0, lowStockCount: lowStock[0]?.count??0, salesChart: chart, topProducts: top });
+    const timezone = process.env.TIMEZONE ?? 'America/Havana';
+    return ok({
+      salesToday: today[0]?.total??0, salesWeek: week[0]?.total??0,
+      salesMonth: salesMonthVal, cogsMonth,
+      expensesMonth: expensesMonthVal, netProfitMonth,
+      pendingDebt: debt[0]?.total??0, pendingDebtCount: debt[0]?.count??0,
+      lowStockCount: lowStock[0]?.count??0,
+      salesChart: chart, topProducts: top,
+      timezone,
+    });
   }
 
   if (type === 'margins') {
@@ -65,7 +74,26 @@ export const GET = handle(async (req: Request) => {
   }
 
   if (type === 'restock') {
-    const rows = await query<{id:string;name:string;stock:number;min_stock:number;sold:number}>(`SELECT p.id,p.name,p.stock,p.min_stock,COALESCE(SUM(si.quantity),0) AS sold FROM products p LEFT JOIN sale_items si ON si.product_id=p.id AND si.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY) WHERE p.active=1 GROUP BY p.id,p.name,p.stock,p.min_stock ORDER BY (p.stock/GREATEST(COALESCE(SUM(si.quantity),0.001)/30,0.001)) ASC`);
+    // Usamos la suma real de location_stock en lugar de p.stock,
+    // porque p.stock puede desincronizarse del stock real en las ubicaciones.
+    const rows = await query<{id:string;name:string;stock:number;min_stock:number;sold:number}>(`
+      SELECT p.id,p.name,
+        COALESCE(
+          (SELECT SUM(quantity) FROM location_stock WHERE product_id=p.id),
+          p.stock
+        ) AS stock,
+        p.min_stock,
+        COALESCE(SUM(si.quantity),0) AS sold
+      FROM products p
+      LEFT JOIN sale_items si ON si.product_id=p.id AND si.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)
+      WHERE p.active=1
+      GROUP BY p.id,p.name,p.min_stock
+      ORDER BY COALESCE(
+        (SELECT SUM(quantity) FROM location_stock WHERE product_id=p.id) /
+          GREATEST(COALESCE(SUM(si.quantity),0.001)/30, 0.001),
+        p.stock / GREATEST(COALESCE(SUM(si.quantity),0.001)/30, 0.001)
+      ) ASC
+    `);
     return ok(rows.map(r => {
       const avgDaily = r.sold/30;
       const daysLeft = avgDaily>0?Math.floor(r.stock/avgDaily):9999;

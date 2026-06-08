@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
-import { query, execute, transaction } from '@/lib/db/mysql';
+import { query, queryOne, execute, transaction } from '@/lib/db/mysql';
+import { logAudit } from '@/lib/db/audit';
 import { handle, ok, err } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
@@ -55,8 +56,10 @@ export const POST = handle(async (req: Request) => {
     const curQty = existing?.quantity ?? 0;
 
     let newQty: number;
+    let delta = 0;
     if (type === 'ajuste') {
       newQty = quantity;
+      delta = newQty - curQty;
     } else if (type === 'entrada') {
       newQty = curQty + quantity;
     } else {
@@ -79,6 +82,27 @@ export const POST = handle(async (req: Request) => {
       [randomUUID(), location_id, product_id, type, quantity, notes || null, sessionUser.id, ts]
     );
 
+    if (type === 'ajuste' && delta !== 0) {
+      await conn.execute('UPDATE products SET stock=GREATEST(0,stock+?),updated_at=? WHERE id=?', [delta, ts, product_id]);
+      const [locRows] = await conn.execute('SELECT name FROM locations WHERE id=?', [location_id]);
+      const locName = ((locRows as {name:string}[])[0])?.name ?? location_id;
+      await conn.execute(
+        "INSERT INTO stock_movements (id,product_id,type,quantity,reason,user_id,date,created_at) VALUES (?,?,'adjust',?,?,?,?,?)",
+        [randomUUID(), product_id, Math.abs(delta), `Ajuste en ${locName}: ${notes || 'Conteo físico'}`, sessionUser.id, ts, ts]
+      );
+    }
+
+    if (type === 'salida') {
+      // Salida = retiro del sistema (merma, devolución, etc.) → disminuye stock global
+      await conn.execute('UPDATE products SET stock=GREATEST(0,stock-?),updated_at=? WHERE id=?', [quantity, ts, product_id]);
+      const [locRows] = await conn.execute('SELECT name FROM locations WHERE id=?', [location_id]);
+      const locName = ((locRows as {name:string}[])[0])?.name ?? location_id;
+      await conn.execute(
+        "INSERT INTO stock_movements (id,product_id,type,quantity,reason,user_id,date,created_at) VALUES (?,?,'out',?,?,?,?,?)",
+        [randomUUID(), product_id, quantity, `Salida de ${locName}: ${notes || 'Merma/Devolución'}`, sessionUser.id, ts, ts]
+      );
+    }
+
     if (type === 'entrada') {
       await conn.execute('UPDATE products SET stock=GREATEST(0,stock-?),updated_at=? WHERE id=?', [quantity, ts, product_id]);
       const [locRows] = await conn.execute('SELECT name FROM locations WHERE id=?', [location_id]);
@@ -89,6 +113,20 @@ export const POST = handle(async (req: Request) => {
       );
     }
   });
+
+  if (type === 'ajuste') {
+    const product = await queryOne<{ name: string }>('SELECT name FROM products WHERE id=?', [product_id]);
+    const location = await queryOne<{ name: string }>('SELECT name FROM locations WHERE id=?', [location_id]);
+    await logAudit({
+      user_id: sessionUser.id,
+      user_name: sessionUser.name,
+      action: 'adjust',
+      entity_type: 'stock_movement',
+      entity_id: product_id,
+      entity_name: product?.name ?? 'Producto',
+      details: { type, quantity, notes, location_id, location_name: location?.name },
+    });
+  }
 
   return ok({ ok: true }, 201);
 });

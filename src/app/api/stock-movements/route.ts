@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute } from '@/lib/db/mysql';
+import { logAudit } from '@/lib/db/audit';
 import { validateStockMovementType } from '@/lib/validate';
 import { handle, ok, err } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
@@ -74,6 +75,20 @@ export const POST = handle(async (req: Request) => {
         [randomUUID(), targetLocationId, product_id, 'ajuste', quantity, reason, sessionUser.id, ts]
       );
     }
+  }
+
+  // ── Auditoría ──
+  if (type === 'adjust') {
+    const product = await queryOne<{ name: string }>('SELECT name FROM products WHERE id=?', [product_id]);
+    await logAudit({
+      user_id: sessionUser.id,
+      user_name: sessionUser.name,
+      action: 'adjust',
+      entity_type: 'stock_movement',
+      entity_id: id,
+      entity_name: product?.name ?? 'Producto',
+      details: { type, quantity, reason, product_id, location_id: targetLocationId },
+    });
   }
 
   return ok({ok:true,id}, 201);

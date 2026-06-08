@@ -27,13 +27,19 @@ export const PUT = handle(async (request: Request, ctx) => {
       SELECT location_id FROM location_stock WHERE product_id=? ORDER BY quantity DESC LIMIT 1
     `, [id]);
     let targetLocationId: string | undefined;
+    let locationName: string | undefined;
     if (locRows.length > 0) {
       targetLocationId = locRows[0].location_id;
+      const loc = await queryOne<{ name: string }>('SELECT name FROM locations WHERE id=?', [targetLocationId]);
+      locationName = loc?.name;
     } else if (diff > 0) {
-      const locations = await query<{id: string}>(
-        'SELECT id FROM locations WHERE active=1 ORDER BY name ASC LIMIT 1'
+      const locations = await query<{id: string; name: string}>(
+        'SELECT id, name FROM locations WHERE active=1 ORDER BY name ASC LIMIT 1'
       );
-      if (locations.length > 0) targetLocationId = locations[0].id;
+      if (locations.length > 0) {
+        targetLocationId = locations[0].id;
+        locationName = locations[0].name;
+      }
     }
 
     if (targetLocationId) {
@@ -61,7 +67,26 @@ export const PUT = handle(async (request: Request, ctx) => {
         [randomUUID(), targetLocationId, id, 'ajuste', Math.abs(diff),
          `Ajuste por edición de producto`, sessionUser.id, ts]
       );
+
+      // Also record in stock_movements for the product history
+      await execute(
+        'INSERT INTO stock_movements (id,product_id,type,quantity,reason,user_id,date,created_at) VALUES (?,?,?,?,?,?,?,?)',
+        [randomUUID(), id, 'adjust', Math.abs(diff), `Ajuste por edición de producto (${locationName ?? targetLocationId})`, sessionUser.id, ts, ts]
+      );
     }
+
+    // ── Auditoría para el ajuste de stock ──
+    const productName = body.name ?? current?.name ?? 'Producto';
+    const actionType = diff > 0 ? 'adjust_increase' : 'adjust_decrease';
+    await logAudit({
+      user_id: sessionUser.id,
+      user_name: sessionUser.name,
+      action: actionType,
+      entity_type: 'stock_movement',
+      entity_id: id,
+      entity_name: productName,
+      details: { old_stock: oldStock, new_stock: newStock, diff: Math.abs(diff), location_id: targetLocationId, location_name: locationName },
+    });
   }
 
   if (Array.isArray(body.supplier_ids)) {

@@ -14,6 +14,7 @@ const entityLabels: Record<string, string> = {
   sale: 'Venta',
   customer: 'Cliente',
   supplier: 'Proveedor',
+  stock_movement: 'Ajuste de stock',
 };
 
 const entityColors: Record<string, string> = {
@@ -22,16 +23,23 @@ const entityColors: Record<string, string> = {
   sale: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
   customer: 'text-green-400 bg-green-500/10 border-green-500/20',
   supplier: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
+  stock_movement: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
 };
 
 const actionLabels: Record<string, string> = {
   delete: 'Eliminación',
   cancel: 'Cancelación',
+  adjust: 'Ajuste',
+  adjust_increase: 'Ajuste (+)',
+  adjust_decrease: 'Ajuste (-)',
 };
 
 const actionColors: Record<string, string> = {
   delete: 'badge-danger',
   cancel: 'badge-warning',
+  adjust: 'badge-info',
+  adjust_increase: 'badge-success',
+  adjust_decrease: 'badge-warning',
 };
 
 export default function AuditoriaPage() {
@@ -116,9 +124,11 @@ export default function AuditoriaPage() {
                     details = log.details ? (typeof log.details === 'string' ? JSON.parse(log.details as string) : log.details) as R : null;
                   } catch { details = null; }
                   if (details) {
-                    if (details.amount) detailsText = `Monto: ${details.amount}`;
-                    if (details.balance !== undefined) detailsText = `Saldo: ${details.balance}`;
-                    if (details.total !== undefined) detailsText = `Total: $${Number(details.total).toFixed(2)}`;
+                    if (details.old_stock !== undefined) detailsText = `Stock: ${details.old_stock} → ${details.new_stock} (Δ ${details.diff})`;
+                    else if (details.quantity !== undefined) detailsText = `Cantidad: ${details.quantity}` + (details.reason ? ` · ${details.reason}` : '');
+                    else if (details.amount) detailsText = `Monto: ${details.amount}`;
+                    else if (details.balance !== undefined) detailsText = `Saldo: ${details.balance}`;
+                    else if (details.total !== undefined) detailsText = `Total: $${Number(details.total).toFixed(2)}`;
                   }
                   return (
                     <tr key={String(log.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
