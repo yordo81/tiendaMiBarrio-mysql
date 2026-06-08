@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
-import { query, transaction } from '@/lib/db/mysql';
+import { query, queryOne, transaction } from '@/lib/db/mysql';
 import { validatePaymentMethodOrDefault } from '@/lib/validate';
 import { handle, ok, err } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
@@ -29,9 +29,29 @@ export const POST = handle(async (req: Request) => {
 
   const saleId = randomUUID();
   const ts = new Date().toISOString().slice(0,19).replace('T',' ');
-  const saleDate = date ? new Date(date).toISOString().slice(0,19).replace('T',' ') : ts;
+  const tz = process.env.TIMEZONE ?? 'America/Havana';
+  const saleDate = date
+    ? new Date(date).toISOString().slice(0,19).replace('T',' ')
+    : new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+      }).format(new Date()).replace(', ', ' ');
   const total = items.reduce((a: number, i: { quantity: number; unit_price: number }) => a + i.quantity * i.unit_price, 0);
   const status = payment?.method === 'credit' ? 'pending' : 'completed';
+
+  // ── Validar stock global antes de iniciar la transaccion (pre-check rapido) ──
+  for (const item of items) {
+    const prod = await queryOne<{ stock: number }>(
+      'SELECT stock FROM products WHERE id=?',
+      [item.product_id]
+    );
+    const available = prod?.stock ?? 0;
+    if (available < item.quantity) {
+      return err(`Stock insuficiente del producto. Disponible: ${available}, solicitado: ${item.quantity}`);
+    }
+  }
 
   await transaction(async (conn) => {
     await conn.execute(
@@ -43,7 +63,16 @@ export const POST = handle(async (req: Request) => {
         'INSERT INTO sale_items (id,sale_id,product_id,quantity,unit_price,cost,created_at) VALUES (?,?,?,?,?,?,?)',
         [randomUUID(), saleId, item.product_id, item.quantity, item.unit_price, item.cost??0, ts]
       );
-      await conn.execute('UPDATE products SET stock=GREATEST(0,stock-?),updated_at=? WHERE id=?',[item.quantity, ts, item.product_id]);
+      // Validar stock dentro de la transaccion con bloqueo de fila (race-condition safe)
+      const [lockRows] = await conn.execute(
+        'SELECT stock FROM products WHERE id=? FOR UPDATE',
+        [item.product_id]
+      );
+      const lockedStock = (lockRows as { stock: number }[])[0]?.stock ?? 0;
+      if (lockedStock < item.quantity) {
+        throw new Error(`Stock insuficiente del producto. Disponible: ${lockedStock}, solicitado: ${item.quantity}`);
+      }
+      await conn.execute('UPDATE products SET stock=stock-?,updated_at=? WHERE id=?',[item.quantity, ts, item.product_id]);
       await conn.execute(
         "INSERT INTO stock_movements (id,product_id,type,quantity,reason,reference_id,user_id,date,created_at) VALUES (?,?,'out',?,?,?,?,?,?)",
         [randomUUID(), item.product_id, item.quantity, 'Venta', saleId, sessionUser.id, saleDate, ts]
@@ -66,6 +95,12 @@ export const POST = handle(async (req: Request) => {
         );
         const existing = (locRows as { id: string; quantity: number }[])[0];
         const curQty = existing?.quantity ?? 0;
+
+        // Validar stock en la ubicacion
+        if (curQty < item.quantity) {
+          throw new Error(`Stock insuficiente en el almacen. Disponible: ${curQty}, solicitado: ${item.quantity}`);
+        }
+
         const remaining = curQty - item.quantity;
 
         if (remaining <= 0) {
