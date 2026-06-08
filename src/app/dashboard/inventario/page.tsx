@@ -37,6 +37,7 @@ export default function InventarioPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<AnyRecord>({});
   const [moveForm, setMoveForm] = useState({ type: 'in', quantity: 0, reason: '', location_id: '' });
+  const [showZeroStock, setShowZeroStock] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
   const [editCat, setEditCat] = useState<AnyRecord | null>(null);
   const [deleteCat, setDeleteCat] = useState<AnyRecord | null>(null);
@@ -147,7 +148,8 @@ export default function InventarioPage() {
   const filtered = products.filter(p => {
     const matchSearch = String(p.name ?? '').toLowerCase().includes(search.toLowerCase());
     const matchCat = catFilter ? p.category_id === catFilter : true;
-    return matchSearch && matchCat;
+    const matchStock = showZeroStock || Number(p.stock ?? 0) > 0;
+    return matchSearch && matchCat && matchStock;
   });
   const paginated = pageSize === 0 ? filtered : filtered.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
@@ -186,6 +188,9 @@ export default function InventarioPage() {
                 <option value="">Todos los almacenes</option>
                 {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
               </select>
+              <button onClick={()=>setShowZeroStock(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showZeroStock ? 'bg-brand-600/20 border-brand-600/50 text-brand-400' : 'border-[#30363d] text-[#6e7681] hover:text-[#8b949e] hover:border-[#6e7681]')}>
+                <span className="text-sm">{showZeroStock ? '☑' : '☐'}</span> Stock 0
+              </button>
             </div>
             <div className="flex gap-2">
               <button onClick={() => openPurchase()} className="btn-secondary flex items-center gap-2 flex-shrink-0"><ShoppingBag className="w-4 h-4"/>Registrar compra</button>
@@ -307,9 +312,9 @@ export default function InventarioPage() {
             <span className="text-[#8b949e]">Ganancia: <span className="text-green-400 font-semibold">{formatCurrency(Number(form.sale_price)-Number(form.cost))}</span></span>
           </div>
         )}
-        <div className="flex gap-2 justify-end mt-5">
-          <button onClick={()=>setShowModal(false)} className="btn-secondary">Cancelar</button>
-          <button onClick={handleSave} disabled={saving||!String(form.name??'').trim()} className="btn-primary disabled:opacity-50">{saving?'Guardando...':editProduct?'Actualizar':'Crear'}</button>
+        <div className="flex flex-col xs:flex-row gap-2 justify-end mt-5">
+          <button onClick={()=>setShowModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
+          <button onClick={handleSave} disabled={saving||!String(form.name??'').trim()} className="btn-primary flex-1 xs:flex-none disabled:opacity-50">{saving?'Guardando...':editProduct?'Actualizar':'Crear'}</button>
         </div>
       </Modal>
 
@@ -394,7 +399,7 @@ export default function InventarioPage() {
             );
           })()}
 
-          <div className="flex gap-3 pt-2">
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3 pt-2">
             <button onClick={() => setShowPurchaseModal(false)} className="btn-secondary flex-1">Cancelar</button>
             <button onClick={handlePurchase} disabled={purchaseSaving || !purchaseForm.product_id || !purchaseForm.supplier_id || purchaseForm.quantity <= 0} className="btn-primary flex-1 disabled:opacity-50">
               {purchaseSaving ? 'Registrando...' : <span className="flex items-center justify-center gap-2"><ShoppingBag className="w-4 h-4" />Registrar compra</span>}
@@ -418,7 +423,7 @@ export default function InventarioPage() {
             </select>
           </div>
           <div><label className="label">Razón *</label><input className="input" placeholder="Ej: Compra, Merma, Conteo físico..." value={moveForm.reason} onChange={e=>setMoveForm(f=>({...f,reason:e.target.value}))}/></div>
-          <div className="flex gap-3"><button onClick={()=>setShowMoveModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleMove} disabled={saving||!moveForm.reason||moveForm.quantity<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Registrar'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowMoveModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleMove} disabled={saving||!moveForm.reason||moveForm.quantity<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Registrar'}</button></div>
         </div>
       </Modal>
 
@@ -432,7 +437,7 @@ export default function InventarioPage() {
               {categories.filter(c=>c.id!==editCat?.id).map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name)}</option>)}
             </select>
           </div>
-          <div className="flex gap-3"><button onClick={()=>setShowCatModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSaveCat} disabled={saving||!catForm.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editCat?'Actualizar':'Crear'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowCatModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSaveCat} disabled={saving||!catForm.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editCat?'Actualizar':'Crear'}</button></div>
         </div>
       </Modal>
 

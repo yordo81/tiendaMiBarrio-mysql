@@ -126,6 +126,10 @@ export default function ContabilidadPage() {
   const movements = (data.recent_movements ?? []) as R[];
 
   const dailyEvolution = (data.daily_evolution ?? []) as R[];
+  const maxEvo = dailyEvolution.length
+    ? Math.max(...dailyEvolution.flatMap(d => [Number(d.running_cash ?? 0), Number(d.running_transfer ?? 0)]))
+    : 0;
+  const yMaxEvo = Math.ceil(maxEvo * 1.15 / 1000) * 1000 || 1000;
   const hasInitialBalance = entries.some(e => String(e.type) === 'initial');
 
   // Filtro de búsqueda
@@ -317,7 +321,7 @@ export default function ContabilidadPage() {
                 tickFormatter={(val: string) => val?.slice(5) ?? ''}
                 interval={Math.floor(dailyEvolution.length / 6)}
               />
-              <YAxis tick={{ fill: '#6e7681', fontSize: 10 }} tickLine={false} axisLine={false} />
+              <YAxis domain={[0, yMaxEvo]} tickFormatter={(v: number) => v>=1000 ? `${(v/1000).toFixed(1)}k` : String(v)} tick={{ fill: '#6e7681', fontSize: 10 }} tickLine={false} axisLine={false} />
               <Tooltip content={<ChartTip />} />
               <Legend
                 iconSize={10}
@@ -506,9 +510,9 @@ export default function ContabilidadPage() {
               onChange={e => setInitialForm(f => ({ ...f, notes: e.target.value }))}
             />
           </div>
-          <div className="flex gap-2 justify-end pt-2">
-            <button onClick={() => setShowInitialModal(false)} className="btn-secondary">Cancelar</button>
-            <button onClick={handleInitialBalance} className="btn-primary">Guardar saldo inicial</button>
+          <div className="flex flex-col xs:flex-row gap-2 justify-end pt-2">
+            <button onClick={() => setShowInitialModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
+            <button onClick={handleInitialBalance} className="btn-primary flex-1 xs:flex-none">Guardar saldo inicial</button>
           </div>
         </div>
       </Modal>
@@ -541,9 +545,9 @@ export default function ContabilidadPage() {
               onChange={e => setAdjustForm(f => ({ ...f, notes: e.target.value }))}
             />
           </div>
-          <div className="flex gap-2 justify-end pt-2">
-            <button onClick={() => setShowAdjustModal(false)} className="btn-secondary">Cancelar</button>
-            <button onClick={handleAdjustment} className="btn-primary">Registrar ajuste</button>
+          <div className="flex flex-col xs:flex-row gap-2 justify-end pt-2">
+            <button onClick={() => setShowAdjustModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
+            <button onClick={handleAdjustment} className="btn-primary flex-1 xs:flex-none">Registrar ajuste</button>
           </div>
         </div>
       </Modal>
