@@ -3,6 +3,15 @@ import { requireAuth } from '@/lib/auth/session';
 import { query } from '@/lib/db/mysql';
 import { handle, ok } from '@/lib/api-helpers';
 
+function fmtDateInTz(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
 export const GET = handle(async () => {
   await requireAuth();
 
@@ -100,9 +109,12 @@ export const GET = handle(async () => {
   const cashBalance = registerCash + totalCashIn - totalCashOut;
   const transferBalance = registerTransfer + totalTransferIn - totalTransferOut;
 
-  // ── Today's movements ──
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const timezone = process.env.TIMEZONE ?? 'America/Havana';
 
+  // ── Today's movements ──
+  const todayStr = fmtDateInTz(new Date(), timezone);
+
+  // ── Today's inflows: sales payments ──
   const todayCashIn = await query<{ total: number }>(
     `SELECT COALESCE(SUM(p.amount_cash), 0) AS total
      FROM payments p JOIN sales s ON s.id = p.sale_id
@@ -115,16 +127,44 @@ export const GET = handle(async () => {
      WHERE s.status != 'cancelled' AND DATE(p.date) = ?`,
     [todayStr]
   );
-  const todayCashOut = await query<{ total: number }>(
+
+  // ── Today's inflows: customer payments ──
+  const todayCashFromCust = await query<{ total: number }>(
+    `SELECT COALESCE(SUM(amount), 0) AS total
+     FROM customer_payments
+     WHERE method = 'cash' AND DATE(date) = ?`,
+    [todayStr]
+  );
+  const todayTransferFromCust = await query<{ total: number }>(
+    `SELECT COALESCE(SUM(amount), 0) AS total
+     FROM customer_payments
+     WHERE method = 'transfer' AND DATE(date) = ?`,
+    [todayStr]
+  );
+  const todayMixedFromCust = await query<{ total: number }>(
+    `SELECT COALESCE(SUM(amount), 0) AS total
+     FROM customer_payments
+     WHERE method = 'mixed' AND DATE(date) = ?`,
+    [todayStr]
+  );
+
+  // ── Today's outflows: expenses ──
+  const todayCashExpenses = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM expenses
      WHERE payment_method = 'cash' AND DATE(date) = ?`,
     [todayStr]
   );
-  const todayTransferOut = await query<{ total: number }>(
+  const todayTransferExpenses = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM expenses
      WHERE payment_method = 'transfer' AND DATE(date) = ?`,
+    [todayStr]
+  );
+  const todayMixedExpenses = await query<{ total: number }>(
+    `SELECT COALESCE(SUM(amount), 0) AS total
+     FROM expenses
+     WHERE payment_method = 'mixed' AND DATE(date) = ?`,
     [todayStr]
   );
 
@@ -189,18 +229,40 @@ export const GET = handle(async () => {
   `);
 
   // ── Daily evolution (last 30 days) ──
+
+  // 1. Daily inflows: sales payments + customer payments
   const dailyInflows = await query<{ date: string; cash: number; transfer: number }>(`
     SELECT
-      DATE(p.date) AS date,
-      COALESCE(SUM(p.amount_cash), 0) AS cash,
-      COALESCE(SUM(p.amount_transfer), 0) AS transfer
-    FROM payments p
-    JOIN sales s ON s.id = p.sale_id
-    WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-    GROUP BY DATE(p.date)
-    ORDER BY DATE(p.date)
+      DATE(date) AS date,
+      COALESCE(SUM(cash), 0) AS cash,
+      COALESCE(SUM(transfer), 0) AS transfer
+    FROM (
+      SELECT
+        p.date AS date,
+        p.amount_cash AS cash,
+        p.amount_transfer AS transfer
+      FROM payments p
+      JOIN sales s ON s.id = p.sale_id
+      WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+
+      UNION ALL
+
+      SELECT
+        cp.date AS date,
+        CASE WHEN cp.method = 'cash' THEN cp.amount
+             WHEN cp.method = 'mixed' THEN cp.amount / 2
+             ELSE 0 END AS cash,
+        CASE WHEN cp.method = 'transfer' THEN cp.amount
+             WHEN cp.method = 'mixed' THEN cp.amount / 2
+             ELSE 0 END AS transfer
+      FROM customer_payments cp
+      WHERE cp.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    ) AS combined
+    GROUP BY DATE(date)
+    ORDER BY DATE(date)
   `);
 
+  // 2. Daily outflows: expenses
   const dailyOutflows = await query<{ date: string; cash: number; transfer: number }>(`
     SELECT
       DATE(e.date) AS date,
@@ -212,16 +274,37 @@ export const GET = handle(async () => {
     ORDER BY DATE(e.date)
   `);
 
-  // Build daily evolution with running balances
-  const dateMap = new Map<string, { date: string; cash_in: number; transfer_in: number; cash_out: number; transfer_out: number; net_cash: number; net_transfer: number }>();
+  // 3. Cash register entries within last 30 days (distributed by date)
+  const registerByDate = await query<{ date: string; cash: number; transfer: number }>(`
+    SELECT
+      DATE(date) AS date,
+      COALESCE(SUM(cash_amount), 0) AS cash,
+      COALESCE(SUM(transfer_amount), 0) AS transfer
+    FROM cash_register
+    WHERE date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    GROUP BY DATE(date)
+    ORDER BY DATE(date)
+  `);
 
-  // Generate last 30 days
+  // 4. Register balance BEFORE the 30-day window (starting point)
+  const registerBeforeWindow = await query<{ cash: number; transfer: number }>(`
+    SELECT
+      COALESCE(SUM(cash_amount), 0) AS cash,
+      COALESCE(SUM(transfer_amount), 0) AS transfer
+    FROM cash_register
+    WHERE date < DATE_SUB(NOW(), INTERVAL 30 DAY)
+  `);
+
+  // Build daily evolution with running balances
+  const dateMap = new Map<string, { date: string; cash_in: number; transfer_in: number; cash_out: number; transfer_out: number; register_cash: number; register_transfer: number; net_cash: number; net_transfer: number }>();
+
+  // Generate last 30 days (using same timezone as MySQL - America/Havana)
   const today = new Date();
   for (let i = 29; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
-    dateMap.set(key, { date: key, cash_in: 0, transfer_in: 0, cash_out: 0, transfer_out: 0, net_cash: 0, net_transfer: 0 });
+    const key = fmtDateInTz(d, timezone);
+    dateMap.set(key, { date: key, cash_in: 0, transfer_in: 0, cash_out: 0, transfer_out: 0, register_cash: 0, register_transfer: 0, net_cash: 0, net_transfer: 0 });
   }
 
   dailyInflows.forEach(row => {
@@ -242,14 +325,33 @@ export const GET = handle(async () => {
     }
   });
 
+  registerByDate.forEach(row => {
+    const key = String(row.date).slice(0, 10);
+    if (dateMap.has(key)) {
+      const entry = dateMap.get(key)!;
+      entry.register_cash = Math.round(Number(row.cash) * 100) / 100;
+      entry.register_transfer = Math.round(Number(row.transfer) * 100) / 100;
+    }
+  });
+
   // Calculate running net balance for each day
-  let runningCash = registerCash;
-  let runningTransfer = registerTransfer;
+  // Starting running balance = register entries before 30-day window
+  let runningCash = Math.round(Number(registerBeforeWindow[0]?.cash ?? 0) * 100) / 100;
+  let runningTransfer = Math.round(Number(registerBeforeWindow[0]?.transfer ?? 0) * 100) / 100;
+
   const dailyEvolution = Array.from(dateMap.values()).map(entry => {
-    runningCash += entry.cash_in - entry.cash_out;
-    runningTransfer += entry.transfer_in - entry.transfer_out;
+    // Apply register entries on their specific date, then add inflows/outflows
+    runningCash += entry.register_cash + entry.cash_in - entry.cash_out;
+    runningTransfer += entry.register_transfer + entry.transfer_in - entry.transfer_out;
+
     return {
-      ...entry,
+      date: entry.date,
+      cash_in: entry.cash_in,
+      transfer_in: entry.transfer_in,
+      cash_out: entry.cash_out,
+      transfer_out: entry.transfer_out,
+      register_cash: entry.register_cash,
+      register_transfer: entry.register_transfer,
       running_cash: Math.round(runningCash * 100) / 100,
       running_transfer: Math.round(runningTransfer * 100) / 100,
       net_cash: Math.round((entry.cash_in - entry.cash_out) * 100) / 100,
@@ -278,11 +380,11 @@ export const GET = handle(async () => {
     // No clasificados
     unclassified_expenses: Math.round(Number(unclassifiedExpenses[0]?.total ?? 0) * 100) / 100,
 
-    // Flujo del día
-    today_cash_in: Math.round(Number(todayCashIn[0]?.total ?? 0) * 100) / 100,
-    today_transfer_in: Math.round(Number(todayTransferIn[0]?.total ?? 0) * 100) / 100,
-    today_cash_out: Math.round(Number(todayCashOut[0]?.total ?? 0) * 100) / 100,
-    today_transfer_out: Math.round(Number(todayTransferOut[0]?.total ?? 0) * 100) / 100,
+    // Flujo del día (incluye customer payments y mixed)
+    today_cash_in: Math.round((Number(todayCashIn[0]?.total ?? 0) + Number(todayCashFromCust[0]?.total ?? 0) + (Number(todayMixedFromCust[0]?.total ?? 0) / 2)) * 100) / 100,
+    today_transfer_in: Math.round((Number(todayTransferIn[0]?.total ?? 0) + Number(todayTransferFromCust[0]?.total ?? 0) + (Number(todayMixedFromCust[0]?.total ?? 0) / 2)) * 100) / 100,
+    today_cash_out: Math.round((Number(todayCashExpenses[0]?.total ?? 0) + (Number(todayMixedExpenses[0]?.total ?? 0) / 2)) * 100) / 100,
+    today_transfer_out: Math.round((Number(todayTransferExpenses[0]?.total ?? 0) + (Number(todayMixedExpenses[0]?.total ?? 0) / 2)) * 100) / 100,
 
     // Evolución diaria
     daily_evolution: dailyEvolution,
