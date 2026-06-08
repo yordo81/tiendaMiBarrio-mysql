@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
-import { DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown, BarChart2, AlertTriangle } from 'lucide-react';
+import { Clock, DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown, BarChart2, AlertTriangle } from 'lucide-react';
 import StatCard from '@/components/ui/StatCard';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -11,6 +11,7 @@ interface DashData {
   pendingDebt: number; pendingDebtCount: number; lowStockCount: number;
   salesChart: { date: string; total: number }[];
   topProducts: { name: string; total: number }[];
+  timezone: string;
 }
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) => {
@@ -23,9 +24,14 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
   );
 };
 
+function fmtInTz(date: Date, tz: string, options: Intl.DateTimeFormatOptions): string {
+  return new Intl.DateTimeFormat('es-DO', { timeZone: tz, ...options }).format(date);
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
     fetch('/api/reports?type=dashboard&days=30')
@@ -34,8 +40,38 @@ export default function DashboardPage() {
       .catch(() => setLoading(false));
   }, []);
 
+  // Initialize clock on client only (avoid hydration mismatch) and update every 30s
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const maxSales = data?.salesChart?.length
+    ? Math.max(...data.salesChart.map(d => d.total))
+    : 0;
+  const yMax = Math.ceil(maxSales * 1.15 / 1000) * 1000 || 1000;
+
+  const tz = data?.timezone ?? 'America/Havana';
+
   return (
     <div className="space-y-6">
+      {/* System date/time indicator — rendered only on client after mount */}
+      {now && (
+        <div className="flex items-center gap-3 px-1">
+          <div className="flex items-center gap-2 text-sm text-[#8b949e]">
+            <Clock className="w-4 h-4 text-brand-400" />
+            <span className="capitalize">{fmtInTz(now, tz, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            <span className="text-[#6e7681]">·</span>
+            <span className="font-mono font-medium text-[#e6edf3]">{fmtInTz(now, tz, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
+            <span className="text-[10px] bg-[#21262d] px-1.5 py-0.5 rounded text-[#6e7681] font-mono">
+              {tz.split('/').pop()}
+            </span>
+          </div>
+          {loading && <div className="w-32 h-4 bg-[#21262d] rounded animate-pulse" />}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="Ventas hoy" value={formatCurrency(data?.salesToday ?? 0)} icon={DollarSign} variant="default" loading={loading} />
         <StatCard title="Esta semana" value={formatCurrency(data?.salesWeek ?? 0)} icon={BarChart2} variant="info" loading={loading} />
@@ -63,7 +99,7 @@ export default function DashboardPage() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#21262d"/>
                 <XAxis dataKey="date" tick={{ fill: '#6e7681', fontSize: 10 }} tickLine={false} interval={6}/>
-                <YAxis tick={{ fill: '#6e7681', fontSize: 10 }} tickLine={false} axisLine={false}/>
+                <YAxis domain={[0, yMax]} tickFormatter={(v: number) => v>=1000 ? `${(v/1000).toFixed(1)}k` : String(v)} tick={{ fill: '#6e7681', fontSize: 10 }} tickLine={false} axisLine={false}/>
                 <Tooltip content={<CustomTooltip/>}/>
                 <Area type="monotone" dataKey="total" stroke="#2a84ff" strokeWidth={2} fill="url(#gv)"/>
               </AreaChart>

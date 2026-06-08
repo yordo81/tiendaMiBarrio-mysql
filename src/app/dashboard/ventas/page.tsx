@@ -39,6 +39,7 @@ export default function VentasPage() {
   const [amountTransfer, setAmountTransfer] = useState(0);
   const [saleNotes, setSaleNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [locationStock, setLocationStock] = useState<Record<string, number>>({});
   const { user } = useAuthStore();
 
   // Pagination
@@ -58,6 +59,18 @@ export default function VentasPage() {
   useEffect(() => { load(); }, [load]);
 
   const cartTotal = cart.reduce((a,i) => a + i.quantity * i.unit_price, 0);
+
+  function getAvailableStock(product: AnyRecord): number {
+    if (locationId && locationStock[String(product.id)] !== undefined) {
+      return locationStock[String(product.id)];
+    }
+    return Number(product.stock ?? 0);
+  }
+
+  function hasStockIssues(): boolean {
+    return cart.some(i => i.quantity > getAvailableStock(i.product));
+  }
+
   function addToCart(p: AnyRecord) {
     setCart(prev => { const ex = prev.find(i=>i.product.id===p.id); return ex ? prev.map(i=>i.product.id===p.id?{...i,quantity:i.quantity+1}:i) : [...prev,{product:p,quantity:1,unit_price:Number(p.sale_price)}]; });
     setProductSearch('');
@@ -101,6 +114,14 @@ export default function VentasPage() {
   async function handleSave() {
     if (cart.length === 0) return;
     if (payMethod === 'credit' && !customerId) { toast.error('Las ventas a crédito requieren cliente'); return; }
+    // Validar stock antes de enviar
+    const stockErrors = cart.filter(i => i.quantity > getAvailableStock(i.product));
+    if (stockErrors.length > 0) {
+      const names = stockErrors.map(i => `${String(i.product.name)} (disponible: ${formatNumber(getAvailableStock(i.product),1)}, solicitado: ${formatNumber(i.quantity,1)})`).join(', ');
+      toast.error(`Stock insuficiente: ${names}`);
+      return;
+    }
+
     setSaving(true);
     try {
       const total = cartTotal;
@@ -120,7 +141,27 @@ export default function VentasPage() {
 
   // Reset page when search changes
   useEffect(() => { setPage(1); }, [search]);
-  const filteredProducts = products.filter(p => String(p.name).toLowerCase().includes(productSearch.toLowerCase())).slice(0,8);
+
+  // Fetch location-specific stock when location changes
+  useEffect(() => {
+    if (!locationId) { setLocationStock({}); return; }
+    api.getLocationStock(locationId).then(rows => {
+      const map: Record<string, number> = {};
+      (rows as { product_id: string; quantity: number }[]).forEach(r => {
+        map[r.product_id] = Number(r.quantity);
+      });
+      setLocationStock(map);
+    }).catch(() => setLocationStock({}));
+  }, [locationId]);
+
+  const filteredProducts = products
+    .filter(p => String(p.name).toLowerCase().includes(productSearch.toLowerCase()))
+    .sort((a, b) => {
+      const aOut = getAvailableStock(a) <= 0 ? 1 : 0;
+      const bOut = getAvailableStock(b) <= 0 ? 1 : 0;
+      return aOut - bOut;
+    })
+    .slice(0, 8);
 
   return (
     <div className="space-y-5">
@@ -153,7 +194,7 @@ export default function VentasPage() {
 
       {/* New Sale Modal */}
       <Modal open={showNew} onClose={()=>{setShowNew(false);resetForm();}} title="Nueva venta" size="xl">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           <div className="space-y-3">
             <div><label className="label">Buscar producto</label>
               <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]"/><input className="input pl-9" placeholder="Nombre..." value={productSearch} onChange={e=>setProductSearch(e.target.value)}/></div>
@@ -162,9 +203,19 @@ export default function VentasPage() {
               <div className="border border-[#30363d] rounded-xl overflow-hidden bg-[#0d1117]">
                 {filteredProducts.length===0?<p className="text-center text-[#6e7681] py-4 text-sm">Sin resultados</p>
                 :filteredProducts.map(p=>(
-                  <button key={String(p.id)} onClick={()=>addToCart(p)} className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-[#161b22] text-left border-b border-[#21262d] last:border-0 transition-colors">
-                    <div><p className="text-sm text-[#e6edf3]">{String(p.name)}</p><p className="text-xs text-[#6e7681]">Stock: {formatNumber(Number(p.stock),1)}</p></div>
-                    <span className="text-brand-400 font-semibold text-sm">{formatCurrency(Number(p.sale_price))}</span>
+                  <button key={String(p.id)} onClick={()=>addToCart(p)} title={getAvailableStock(p) <= 0 ? 'Producto agotado' : undefined} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-[#161b22] text-left border-b border-[#21262d] last:border-0 transition-colors', getAvailableStock(p) <= 0 && 'opacity-40 cursor-not-allowed')}>
+                    <div>
+                      <p className={cn('text-sm', getAvailableStock(p) <= 0 ? 'text-[#6e7681] line-through' : 'text-[#e6edf3]')}>{String(p.name)}</p>
+                      {(() => {
+                        const avail = getAvailableStock(p);
+                        const min = Number(p.min_stock ?? 0);
+                        const low = avail > 0 && avail <= min;
+                        const out = avail <= 0;
+                        const cls = out ? 'text-red-400' : low ? 'text-yellow-400' : 'text-[#6e7681]';
+                        return <p className={`text-xs ${cls}`}>{out ? `Sin stock — Producto agotado` : `Stock: ${formatNumber(avail,1)}`}</p>;
+                      })()}
+                    </div>
+                    <span className={cn('font-semibold text-sm', getAvailableStock(p) <= 0 ? 'text-[#6e7681] line-through' : 'text-brand-400')}>{formatCurrency(Number(p.sale_price))}</span>
                   </button>
                 ))}
               </div>
@@ -173,14 +224,23 @@ export default function VentasPage() {
               <div className="space-y-2">
                 <p className="text-xs font-medium text-[#8b949e] uppercase tracking-wide">Carrito</p>
                 {cart.map(item=>(
-                  <div key={String(item.product.id)} className="flex items-center gap-2 bg-[#0d1117] rounded-xl px-3 py-2.5 border border-[#21262d]">
-                    <div className="flex-1 min-w-0"><p className="text-sm text-[#e6edf3] truncate">{String(item.product.name)}</p></div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:Math.max(0.01,i.quantity-1)}:i))} className="w-6 h-6 rounded-md bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] flex items-center justify-center text-xs">−</button>
-                      <input type="number" min="0" step="1" value={item.quantity} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:parseFloat(e.target.value)||0.01}:i))} className="w-14 input text-center text-xs py-1"/>
-                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:i.quantity+1}:i))} className="w-6 h-6 rounded-md bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] flex items-center justify-center text-xs">+</button>
-                      <input type="number" min="0" step="1" value={item.unit_price} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,unit_price:parseFloat(e.target.value)||0}:i))} className="w-20 input text-right text-xs py-1"/>
-                      <button onClick={()=>setCart(prev=>prev.filter(i=>i.product.id!==item.product.id))} className="text-[#6e7681] hover:text-red-400"><X className="w-4 h-4"/></button>
+                  <div key={String(item.product.id)} className="flex flex-col xs:flex-row items-stretch xs:items-center gap-2 bg-[#0d1117] rounded-xl px-3 py-2.5 border border-[#21262d]">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[#e6edf3] truncate">{String(item.product.name)}</p>
+                      {(() => {
+                        const avail = getAvailableStock(item.product);
+                        const exceeds = item.quantity > avail;
+                        return exceeds
+                          ? <p className="text-xs text-red-400 mt-0.5">{`Stock disponible: ${formatNumber(avail,1)} — excede!`}</p>
+                          : <p className="text-xs text-[#6e7681]">{`Stock: ${formatNumber(avail,1)}`}</p>;
+                      })()}
+                    </div>
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap justify-end">
+                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:Math.max(0.01,i.quantity-1)}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] flex items-center justify-center text-xs">−</button>
+                      <input type="number" min="0" step="1" value={item.quantity} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:parseFloat(e.target.value)||0.01}:i))} className="w-16 sm:w-14 input text-center text-xs py-1.5 sm:py-1"/>
+                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:i.quantity+1}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] flex items-center justify-center text-xs">+</button>
+                      <input type="number" min="0" step="1" value={item.unit_price} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,unit_price:parseFloat(e.target.value)||0}:i))} className="w-full sm:w-20 input text-right text-xs py-1.5 sm:py-1"/>
+                      <button onClick={()=>setCart(prev=>prev.filter(i=>i.product.id!==item.product.id))} className="text-[#6e7681] hover:text-red-400 p-1"><X className="w-4 h-4"/></button>
                     </div>
                   </div>
                 ))}
@@ -218,8 +278,11 @@ export default function VentasPage() {
             )}
             {payMethod==='credit'&&<div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-xs text-yellow-400">⚠ Se registrará como deuda. Debes seleccionar un cliente.</div>}
             <div><label className="label">Notas</label><input className="input" placeholder="Notas opcionales..." value={saleNotes} onChange={e=>setSaleNotes(e.target.value)}/></div>
-            <button onClick={handleSave} disabled={saving||cart.length===0} className="btn-primary w-full py-3 text-base disabled:opacity-50">
-              {saving?'Registrando...':`Confirmar — ${formatCurrency(cartTotal)}`}
+            {hasStockIssues() && !saving && (
+              <p className="text-xs text-red-400 text-center">⚠ Algunos productos exceden el stock disponible. Revisa el carrito.</p>
+            )}
+            <button onClick={handleSave} disabled={saving||cart.length===0||hasStockIssues()} className="btn-primary w-full py-3 text-base disabled:opacity-50">
+              {saving ? 'Registrando...' : `Confirmar — ${formatCurrency(cartTotal)}`}
             </button>
           </div>
         </div>
