@@ -12,11 +12,15 @@ function createPool(): mysql.Pool {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    decimalNumbers: true,
     timezone: '+00:00',
     typeCast(field, next) {
       if (field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
         const val = field.string();
         return val ? new Date(val).toISOString() : null;
+      }
+      if (field.type === 'DATE') {
+        return field.string(); // "YYYY-MM-DD" en la zona horaria de MySQL
       }
       if (field.type === 'TINY' && field.length === 1) {
         return field.string() === '1';
@@ -27,6 +31,13 @@ function createPool(): mysql.Pool {
 }
 
 export const pool: mysql.Pool = globalThis._mysqlPool ?? (globalThis._mysqlPool = createPool());
+
+// Set session timezone on every new connection so CURDATE()/NOW() reflect the app timezone
+pool.on('connection', (conn) => {
+  conn.execute("SET time_zone = 'America/Havana'", (err: Error | null) => {
+    if (err) console.error('[mysql] Failed to set timezone:', err.message);
+  });
+});
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function query<T = Record<string, unknown>>(sql: string, params?: any[]): Promise<T[]> {

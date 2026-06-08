@@ -17,6 +17,7 @@ services:
     container_name: tienda_mb_db
     restart: unless-stopped
     environment:
+      TZ: ${TIMEZONE:-America/Havana}
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-rootpassword}
       MYSQL_DATABASE: ${DB_NAME:-tienda_mi_barrio}
       MYSQL_CHARACTER_SET_SERVER: utf8mb4
@@ -50,6 +51,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-rootpassword}
       DB_NAME: ${DB_NAME:-tienda_mi_barrio}
       SESSION_SECRET: ${SESSION_SECRET:-cambiar_esto_por_un_secreto_de_32_caracteres}
+      TIMEZONE: ${TIMEZONE:-America/Havana}
     depends_on:
       db:
         condition: service_healthy

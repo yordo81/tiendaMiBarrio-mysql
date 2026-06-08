@@ -26,6 +26,8 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV TZ=America/Havana
+RUN apk add --no-cache tzdata
 
 # Crear usuario no-root para seguridad
 RUN addgroup --system --gid 1001 nodejs && \
