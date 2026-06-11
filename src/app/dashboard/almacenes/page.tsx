@@ -117,7 +117,17 @@ export default function AlmacenesPage() {
       </div>
 
       {tab==='almacenes'&&(
+        
         <>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+            <p className="text-sm text-[#8b949e]">{locations.length} ubicación(es)</p>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={()=>setShowMov(true)} className="btn-secondary flex items-center gap-2 text-sm"><PackagePlus className="w-4 h-4"/>Entrada / Salida / Ajuste</button>
+              <button onClick={()=>setShowTransfer(true)} className="btn-secondary flex items-center gap-2 text-sm"><ArrowRightLeft className="w-4 h-4"/>Trasladar stock</button>
+              <button onClick={()=>{setEditLoc(null);setLocForm({name:'',type:'warehouse',address:'',notes:''});setShowLocModal(true);}} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4"/>Nuevo almacén</button>
+            </div>
+          </div>
+
           {/* Summary cards */}
           {!loading && stockSummary.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -156,14 +166,6 @@ export default function AlmacenesPage() {
             </div>
           )}
 
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <p className="text-sm text-[#8b949e]">{locations.length} ubicación(es)</p>
-            <div className="flex gap-2 flex-wrap">
-              <button onClick={()=>setShowMov(true)} className="btn-secondary flex items-center gap-2 text-sm"><PackagePlus className="w-4 h-4"/>Entrada / Salida / Ajuste</button>
-              <button onClick={()=>setShowTransfer(true)} className="btn-secondary flex items-center gap-2 text-sm"><ArrowRightLeft className="w-4 h-4"/>Trasladar stock</button>
-              <button onClick={()=>{setEditLoc(null);setLocForm({name:'',type:'warehouse',address:'',notes:''});setShowLocModal(true);}} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4"/>Nuevo almacén</button>
-            </div>
-          </div>
           {loading?<div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"/></div>
           :locations.length===0?<EmptyState icon={Warehouse} title="Sin almacenes" description="Crea tu primer almacén o punto de venta" action={<button onClick={()=>setShowLocModal(true)} className="btn-primary">Crear almacén</button>}/>:(
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
