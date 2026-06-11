@@ -35,6 +35,7 @@ export default function AlmacenesPage() {
   const [locForm, setLocForm] = useState({name:'',type:'warehouse',address:'',notes:''});
   const [trForm, setTrForm] = useState({from_location_id:'',to_location_id:'',product_id:'',quantity:0,notes:''});
   const [movForm, setMovForm] = useState({location_id:'',product_id:'',type:'entrada',quantity:0,notes:''});
+  const [locStockMap, setLocStockMap] = useState<Record<string, number>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,6 +43,19 @@ export default function AlmacenesPage() {
     setLocations(locs); setProducts(prods); setTransfers(trans); setStockSummary(summary); setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Fetch location-specific stock whenever location changes in the movement form
+  useEffect(() => {
+    if (movForm.location_id) {
+      api.getLocationStock(movForm.location_id).then(stock => {
+        const map: Record<string, number> = {};
+        stock.forEach((s: Record<string,unknown>) => { map[String(s.product_id)] = Number(s.quantity); });
+        setLocStockMap(map);
+      }).catch(() => setLocStockMap({}));
+    } else {
+      setLocStockMap({});
+    }
+  }, [movForm.location_id]);
 
   async function loadDetail(locId: string) {
     const [st, mv] = await Promise.all([api.getLocationStock(locId), api.getLocationMovements(locId)]);
@@ -281,7 +295,10 @@ export default function AlmacenesPage() {
           <div><label className="label">Producto *</label>
             <select className="input" value={movForm.product_id} onChange={e=>setMovForm(f=>({...f,product_id:e.target.value}))}>
               <option value="">Seleccionar producto</option>
-              {products.map(p=><option key={String(p.id)} value={String(p.id)}>{String(p.name)} — stock global: {formatNumber(Number(p.stock??0),2)} {String(p.unit??'')}</option>)}
+              {products.map(p=>{
+                const locQty = movForm.location_id ? (locStockMap[String(p.id)]??0) : Number(p.stock??0);
+                return <option key={String(p.id)} value={String(p.id)}>{String(p.name)} — stock en almacén: {formatNumber(locQty,2)} {String(p.unit??'')}</option>;
+              })}
             </select>
           </div>
           <div><label className="label">Tipo *</label>
@@ -294,7 +311,7 @@ export default function AlmacenesPage() {
           <div><label className="label">{movForm.type==='ajuste'?'Stock exacto *':'Cantidad *'}</label>
             <input type="number" min="1" step="1" className="input" value={movForm.quantity||''} onChange={e=>setMovForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/>
             {movForm.type==='entrada'&&movForm.product_id&&(
-              <p className="text-xs text-[#6e7681] mt-1">Stock global disponible: <strong className="text-[#e6edf3]">{formatNumber(Number(products.find(p=>String(p.id)===movForm.product_id)?.stock??0),2)}</strong></p>
+              <p className="text-xs text-[#6e7681] mt-1">Stock disponible en este almacén: <strong className="text-[#e6edf3]">{formatNumber(locStockMap[String(movForm.product_id)]??0,2)}</strong></p>
             )}
           </div>
           <div><label className="label">Notas</label><input className="input" placeholder="Motivo, referencia..." value={movForm.notes} onChange={e=>setMovForm(f=>({...f,notes:e.target.value}))}/></div>

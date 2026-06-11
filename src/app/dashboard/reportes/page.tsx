@@ -135,11 +135,12 @@ export default function ReportesPage() {
   const loadForecasts = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await fetch('/api/reports?type=restock').then(r=>r.json());
+      const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
+      const d = await fetch(`/api/reports?type=restock${locQ}`).then(r=>r.json());
       setForecasts(Array.isArray(d) ? d as R[] : []);
     } catch(e) { console.error('[loadForecasts]', e); }
     finally { setLoading(false); }
-  }, []);
+  }, [locationFilter]);
 
   const loadDebts = useCallback(async () => {
     setLoading(true);
@@ -180,7 +181,7 @@ export default function ReportesPage() {
             </button>
           ))}
           <div className="flex-1" />
-          {(tab==='ventas'||tab==='rentabilidad')&&locations.length>0&&(
+          {(tab==='ventas'||tab==='rentabilidad'||tab==='reabastecimiento')&&locations.length>0&&(
             <div className="flex items-center gap-2">
               <Warehouse size={14} className="text-[#6e7681] shrink-0" />
               <select

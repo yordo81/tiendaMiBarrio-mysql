@@ -11,16 +11,24 @@ export const GET = handle(async (request: Request) => {
   const locationId = searchParams.get('location_id');
 
   const params: unknown[] = [];
+
+  // When filtering by location, get the per-location stock via subquery (appears first in SQL)
+  const locationStockSelect = locationId
+    ? '(SELECT quantity FROM location_stock WHERE product_id = p.id AND location_id = ?) AS location_stock,'
+    : '';
+  if (locationId) params.push(locationId);
+
   let whereClause = 'WHERE p.active = 1';
   if (lowStock) whereClause += ' AND p.stock <= p.min_stock';
   if (locationId) {
-    whereClause += ' AND p.id IN (SELECT product_id FROM location_stock WHERE location_id=? AND quantity>0)';
+    whereClause += ' AND p.id IN (SELECT product_id FROM location_stock WHERE location_id=?)';
     params.push(locationId);
   }
 
   let sql = `
     SELECT p.*,
       c.name AS category_name,
+      ${locationStockSelect}
       GROUP_CONCAT(DISTINCT s.id ORDER BY ps.is_preferred DESC SEPARATOR '||') AS supplier_ids,
       GROUP_CONCAT(DISTINCT s.name ORDER BY ps.is_preferred DESC SEPARATOR '||') AS supplier_names
     FROM products p
@@ -31,30 +39,44 @@ export const GET = handle(async (request: Request) => {
     GROUP BY p.id ORDER BY p.name ASC
   `;
 
-  let locFilterClause = '';
-  if (locationId) locFilterClause = `ls.location_id = '${locationId.replace(/'/g, "''")}' AND`;
+  let locationNameForFilter = '';
   const locMap = new Map<string, string>();
-  try {
-    const locRows = await query<{product_id: string; location_name: string}>(
-      `SELECT ls.product_id, l.name AS location_name
-       FROM location_stock ls
-       JOIN locations l ON l.id = ls.location_id AND l.active=1
-       WHERE ${locFilterClause} ls.quantity > 0
-       GROUP BY ls.product_id, l.name`
-    );
-    for (const r of locRows) {
-      if (!locMap.has(r.product_id)) locMap.set(r.product_id, r.location_name);
-    }
-  } catch (e) { console.error('[locationMap]', e); }
+
+  if (locationId) {
+    // When filtering by location, just get the selected location name (cleaner & avoids SQL injection risk)
+    const locRows = await query<{name: string}>('SELECT name FROM locations WHERE id = ?', [locationId]);
+    if (locRows.length > 0) locationNameForFilter = String(locRows[0].name);
+  } else {
+    // Build location map for all products (shows which location has stock)
+    try {
+      const locRows = await query<{product_id: string; location_name: string}>(
+        `SELECT ls.product_id, l.name AS location_name
+         FROM location_stock ls
+         JOIN locations l ON l.id = ls.location_id AND l.active=1
+         WHERE ls.quantity > 0
+         GROUP BY ls.product_id, l.name`
+      );
+      for (const r of locRows) {
+        if (!locMap.has(r.product_id)) locMap.set(r.product_id, r.location_name);
+      }
+    } catch (e) { console.error('[locationMap]', e); }
+  }
 
   const rows = await query(sql, params);
-  return ok(rows.map((r: Record<string, unknown>) => ({
-    ...r,
-    active: Boolean(r.active),
-    supplier_ids: r.supplier_ids ? String(r.supplier_ids).split('||') : [],
-    supplier_names: r.supplier_names ? String(r.supplier_names).split('||') : [],
-    location_name: locMap.get(String(r.id)) ?? '—',
-  })));
+  return ok(rows.map((r: Record<string, unknown>) => {
+    // Destructure to avoid leaking the internal location_stock field
+    const { location_stock, ...rest } = r;
+    // Use per-location stock when filtering by location, otherwise use global stock
+    const stockValue = location_stock !== undefined ? Number(location_stock) : Number(rest.stock);
+    return {
+      ...rest,
+      stock: stockValue,
+      active: Boolean(rest.active),
+      supplier_ids: rest.supplier_ids ? String(rest.supplier_ids).split('||') : [],
+      supplier_names: rest.supplier_names ? String(rest.supplier_names).split('||') : [],
+      location_name: locationId ? locationNameForFilter : (locMap.get(String(rest.id)) ?? '—'),
+    };
+  }));
 });
 
 export const POST = handle(async (request: Request) => {

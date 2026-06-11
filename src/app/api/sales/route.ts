@@ -41,15 +41,26 @@ export const POST = handle(async (req: Request) => {
   const total = items.reduce((a: number, i: { quantity: number; unit_price: number }) => a + i.quantity * i.unit_price, 0);
   const status = payment?.method === 'credit' ? 'pending' : 'completed';
 
-  // ── Validar stock global antes de iniciar la transaccion (pre-check rapido) ──
+  // ── Validar stock antes de iniciar la transaccion (pre-check rapido) ──
   for (const item of items) {
-    const prod = await queryOne<{ stock: number }>(
-      'SELECT stock FROM products WHERE id=?',
-      [item.product_id]
-    );
-    const available = prod?.stock ?? 0;
+    let available: number;
+    if (location_id) {
+      // Validar stock en el almacén específico seleccionado
+      const locStock = await queryOne<{ quantity: number }>(
+        'SELECT quantity FROM location_stock WHERE location_id=? AND product_id=?',
+        [location_id, item.product_id]
+      );
+      available = locStock?.quantity ?? 0;
+    } else {
+      // Validar stock global cuando no hay almacén
+      const prod = await queryOne<{ stock: number }>(
+        'SELECT stock FROM products WHERE id=?',
+        [item.product_id]
+      );
+      available = prod?.stock ?? 0;
+    }
     if (available < item.quantity) {
-      return err(`Stock insuficiente del producto. Disponible: ${available}, solicitado: ${item.quantity}`);
+      return err(`Stock insuficiente${location_id?' en el almacén seleccionado':''}. Disponible: ${available}, solicitado: ${item.quantity}`);
     }
   }
 

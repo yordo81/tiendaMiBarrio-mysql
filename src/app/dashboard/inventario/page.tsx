@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { formatCurrency, formatNumber, calcMargin, cn, generateId, formatDateTime } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { api } from '@/lib/api-client';
@@ -37,11 +37,16 @@ export default function InventarioPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<AnyRecord>({});
   const [moveForm, setMoveForm] = useState({ type: 'in', quantity: 0, reason: '', location_id: '' });
+  const [moveLocStock, setMoveLocStock] = useState<number | null>(null);
+  const [purchaseLocStockMap, setPurchaseLocStockMap] = useState<Record<string, number>>({});
   const [showZeroStock, setShowZeroStock] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
   const [editCat, setEditCat] = useState<AnyRecord | null>(null);
   const [deleteCat, setDeleteCat] = useState<AnyRecord | null>(null);
   const [catForm, setCatForm] = useState({ name: '', parent_id: '' });
+
+  // Inicialización única del filtro de ubicación
+  const locInitialized = useRef(false);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -54,6 +59,15 @@ export default function InventarioPage() {
     setProducts(prods); setCategories(cats); setSuppliers(sups); setLocations(locs); setLoading(false);
   }, []);
 
+  // Inicializar locFilter con el primer almacén (solo una vez al montar)
+  useEffect(() => {
+    if (locations.length > 0 && !locInitialized.current) {
+      locInitialized.current = true;
+      setLocFilter(String(locations[0].id));
+    }
+  }, [locations]);
+
+  // Cargar datos cada vez que cambie el filtro de ubicación
   useEffect(() => { load(locFilter || undefined); }, [load, locFilter]);
 
   function openNew() { setEditProduct(null); setForm({ name:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '' }); setShowModal(true); }
@@ -92,13 +106,40 @@ export default function InventarioPage() {
       location_id: locations.length > 0 ? String(locations[0].id) : '',
       notes: '',
     });
+    setPurchaseLocStockMap({});
     setShowPurchaseModal(true);
   }
 
+  // Fetch location-specific stock for the purchase modal
+  useEffect(() => {
+    if (purchaseForm.location_id) {
+      api.getLocationStock(purchaseForm.location_id).then(stock => {
+        const map: Record<string, number> = {};
+        stock.forEach((s: Record<string,unknown>) => { map[String(s.product_id)] = Number(s.quantity); });
+        setPurchaseLocStockMap(map);
+      }).catch(() => setPurchaseLocStockMap({}));
+    } else {
+      setPurchaseLocStockMap({});
+    }
+  }, [purchaseForm.location_id]);
+
   function openMove() {
     setMoveForm({ type: 'in', quantity: 0, reason: '', location_id: locations.length > 0 ? String(locations[0].id) : '' });
+    setMoveLocStock(null);
     setShowMoveModal(true);
   }
+
+  // Fetch stock of the selected product in the chosen location
+  useEffect(() => {
+    if (!showMoveModal || !moveForm.location_id || !historyProduct) {
+      setMoveLocStock(null);
+      return;
+    }
+    api.getLocationStock(moveForm.location_id).then(stock => {
+      const found = stock.find((s: Record<string,unknown>) => String(s.product_id) === String(historyProduct.id));
+      setMoveLocStock(found ? Number(found.quantity) : 0);
+    }).catch(() => setMoveLocStock(0));
+  }, [moveForm.location_id, showMoveModal, historyProduct]);
 
   async function handlePurchase() {
     if (!purchaseForm.product_id || !purchaseForm.supplier_id || purchaseForm.quantity <= 0 || purchaseForm.price < 0) {
@@ -349,10 +390,11 @@ export default function InventarioPage() {
             <select className="input" value={purchaseForm.product_id} onChange={e => setPurchaseForm(f => ({ ...f, product_id: e.target.value }))}>
               <option value="">Seleccionar producto...</option>
               {products.map(p => {
+                const locStock = purchaseForm.location_id ? (purchaseLocStockMap[String(p.id)]??0) : Number(p.stock??0);
                 const lowS = Number(p.stock) <= Number(p.min_stock);
                 return (
                   <option key={String(p.id)} value={String(p.id)}>
-                    {String(p.name)} — Stock: {formatNumber(Number(p.stock), 1)} {String(p.unit)} · Costo actual: {formatCurrency(Number(p.cost))}
+                    {String(p.name)} — Stock en almacén: {formatNumber(locStock, 1)} {String(p.unit)} · Costo actual: {formatCurrency(Number(p.cost))}
                     {lowS ? ' ⚠️ Stock bajo' : ''}
                   </option>
                 );
@@ -389,7 +431,9 @@ export default function InventarioPage() {
               <div className="bg-[#0d1117] rounded-xl border border-[#21262d] p-3 text-sm space-y-1.5">
                 <p className="text-xs font-medium text-[#8b949e] uppercase tracking-wide">Resumen de la compra</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  <p className="text-[#6e7681]">Stock actual:</p><p className="text-[#e6edf3] text-right">{formatNumber(currentStock, 1)}</p>
+                  <p className="text-[#6e7681]">Stock actual (global):</p><p className="text-[#e6edf3] text-right">{formatNumber(currentStock, 1)}</p>
+                  {purchaseForm.location_id && <p className="text-[#6e7681]">Stock en este almacén:</p>}
+                  {purchaseForm.location_id && <p className="text-brand-400 text-right font-medium">{formatNumber(purchaseLocStockMap[String(prod.id)]??0, 1)}</p>}
                   <p className="text-[#6e7681]">Stock después:</p><p className="text-green-400 text-right font-medium">{formatNumber(newStock, 1)}</p>
                   <p className="text-[#6e7681]">Costo actual:</p><p className="text-[#e6edf3] text-right">{formatCurrency(currentCost)}</p>
                   <p className="text-[#6e7681]">Nuevo costo promedio:</p><p className="text-brand-400 text-right font-semibold">{formatCurrency(Math.round(newCost * 100) / 100)}</p>
@@ -411,6 +455,12 @@ export default function InventarioPage() {
       {/* Move Modal */}
       <Modal open={showMoveModal} onClose={()=>setShowMoveModal(false)} title="Registrar movimiento" size="sm">
         <div className="space-y-4">
+          {historyProduct && (
+            <div className="p-3 bg-[#0d1117] rounded-xl border border-[#21262d] text-sm">
+              <p className="font-medium text-[#e6edf3]">{String(historyProduct.name)}</p>
+              <p className="text-xs text-[#6e7681] mt-0.5">Stock global: <strong className="text-[#e6edf3]">{formatNumber(Number(historyProduct.stock??0),2)}</strong></p>
+            </div>
+          )}
           <div><label className="label">Tipo</label>
             <select className="input" value={moveForm.type} onChange={e=>setMoveForm(f=>({...f,type:e.target.value}))}>
               <option value="in">Entrada</option><option value="out">Salida</option><option value="adjust">Ajuste (stock exacto)</option>
@@ -419,8 +469,16 @@ export default function InventarioPage() {
           <div><label className="label">Cantidad</label><input type="number" min="1" step="1" className="input" value={moveForm.quantity||''} onChange={e=>setMoveForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Almacén destino</label>
             <select className="input" value={moveForm.location_id} onChange={e=>setMoveForm(f=>({...f,location_id:e.target.value}))}>
-              {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
+              {locations.map(l=>{
+                const locName = String(l.name);
+                return <option key={String(l.id)} value={String(l.id)}>{locName}</option>;
+              })}
             </select>
+            {moveForm.location_id && moveLocStock !== null && (
+              <p className="text-xs text-[#6e7681] mt-1">
+                Stock en este almacén: <strong className={cn(moveLocStock <= 0 ? 'text-red-400' : 'text-[#e6edf3]')}>{formatNumber(moveLocStock, 2)}</strong>
+              </p>
+            )}
           </div>
           <div><label className="label">Razón *</label><input className="input" placeholder="Ej: Compra, Merma, Conteo físico..." value={moveForm.reason} onChange={e=>setMoveForm(f=>({...f,reason:e.target.value}))}/></div>
           <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowMoveModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleMove} disabled={saving||!moveForm.reason||moveForm.quantity<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Registrar'}</button></div>

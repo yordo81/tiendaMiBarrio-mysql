@@ -35,7 +35,7 @@ export const GET = handle(async (req: Request) => {
       query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE date>=DATE_SUB(NOW(),INTERVAL 30 DAY)`),
       query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY) AND s.status!='cancelled'`,locParams()),
       query<{total:number;count:number}>(`SELECT COALESCE(SUM(balance),0) AS total,COUNT(*) AS count FROM customers WHERE balance>0`),
-      query<{count:number}>(`SELECT COUNT(*) AS count FROM products WHERE stock<=min_stock AND active=1`),
+      query<{count:number}>(`SELECT COUNT(*) AS count FROM products p WHERE p.active=1${locationId?' AND p.id IN (SELECT product_id FROM location_stock WHERE location_id=?)':''} AND (SELECT COALESCE(${locationId?'quantity,0':'SUM(quantity),0'}) FROM location_stock WHERE product_id=p.id${locationId?' AND location_id=?':''}) <= p.min_stock`, (locationId ? [locationId, locationId] : []) as unknown[]),
       query<{date:string;total:number}>(`SELECT DATE_FORMAT(${locationId?'s.':''}date,'%d/%m') AS date,COALESCE(SUM(${locationId?'s.':''}total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND${locationId?' s.':' '}status!='cancelled' GROUP BY DATE(${locationId?'s.':''}date),DATE_FORMAT(${locationId?'s.':''}date,'%d/%m') ORDER BY DATE(${locationId?'s.':''}date) ASC`, locationId ? [locationId, days] : [days]),
       query<{name:string;total:number}>(`SELECT p.name,COALESCE(SUM(si.quantity*si.unit_price),0) AS total FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY) AND s.status!='cancelled' GROUP BY p.id,p.name ORDER BY total DESC LIMIT 5`,locParams()),
     ]);
@@ -74,26 +74,30 @@ export const GET = handle(async (req: Request) => {
   }
 
   if (type === 'restock') {
-    // Usamos la suma real de location_stock en lugar de p.stock,
+    // Usamos el stock real de location_stock en lugar de p.stock,
     // porque p.stock puede desincronizarse del stock real en las ubicaciones.
+    // Cuando se proporciona location_id, filtra por ese almacén específico.
+    const stockSubquery = locationId
+      ? '(SELECT quantity FROM location_stock WHERE product_id=p.id AND location_id=?)'
+      : '(SELECT COALESCE(SUM(quantity),0) FROM location_stock WHERE product_id=p.id)';
+    const restockParams: unknown[] = [];
+    if (locationId) restockParams.push(locationId);
+    const locationFilter = locationId ? ' AND p.id IN (SELECT product_id FROM location_stock WHERE location_id=?)' : '';
+    if (locationId) restockParams.push(locationId);
     const rows = await query<{id:string;name:string;stock:number;min_stock:number;sold:number}>(`
       SELECT p.id,p.name,
-        COALESCE(
-          (SELECT SUM(quantity) FROM location_stock WHERE product_id=p.id),
-          p.stock
-        ) AS stock,
+        COALESCE(${stockSubquery}, p.stock) AS stock,
         p.min_stock,
         COALESCE(SUM(si.quantity),0) AS sold
       FROM products p
       LEFT JOIN sale_items si ON si.product_id=p.id AND si.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)
-      WHERE p.active=1
+      WHERE p.active=1${locationFilter}
       GROUP BY p.id,p.name,p.min_stock
       ORDER BY COALESCE(
-        (SELECT SUM(quantity) FROM location_stock WHERE product_id=p.id) /
-          GREATEST(COALESCE(SUM(si.quantity),0.001)/30, 0.001),
+        ${stockSubquery} / GREATEST(COALESCE(SUM(si.quantity),0.001)/30, 0.001),
         p.stock / GREATEST(COALESCE(SUM(si.quantity),0.001)/30, 0.001)
       ) ASC
-    `);
+    `, restockParams);
     return ok(rows.map(r => {
       const avgDaily = r.sold/30;
       const daysLeft = avgDaily>0?Math.floor(r.stock/avgDaily):9999;
