@@ -1,18 +1,28 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
-import { Clock, DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown, BarChart2, AlertTriangle } from 'lucide-react';
+import { Clock, DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown, BarChart2, AlertTriangle, Calendar } from 'lucide-react';
 import StatCard from '@/components/ui/StatCard';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface DashData {
   salesToday: number; salesWeek: number; salesMonth: number;
-  expensesMonth: number; netProfitMonth: number;
+  netProfitToday: number; netProfitWeek: number; netProfitMonth: number;
+  cogsToday: number; cogsWeek: number; cogsMonth: number;
+  expensesToday: number; expensesWeek: number; expensesMonth: number;
   pendingDebt: number; pendingDebtCount: number; lowStockCount: number;
   salesChart: { date: string; total: number }[];
   topProducts: { name: string; total: number }[];
   timezone: string;
 }
+
+type Period = 'today' | 'week' | 'month';
+
+const PERIODS: { key: Period; label: string }[] = [
+  { key: 'today', label: 'Hoy' },
+  { key: 'week', label: 'Esta semana' },
+  { key: 'month', label: 'Este mes' },
+];
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) => {
   if (!active || !payload?.length) return null;
@@ -32,6 +42,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState<Date | null>(null);
+  const [period, setPeriod] = useState<Period>('today');
 
   useEffect(() => {
     fetch('/api/reports?type=dashboard&days=30')
@@ -52,13 +63,20 @@ export default function DashboardPage() {
     : 0;
   const yMax = Math.ceil(maxSales * 1.15 / 1000) * 1000 || 1000;
 
+  // Valores según el período seleccionado
+  const salesValue = data ? (period === 'today' ? data.salesToday : period === 'week' ? data.salesWeek : data.salesMonth) : 0;
+  const netProfitValue = data ? (period === 'today' ? data.netProfitToday : period === 'week' ? data.netProfitWeek : data.netProfitMonth) : 0;
+  const expensesValue = data ? (period === 'today' ? data.expensesToday : period === 'week' ? data.expensesWeek : data.expensesMonth) : 0;
+
+  const periodLabel = period === 'today' ? 'hoy' : period === 'week' ? 'esta semana' : 'este mes';
+
   const tz = data?.timezone ?? 'America/Havana';
 
   return (
     <div className="space-y-6">
-      {/* System date/time indicator — rendered only on client after mount */}
+      {/* System date/time indicator */}
       {now && (
-        <div className="flex items-center gap-3 px-1">
+        <div className="flex items-center justify-between gap-3 px-1">
           <div className="flex items-center gap-2 text-sm text-[#8b949e]">
             <Clock className="w-4 h-4 text-brand-400" />
             <span className="capitalize">{fmtInTz(now, tz, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
@@ -72,15 +90,41 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Ventas hoy" value={formatCurrency(data?.salesToday ?? 0)} icon={DollarSign} variant="default" loading={loading} />
-        <StatCard title="Esta semana" value={formatCurrency(data?.salesWeek ?? 0)} icon={BarChart2} variant="info" loading={loading} />
-        <StatCard title="Este mes" value={formatCurrency(data?.salesMonth ?? 0)} icon={TrendingUp} variant="success" loading={loading} />
-        <StatCard title="Ganancia neta" value={formatCurrency(data?.netProfitMonth ?? 0)} icon={data?.netProfitMonth && data.netProfitMonth >= 0 ? TrendingUp : TrendingDown} variant={data?.netProfitMonth && data.netProfitMonth >= 0 ? 'success' : 'danger'} loading={loading} />
+      {/* Period filter buttons */}
+      <div className="flex items-center gap-2">
+        <Calendar className="w-4 h-4 text-[#6e7681]" />
+        <div className="flex gap-1 bg-[#161b22] rounded-lg p-0.5 border border-[#21262d]">
+          {PERIODS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setPeriod(key)}
+              className={cn(
+                'px-3 py-1.5 text-xs font-medium rounded-md transition-all',
+                period === key
+                  ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30 shadow-sm'
+                  : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] border border-transparent'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard title="Gastos mes" value={formatCurrency(data?.expensesMonth ?? 0)} icon={TrendingDown} variant="warning" loading={loading} />
+      {/* Main stat cards — filtrados por período */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <StatCard title={`Ventas ${periodLabel}`} value={formatCurrency(salesValue)} icon={DollarSign} variant="default" loading={loading} />
+        <StatCard
+          title={`Ganancia neta ${periodLabel}`}
+          value={formatCurrency(netProfitValue)}
+          icon={netProfitValue >= 0 ? TrendingUp : TrendingDown}
+          variant={netProfitValue >= 0 ? 'success' : 'danger'}
+          loading={loading}
+        />
+        <StatCard title={`Gastos ${periodLabel}`} value={formatCurrency(expensesValue)} icon={TrendingDown} variant="warning" loading={loading} />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <StatCard title="Por cobrar" value={formatCurrency(data?.pendingDebt ?? 0)} subtitle={`${data?.pendingDebtCount ?? 0} clientes con deuda`} icon={Users} variant={data?.pendingDebt && data.pendingDebt > 0 ? 'warning' : 'default'} loading={loading} />
         <StatCard title="Stock bajo" value={String(data?.lowStockCount ?? 0)} subtitle="Productos bajo mínimo" icon={AlertTriangle} variant={data?.lowStockCount && data.lowStockCount > 0 ? 'danger' : 'success'} loading={loading} />
       </div>

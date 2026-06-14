@@ -28,7 +28,7 @@ export const GET = handle(async (req: Request) => {
       };
     };
 
-    const [today, week, month, expenses, cogs, debt, lowStock, chart, top] = await Promise.all([
+    const [today, week, month, expenses, cogs, debt, lowStock, chart, top, expensesToday, expensesWeek, cogsToday, cogsWeek] = await Promise.all([
       query<{total:number}>(`SELECT COALESCE(SUM(total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} DATE(${locationId?'s.':''}date)=CURDATE() AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
       query<{total:number}>(`SELECT COALESCE(SUM(total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL 7 DAY) AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
       query<{total:number}>(`SELECT COALESCE(SUM(total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL 30 DAY) AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
@@ -38,16 +38,30 @@ export const GET = handle(async (req: Request) => {
       query<{count:number}>(`SELECT COUNT(*) AS count FROM products p WHERE p.active=1${locationId?' AND p.id IN (SELECT product_id FROM location_stock WHERE location_id=?)':''} AND (SELECT COALESCE(${locationId?'quantity,0':'SUM(quantity),0'}) FROM location_stock WHERE product_id=p.id${locationId?' AND location_id=?':''}) <= p.min_stock`, (locationId ? [locationId, locationId] : []) as unknown[]),
       query<{date:string;total:number}>(`SELECT DATE_FORMAT(${locationId?'s.':''}date,'%d/%m') AS date,COALESCE(SUM(${locationId?'s.':''}total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND${locationId?' s.':' '}status!='cancelled' GROUP BY DATE(${locationId?'s.':''}date),DATE_FORMAT(${locationId?'s.':''}date,'%d/%m') ORDER BY DATE(${locationId?'s.':''}date) ASC`, locationId ? [locationId, days] : [days]),
       query<{name:string;total:number}>(`SELECT p.name,COALESCE(SUM(si.quantity*si.unit_price),0) AS total FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY) AND s.status!='cancelled' GROUP BY p.id,p.name ORDER BY total DESC LIMIT 5`,locParams()),
+      query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE${locationId?` id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='gasto' AND DATE(date)=CURDATE()) AND`:''} DATE(date)=CURDATE()`,locParams()),
+      query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE${locationId?` id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='gasto') AND`:''} date>=DATE_SUB(NOW(),INTERVAL 7 DAY)`,locParams()),
+      query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} DATE(${locationId?'s.':''}date)=CURDATE() AND s.status!='cancelled'`,locParams()),
+      query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL 7 DAY) AND s.status!='cancelled'`,locParams()),
     ]);
-    const cogsMonth = cogs[0]?.total ?? 0;
+    const salesTodayVal = today[0]?.total ?? 0;
+    const salesWeekVal = week[0]?.total ?? 0;
     const salesMonthVal = month[0]?.total ?? 0;
+    const cogsMonth = cogs[0]?.total ?? 0;
+    const cogsTodayVal = cogsToday[0]?.total ?? 0;
+    const cogsWeekVal = cogsWeek[0]?.total ?? 0;
     const expensesMonthVal = expenses[0]?.total ?? 0;
+    const expensesTodayVal = expensesToday[0]?.total ?? 0;
+    const expensesWeekVal = expensesWeek[0]?.total ?? 0;
+    const netProfitToday = salesTodayVal - cogsTodayVal - expensesTodayVal;
+    const netProfitWeek = salesWeekVal - cogsWeekVal - expensesWeekVal;
     const netProfitMonth = salesMonthVal - cogsMonth - expensesMonthVal;
     const timezone = process.env.TIMEZONE ?? 'America/Havana';
     return ok({
-      salesToday: today[0]?.total??0, salesWeek: week[0]?.total??0,
-      salesMonth: salesMonthVal, cogsMonth,
-      expensesMonth: expensesMonthVal, netProfitMonth,
+      salesToday: salesTodayVal, salesWeek: salesWeekVal,
+      salesMonth: salesMonthVal,
+      netProfitToday, netProfitWeek, netProfitMonth,
+      cogsMonth, cogsToday: cogsTodayVal, cogsWeek: cogsWeekVal,
+      expensesMonth: expensesMonthVal, expensesToday: expensesTodayVal, expensesWeek: expensesWeekVal,
       pendingDebt: debt[0]?.total??0, pendingDebtCount: debt[0]?.count??0,
       lowStockCount: lowStock[0]?.count??0,
       salesChart: chart, topProducts: top,

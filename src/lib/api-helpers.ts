@@ -32,7 +32,7 @@ export function serverError(e: unknown) {
 
 export type RouteHandler = (
   req: Request,
-  context?: { params: Promise<Record<string, string>> },
+  context: { params: Promise<Record<string, string>> },
 ) => Promise<NextResponse>;
 
 /**
