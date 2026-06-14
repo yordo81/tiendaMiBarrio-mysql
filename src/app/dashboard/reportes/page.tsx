@@ -93,22 +93,32 @@ export default function ReportesPage() {
     setLoading(true);
     try {
       const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
-      const [marginRes, dashRes] = await Promise.all([
+      const fromDate = new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+
+      const [marginRes, expensesRes] = await Promise.all([
         fetch(`/api/reports?type=margins&days=${days}${locQ}`),
-        fetch(`/api/reports?type=dashboard&days=${days}${locQ}`),
+        fetch(`/api/expenses?from=${fromDate}`),
       ]);
+
       const marginsData = await marginRes.json();
-      const dashData = await dashRes.json();
-      setMargins(Array.isArray(marginsData) ? marginsData as R[] : []);
-      if (dashData && typeof dashData === 'object') {
-        const totalSales = Number(dashData.salesMonth ?? 0);
-        const totalCost = Number(dashData.cogsMonth ?? 0);
-        const expenses = Number(dashData.expensesMonth ?? 0);
-        const grossProfit = totalSales - totalCost;
-        const netProfit = Number(dashData.netProfitMonth ?? 0);
-        const netMarginPct = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
-        setMarginSummary({ totalSales, totalCost, grossProfit, expenses, netProfit, netMarginPct });
-      }
+      const margins = Array.isArray(marginsData) ? marginsData as R[] : [];
+      setMargins(margins);
+
+      // Calcular totales a partir de los datos de márgenes (que sí respetan el filtro days)
+      const totalSales = margins.reduce((a, r) => a + Number(r.total_sold ?? 0), 0);
+      const totalCost = margins.reduce((a, r) => a + Number(r.total_cost ?? 0), 0);
+      const grossProfit = totalSales - totalCost;
+
+      let expenses = 0;
+      try {
+        const expensesData = await expensesRes.json();
+        expenses = (Array.isArray(expensesData) ? expensesData as R[] : [])
+          .reduce((a, r) => a + Number(r.amount ?? 0), 0);
+      } catch(e) { console.error('[loadMargins expenses]', e); }
+
+      const netProfit = grossProfit - expenses;
+      const netMarginPct = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
+      setMarginSummary({ totalSales, totalCost, grossProfit, expenses, netProfit, netMarginPct });
     } catch(e) { console.error('[loadMargins]', e); }
     finally { setLoading(false); }
   }, [days, locationFilter]);
