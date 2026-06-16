@@ -76,7 +76,7 @@ export const PUT = handle(async (request: Request, ctx) => {
     }
 
     // ── Auditoría para el ajuste de stock ──
-    const productName = body.name ?? current?.name ?? 'Producto';
+    const productName = body.name ?? 'Producto';
     const actionType = diff > 0 ? 'adjust_increase' : 'adjust_decrease';
     await logAudit({
       user_id: sessionUser.id,
