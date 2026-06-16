@@ -50,7 +50,7 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="hidden md:flex flex-col w-60 min-h-screen bg-[#161b22] border-r border-[#21262d] fixed left-0 top-0 z-40">
+    <aside className="hidden md:flex flex-col w-60 h-screen bg-[#161b22] border-r border-[#21262d] fixed left-0 top-0 z-40">
       <div className="flex items-center gap-3 px-5 py-5 border-b border-[#21262d]">
         <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-md shadow-brand-600/30">
           <ShoppingCart className="w-4 h-4 text-white" />
@@ -75,7 +75,7 @@ export default function Sidebar() {
           );
         })}
       </nav>
-      <div className="border-t border-[#21262d] p-3">
+      <div className="border-t border-[#21262d] p-3 space-y-2">
         <div className="flex items-center gap-3 px-2 py-2 rounded-lg">
           <div className="w-8 h-8 bg-brand-600/30 rounded-full flex items-center justify-center flex-shrink-0">
             <span className="text-brand-400 text-sm font-semibold">{user?.name?.charAt(0).toUpperCase() ?? '?'}</span>
@@ -84,10 +84,11 @@ export default function Sidebar() {
             <p className="text-sm text-[#e6edf3] font-medium truncate">{user?.name ?? 'Cargando...'}</p>
             <p className="text-xs text-[#6e7681]">{user ? classifyRole(user.role) : ''}</p>
           </div>
-          <button onClick={handleLogout} className="p-1.5 rounded-md text-[#6e7681] hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Cerrar sesión">
-            <LogOut className="w-4 h-4"/>
-          </button>
         </div>
+        <button onClick={handleLogout} className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-[#8b949e] hover:text-red-400 hover:bg-red-500/10 transition-all duration-150 group">
+          <LogOut className="w-4 h-4 flex-shrink-0 text-[#6e7681] group-hover:text-red-400" />
+          Cerrar sesión
+        </button>
       </div>
     </aside>
   );

@@ -1,8 +1,9 @@
 'use client';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Package, ShoppingCart, Warehouse, BarChart2, MoveHorizontal, ShoppingBag, Shield, DollarSign } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { LayoutDashboard, Package, ShoppingCart, Warehouse, BarChart2, MoveHorizontal, ShoppingBag, Shield, DollarSign, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/lib/stores/auth-store';
 const nav = [
   { href: '/dashboard',            label: 'Inicio',     icon: LayoutDashboard },
   { href: '/dashboard/inventario', label: 'Inventario', icon: Package },
@@ -16,6 +17,15 @@ const nav = [
 ];
 export default function MobileNav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { setUser } = useAuthStore();
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+    router.push('/auth/login');
+  }
+
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#161b22] border-t border-[#21262d]">
       <ul className="flex">
@@ -26,6 +36,11 @@ export default function MobileNav() {
             </Link>
           </li>
         );})}
+        <li className="flex-1">
+          <button onClick={handleLogout} className="flex flex-col items-center gap-1 py-3 text-[10px] transition-colors text-[#6e7681] hover:text-red-400 active:bg-red-500/10 w-full">
+            <LogOut size={20}/>Salir
+          </button>
+        </li>
       </ul>
     </nav>
   );
