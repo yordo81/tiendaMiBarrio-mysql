@@ -34,9 +34,12 @@ export const pool: mysql.Pool = globalThis._mysqlPool ?? (globalThis._mysqlPool 
 
 // Set session timezone on every new connection so CURDATE()/NOW() reflect the app timezone
 pool.on('connection', (conn) => {
-  conn.execute("SET time_zone = 'America/Havana'", (err: Error | null) => {
-    if (err) console.error('[mysql] Failed to set timezone:', err.message);
-  });
+  try {
+    conn.execute("SET time_zone = 'America/Havana'")
+      .catch((err: Error) => console.error('[mysql] Failed to set timezone:', err.message));
+  } catch (err) {
+    console.error('[mysql] Unexpected error in connection handler:', err);
+  }
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
