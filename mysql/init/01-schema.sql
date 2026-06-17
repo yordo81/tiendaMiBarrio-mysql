@@ -296,3 +296,20 @@ INSERT IGNORE INTO expense_categories (id,name) VALUES
   (UUID(),'Electricidad y servicios'),(UUID(),'Gastos operativos varios');
 INSERT IGNORE INTO categories (id,name) VALUES (UUID(),'Sin categoría');
 INSERT IGNORE INTO locations (id,name,type) VALUES (UUID(),'Almacén Principal','warehouse');
+
+-- ============================================================
+-- Usuario administrador por defecto (solo en Docker)
+-- Usuario: Admin / Correo: a@a.com / Password: Admin.1
+-- ============================================================
+INSERT IGNORE INTO users (id,name,email,password_hash,role,permissions,active,created_at,updated_at)
+VALUES (
+  UUID(),
+  'Admin',
+  'a@a.com',
+  '$2b$12$S7UdnMpUhJR5SrJFhPTLeOYMsNAfluEag5T21kFkGrLwPL415Aela',
+  'owner',
+  JSON_ARRAY(),
+  1,
+  NOW(),
+  NOW()
+);
