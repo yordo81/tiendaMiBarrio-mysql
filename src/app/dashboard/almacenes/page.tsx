@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/toaster';
+import Pagination from '@/components/ui/Pagination';
 import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw, Package, DollarSign, Layers } from 'lucide-react';
 type R = Record<string,unknown>;
 
@@ -36,6 +37,24 @@ export default function AlmacenesPage() {
   const [trForm, setTrForm] = useState({from_location_id:'',to_location_id:'',product_id:'',quantity:0,notes:''});
   const [movForm, setMovForm] = useState({location_id:'',product_id:'',type:'entrada',quantity:0,notes:''});
   const [locStockMap, setLocStockMap] = useState<Record<string, number>>({});
+  // Pagination for transfers
+  const [transferPage, setTransferPage] = useState(1);
+  const [transferPageSize, setTransferPageSize] = useState(10);
+  const paginatedTransfers = transferPageSize === 0
+    ? transfers
+    : transfers.slice((transferPage - 1) * transferPageSize, transferPage * transferPageSize);
+  // Pagination for stock & movements inside detail modal
+  const [stockPage, setStockPage] = useState(1);
+  const [stockPageSize, setStockPageSize] = useState(10);
+  const [movPage, setMovPage] = useState(1);
+  const [movPageSize, setMovPageSize] = useState(10);
+  const activeStock = locStock.filter(s => Number(s.quantity) > 0);
+  const paginatedStock = stockPageSize === 0
+    ? activeStock
+    : activeStock.slice((stockPage - 1) * stockPageSize, stockPage * stockPageSize);
+  const paginatedMoves = movPageSize === 0
+    ? locMoves
+    : locMoves.slice((movPage - 1) * movPageSize, movPage * movPageSize);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -196,11 +215,11 @@ export default function AlmacenesPage() {
           </div>
           <div className="card overflow-hidden">
             {loading?<div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"/></div>
-            :transfers.length===0?<EmptyState icon={ArrowRightLeft} title="Sin traslados" description="Registra el primer traslado" action={<button onClick={()=>setShowTransfer(true)} className="btn-primary">Nuevo traslado</button>}/>:(
+            :transfers.length===0?<EmptyState icon={ArrowRightLeft} title="Sin traslados" description="Registra el primer traslado" action={<button onClick={()=>setShowTransfer(true)} className="btn-primary">Nuevo traslado</button>}/>:(<>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b border-[#21262d]">{['Fecha','Origen','Destino','Producto','Cantidad','Usuario'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{h}</th>)}</tr></thead>
-                  <tbody>{transfers.map(t=>(
+                  <tbody>{paginatedTransfers.map(t=>(
                     <tr key={String(t.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
                       <td className="px-4 py-3 text-[#8b949e] text-xs whitespace-nowrap">{t.created_at?formatDateTime(String(t.created_at)):'—'}</td>
                       <td className="px-4 py-3 text-[#e6edf3]">{String(t.from_location_name??'—')}</td>
@@ -212,6 +231,7 @@ export default function AlmacenesPage() {
                   ))}</tbody>
                 </table>
               </div>
+              <Pagination currentPage={transferPage} totalItems={transfers.length} pageSize={transferPageSize} onPageChange={setTransferPage} onPageSizeChange={setTransferPageSize} /></>
             )}
           </div>
         </>
@@ -231,17 +251,17 @@ export default function AlmacenesPage() {
           </div>
 
           {detailTab==='stock'&&(
-            locStock.length===0?(
+            activeStock.length===0?(
               <div className="flex flex-col items-center justify-center py-10 text-[#6e7681]">
                 <PackagePlus size={32} className="mb-3 opacity-40"/>
                 <p className="text-sm text-center">Sin stock en este almacén.</p>
                 <p className="text-xs text-center mt-1">Usa <strong className="text-[#e6edf3]">Entrada</strong> para cargar productos aquí.</p>
               </div>
-            ):(
+            ):(<>
               <div className="overflow-x-auto rounded-xl border border-[#21262d]">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b border-[#21262d] bg-[#0d1117]">{['Producto','Stock disponible','Unidad'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{h}</th>)}</tr></thead>
-                  <tbody>{locStock.map(s=>(
+                  <tbody>{paginatedStock.map(s=>(
                     <tr key={String(s.id)} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
                       <td className="px-4 py-2.5 text-[#e6edf3] font-medium">{String(s.product_name??'—')}</td>
                       <td className="px-4 py-2.5"><span className={cn('font-semibold',Number(s.quantity)<=0?'text-red-400':'text-green-400')}>{formatNumber(Number(s.quantity),2)}</span></td>
@@ -250,15 +270,16 @@ export default function AlmacenesPage() {
                   ))}</tbody>
                 </table>
               </div>
+              <Pagination currentPage={stockPage} totalItems={activeStock.length} pageSize={stockPageSize} onPageChange={setStockPage} onPageSizeChange={setStockPageSize} /></>
             )
           )}
 
           {detailTab==='movimientos'&&(
-            locMoves.length===0?<p className="text-center text-[#6e7681] py-8 text-sm">Sin movimientos</p>:(
+            locMoves.length===0?<p className="text-center text-[#6e7681] py-8 text-sm">Sin movimientos</p>:(<>
               <div className="overflow-x-auto rounded-xl border border-[#21262d]">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b border-[#21262d] bg-[#0d1117]">{['Fecha','Tipo','Producto','Cantidad','Notas','Usuario'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{h}</th>)}</tr></thead>
-                  <tbody>{locMoves.map(m=>(
+                  <tbody>{paginatedMoves.map(m=>(
                     <tr key={String(m.id)} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
                       <td className="px-4 py-2.5 text-[#8b949e] text-xs whitespace-nowrap">{m.created_at?formatDateTime(String(m.created_at)):'—'}</td>
                       <td className="px-4 py-2.5"><span className={cn('text-xs font-medium',movColor[String(m.type??'')]??'text-[#e6edf3]')}>{movLabel[String(m.type??'')]??String(m.type??'')}</span></td>
@@ -270,6 +291,7 @@ export default function AlmacenesPage() {
                   ))}</tbody>
                 </table>
               </div>
+              <Pagination currentPage={movPage} totalItems={locMoves.length} pageSize={movPageSize} onPageChange={setMovPage} onPageSizeChange={setMovPageSize} /></>
             )
           )}
 
