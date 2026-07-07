@@ -90,7 +90,7 @@ export const POST = handle(async (request: Request) => {
      VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)`,
     [id, body.name, body.description??null, body.category_id??null,
      Number(body.sale_price??0), Number(body.cost??0), Number(body.stock??0),
-     Number(body.min_stock??0), body.unit??'unidad', null, ts, ts]
+     Number(body.min_stock??0), body.unit??'unidad', body.image_url ?? null, ts, ts]
   );
 
   if (Array.isArray(body.supplier_ids)) {
