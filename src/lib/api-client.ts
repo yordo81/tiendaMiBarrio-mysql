@@ -107,4 +107,14 @@ export const api = {
   getAccounting: () => apiFetch<Record<string, unknown>>('/api/accounting'),
   getCashRegister: () => apiFetch<Record<string, unknown>[]>('/api/cash-register'),
   createCashRegisterEntry: (data: unknown) => apiFetch('/api/cash-register', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Upload
+  uploadImage: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetch('/api/upload', { method: 'POST', body: formData }).then(async r => {
+      if (!r.ok) { const err = await r.json(); throw new Error(err.error ?? 'Error al subir imagen'); }
+      return r.json() as Promise<{ url: string; filename: string }>;
+    });
+  },
 };

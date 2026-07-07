@@ -8,7 +8,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
-import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Tag, History, ArrowRightLeft, ShoppingBag } from 'lucide-react';
+import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Tag, History, ArrowRightLeft, ShoppingBag, Image as ImageIcon, Upload, X as XIcon } from 'lucide-react';
 
 type Tab = 'productos' | 'categorias';
 type AnyRecord = Record<string,unknown>;
@@ -44,6 +44,12 @@ export default function InventarioPage() {
   const [editCat, setEditCat] = useState<AnyRecord | null>(null);
   const [deleteCat, setDeleteCat] = useState<AnyRecord | null>(null);
   const [catForm, setCatForm] = useState({ name: '', parent_id: '' });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dropRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Inicialización única del filtro de ubicación
   const locInitialized = useRef(false);
@@ -70,18 +76,31 @@ export default function InventarioPage() {
   // Cargar datos cada vez que cambie el filtro de ubicación
   useEffect(() => { load(locFilter || undefined); }, [load, locFilter]);
 
-  function openNew() { setEditProduct(null); setForm({ name:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '' }); setShowModal(true); }
-  function openEdit(p: AnyRecord) { setEditProduct(p); setForm({ ...p, supplier_ids: (p.supplier_ids as string[]|undefined) ?? [] }); setShowModal(true); }
+  function openNew() { setEditProduct(null); setForm({ name:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '' }); setImageFile(null); setImagePreview(null); setShowModal(true); }
+  function openEdit(p: AnyRecord) { setEditProduct(p); setForm({ ...p, supplier_ids: (p.supplier_ids as string[]|undefined) ?? [] }); setImageFile(null); setImagePreview(String(p.image_url??'')); setShowModal(true); }
 
   async function handleSave() {
     if (!String(form.name ?? '').trim()) return;
     setSaving(true);
     try {
-      if (editProduct) await api.updateProduct(String(editProduct.id), form);
-      else await api.createProduct(form);
+      let imageUrl = String(form.image_url ?? '');
+      // Upload image if a new file was selected
+      if (imageFile) {
+        setImageUploading(true);
+        const formData = new FormData();
+        formData.append('file', imageFile);
+        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+        if (!uploadRes.ok) { const err = await uploadRes.json(); throw new Error(err.error ?? 'Error al subir imagen'); }
+        const uploadData = await uploadRes.json();
+        imageUrl = uploadData.url;
+        setImageUploading(false);
+      }
+      const payload = { ...form, image_url: imageUrl || null };
+      if (editProduct) await api.updateProduct(String(editProduct.id), payload);
+      else await api.createProduct(payload);
       toast.success(editProduct ? 'Producto actualizado' : 'Producto creado');
       setShowModal(false); load();
-    } catch(e) { toast.error(e instanceof Error ? e.message : 'Error al guardar'); } finally { setSaving(false); }
+    } catch(e) { toast.error(e instanceof Error ? e.message : 'Error al guardar'); } finally { setSaving(false); setImageUploading(false); }
   }
 
   async function handleDelete() {
@@ -245,13 +264,27 @@ export default function InventarioPage() {
             : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[#21262d]">{['Producto','Categoría','Proveedores','Ubicación','Stock','Precio','Costo','Margen',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                  <thead><tr className="border-b border-[#21262d]">{['img-col','Producto','Categoría','Proveedores','Ubicación','Stock','Precio','Costo','Margen','actions-col'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{['img-col','actions-col'].includes(h)?'':h}</th>)}</tr></thead>
                   <tbody>
                     {paginated.map(p => {
                       const lowS = Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0;
                       const margin = calcMargin(Number(p.sale_price), Number(p.cost));
                       return (
                         <tr key={String(p.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
+                          <td className="px-4 py-3 w-12">
+                            <div className="w-10 h-10 bg-[#0d1117] rounded-lg border border-[#21262d] overflow-hidden flex items-center justify-center flex-shrink-0">
+                              {String(p.image_url??'') ? (
+                                <img
+                                  src={String(p.image_url)}
+                                  alt={String(p.name)}
+                                  className="w-full h-full object-cover"
+                                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                />
+                              ) : (
+                                <ImageIcon className="w-4 h-4 text-[#30363d]" />
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-3"><div className="font-medium text-[#e6edf3]">{String(p.name)}</div>{Boolean(p.description) ? <div className="text-xs text-[#6e7681] truncate max-w-[140px]">{String(p.description)}</div> : null}</td>
                           <td className="px-4 py-3 text-[#8b949e]">{String(p.category_name??'—')}</td>
                           <td className="px-4 py-3 text-[#8b949e] text-xs max-w-[120px] truncate">{(p.supplier_names as string[]|undefined)?.join(', ')||'—'}</td>
@@ -309,10 +342,112 @@ export default function InventarioPage() {
       )}
 
       {/* Product Modal */}
-      <Modal open={showModal} onClose={()=>setShowModal(false)} title={editProduct?'Editar producto':'Nuevo producto'} size="xl">
+      <Modal open={showModal} onClose={()=>{ setShowModal(false); setImageFile(null); if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview); setImagePreview(null); }} title={editProduct?'Editar producto':'Nuevo producto'} size="xl">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2"><label className="label">Nombre *</label><input className="input" value={String(form.name??'')} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></div>
           <div className="sm:col-span-2"><label className="label">Descripción</label><input className="input" value={String(form.description??'')} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></div>
+          {/* Image upload with drag & drop */}
+          <div className="sm:col-span-2">
+            <label className="label">Imagen del producto</label>
+            <div
+              ref={dropRef}
+              onDragOver={e => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
+              onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
+              onDragLeave={e => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
+              onDrop={e => {
+                e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) {
+                  if (!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)) {
+                    toast.error('Tipo de archivo no permitido. Usa: JPEG, PNG, WebP o GIF');
+                    return;
+                  }
+                  if (file.size > 10 * 1024 * 1024) {
+                    toast.error('La imagen no puede superar los 10MB');
+                    return;
+                  }
+                  setImageFile(file);
+                  setImagePreview(URL.createObjectURL(file));
+                }
+              }}
+              className={`relative flex items-start gap-4 p-4 rounded-xl border-2 border-dashed transition-all duration-200 cursor-pointer ${
+                isDragOver
+                  ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-500/10'
+                  : 'border-[#30363d] bg-[#0d1117]/50 hover:border-[#6e7681] hover:bg-[#0d1117]/80'
+              }`}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 10 * 1024 * 1024) {
+                      toast.error('La imagen no puede superar los 10MB');
+                      return;
+                    }
+                    setImageFile(file);
+                    setImagePreview(URL.createObjectURL(file));
+                  }
+                }}
+              />
+
+              {/* Preview */}
+              <div className="w-24 h-24 bg-[#0d1117] rounded-xl border border-[#30363d] overflow-hidden flex items-center justify-center flex-shrink-0 transition-all duration-200">
+                {imagePreview ? (
+                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <ImageIcon className="w-8 h-8 text-[#30363d]" />
+                )}
+              </div>
+
+              {/* Info & actions */}
+              <div className="flex-1 space-y-2 min-w-0">
+                {imagePreview ? (
+                  <>
+                    <p className="text-sm text-[#e6edf3] font-medium">Imagen seleccionada</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={e => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#21262d] hover:bg-[#2d333b] text-xs text-[#e6edf3] rounded-lg border border-[#30363d] transition-all hover:border-[#6e7681]"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Cambiar
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); setImageFile(null); setImagePreview(null); setForm(f => ({ ...f, image_url: null })); }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                      >
+                        <XIcon className="w-3.5 h-3.5" />
+                        Eliminar
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 text-sm text-[#8b949e]">
+                      <Upload className="w-4 h-4 text-[#6e7681]" />
+                      <span>Arrastra una imagen aquí o <span className="text-brand-400 font-medium underline underline-offset-2">selecciona un archivo</span></span>
+                    </div>
+                    <p className="text-[10px] text-[#6e7681]">JPEG, PNG, WebP o GIF. Máximo 10MB.</p>
+                  </>
+                )}
+              </div>
+
+              {/* Drag-over overlay indicator */}
+              {isDragOver && (
+                <div className="absolute inset-0 rounded-xl bg-brand-600/5 border-2 border-brand-500 flex items-center justify-center pointer-events-none">
+                  <div className="flex flex-col items-center gap-2 text-brand-400">
+                    <Upload className="w-8 h-8" />
+                    <span className="text-sm font-semibold">Suelta la imagen aquí</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
           <div><label className="label">Categoría</label>
             <select className="input" value={String(form.category_id??'')} onChange={e=>setForm(f=>({...f,category_id:e.target.value||null}))}>
               <option value="">Sin categoría</option>
@@ -354,7 +489,7 @@ export default function InventarioPage() {
           </div>
         )}
         <div className="flex flex-col xs:flex-row gap-2 justify-end mt-5">
-          <button onClick={()=>setShowModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
+          <button onClick={()=>{ setShowModal(false); setImageFile(null); if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview); setImagePreview(null); }} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
           <button onClick={handleSave} disabled={saving||!String(form.name??'').trim()} className="btn-primary flex-1 xs:flex-none disabled:opacity-50">{saving?'Guardando...':editProduct?'Actualizar':'Crear'}</button>
         </div>
       </Modal>

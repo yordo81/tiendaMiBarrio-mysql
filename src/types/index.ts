@@ -220,6 +220,21 @@ export interface TopProduct {
   total_revenue: number;
 }
 
+// ─── Reservations ───────────────────────────────────────────────────────────
+
+export interface Reservation {
+  id: string;
+  product_id: string;
+  product_name?: string;
+  customer_name: string;
+  customer_phone: string | null;
+  quantity: number;
+  status: 'pending' | 'confirmed' | 'cancelled';
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RestockForecast {
   product_id: string;
   name: string;
