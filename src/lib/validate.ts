@@ -1,3 +1,11 @@
+// ── Normalización de teléfono ────────────────────────────────
+// Elimina espacios, guiones, paréntesis y puntos; conserva dígitos y el + inicial
+// Ej: "+53 5528 0263" → "+5355280263"
+export function normalizePhone(phone: string | null | undefined): string | null {
+  if (!phone?.trim()) return null;
+  return phone.trim().replace(/[^\d+]/g, '');
+}
+
 // ============================================================
 // VALIDACIÓN DE VALORES ENUM — evita errores "Data truncated"
 // ============================================================

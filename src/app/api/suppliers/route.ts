@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, execute, queryOne } from '@/lib/db/mysql';
 import { logAudit } from '@/lib/db/audit';
+import { normalizePhone } from '@/lib/validate';
 import { handle, ok, notFound, forbidden } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
@@ -10,12 +11,12 @@ export const GET = handle(async () => {
 });
 export const POST = handle(async (req: Request) => {
   await requireAuth(); const body=await req.json(); const id=randomUUID(); const ts=new Date().toISOString().slice(0,19).replace('T',' ');
-  await execute('INSERT INTO suppliers (id,name,contact,phone,notes,active,created_at,updated_at) VALUES (?,?,?,?,?,1,?,?)',[id,body.name,body.contact??null,body.phone??null,body.notes??null,ts,ts]);
+  await execute('INSERT INTO suppliers (id,name,contact,phone,notes,active,created_at,updated_at) VALUES (?,?,?,?,?,1,?,?)',[id,body.name,body.contact??null,normalizePhone(body.phone),body.notes??null,ts,ts]);
   return ok((await query('SELECT * FROM suppliers WHERE id=?',[id]))[0], 201);
 });
 export const PUT = handle(async (req: Request) => {
   await requireAuth(); const { id,...body }=await req.json(); const ts=new Date().toISOString().slice(0,19).replace('T',' ');
-  await execute('UPDATE suppliers SET name=?,contact=?,phone=?,notes=?,updated_at=? WHERE id=?',[body.name,body.contact??null,body.phone??null,body.notes??null,ts,id]);
+  await execute('UPDATE suppliers SET name=?,contact=?,phone=?,notes=?,updated_at=? WHERE id=?',[body.name,body.contact??null,normalizePhone(body.phone),body.notes??null,ts,id]);
   return ok((await query('SELECT * FROM suppliers WHERE id=?',[id]))[0]);
 });
 export const DELETE = handle(async (req: Request) => {

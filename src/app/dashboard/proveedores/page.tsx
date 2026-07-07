@@ -8,8 +8,10 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
-import { Truck, Plus, Search, Edit2, Trash2, TrendingDown, History } from 'lucide-react';
+import { Truck, Plus, Search, Edit2, Trash2, TrendingDown, History, Phone, PhoneOff, CheckCircle } from 'lucide-react';
 type R = Record<string,unknown>;
+
+const PHONE_REGEX = /^(\+?53)?[\s.-]?\d{7,8}$/;
 
 export default function ProveedoresPage() {
   const { user } = useAuthStore();
@@ -26,6 +28,7 @@ export default function ProveedoresPage() {
   const [selectedProduct, setSelectedProduct] = useState('');
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name:'', contact:'', phone:'', notes:'' });
+  const [phoneTouched, setPhoneTouched] = useState(false);
   const [priceForm, setPriceForm] = useState({ product_id:'', supplier_id:'', price:0, notes:'' });
 
   // Pagination
@@ -45,7 +48,7 @@ export default function ProveedoresPage() {
       if (editSupplier) await api.updateSupplier({ id: editSupplier.id, ...form });
       else await api.createSupplier(form);
       toast.success(editSupplier?'Proveedor actualizado':'Proveedor creado'); setShowModal(false); load();
-    } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
+    } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); setPhoneTouched(false); }
   }
 
   async function handleDelete() {
@@ -82,7 +85,7 @@ export default function ProveedoresPage() {
         <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]"/><input className="input pl-9" placeholder="Buscar proveedores..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
         <div className="flex gap-2">
           <button onClick={()=>setShowPriceModal(true)} className="btn-secondary flex items-center gap-2"><TrendingDown className="w-4 h-4"/>Registrar precio</button>
-          <button onClick={()=>{setEditSupplier(null);setForm({name:'',contact:'',phone:'',notes:''});setShowModal(true);}} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nuevo proveedor</button>
+          <button onClick={()=>{setEditSupplier(null);setForm({name:'',contact:'',phone:'',notes:''});setPhoneTouched(false);setShowModal(true);}} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nuevo proveedor</button>
         </div>
       </div>
       <div className="card overflow-hidden">
@@ -97,7 +100,7 @@ export default function ProveedoresPage() {
                   <td className="px-4 py-3 text-[#8b949e]">{String(s.contact??'—')}</td>
                   <td className="px-4 py-3 text-[#8b949e]">{String(s.phone??'—')}</td>
                   <td className="px-4 py-3"><div className="flex gap-1">
-                    <button onClick={()=>{setEditSupplier(s);setForm({name:String(s.name),contact:String(s.contact??''),phone:String(s.phone??''),notes:String(s.notes??'')});setShowModal(true);}} className="p-1.5 rounded-lg text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
+                    <button onClick={()=>{setEditSupplier(s);setForm({name:String(s.name),contact:String(s.contact??''),phone:String(s.phone??''),notes:String(s.notes??'')});setPhoneTouched(false);setShowModal(true);}} className="p-1.5 rounded-lg text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
                     {(user?.role==='owner'||user?.role==='admin') && <button onClick={()=>setDeleteTarget(s)} className="p-1.5 rounded-lg text-[#6e7681] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>}
                   </div></td>
                 </tr>
@@ -134,13 +137,48 @@ export default function ProveedoresPage() {
         ):<p className="text-sm text-[#6e7681]">Selecciona un producto para ver el historial de precios.</p>}
       </div>
 
-      <Modal open={showModal} onClose={()=>setShowModal(false)} title={editSupplier?'Editar proveedor':'Nuevo proveedor'} size="md">
+      <Modal open={showModal} onClose={()=>{setShowModal(false); setPhoneTouched(false);}} title={editSupplier?'Editar proveedor':'Nuevo proveedor'} size="md">
         <div className="space-y-4">
           <div><label className="label">Nombre *</label><input className="input" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></div>
           <div><label className="label">Contacto</label><input className="input" value={form.contact} onChange={e=>setForm(f=>({...f,contact:e.target.value}))}/></div>
-          <div><label className="label">Teléfono</label><input className="input" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/></div>
+          <div>
+            <label className="label">Teléfono</label>
+            <div className="relative">
+              {form.phone.trim() ? (
+                PHONE_REGEX.test(form.phone.trim()) ? (
+                  <CheckCircle className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-400" />
+                ) : (
+                  <PhoneOff className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400" />
+                )
+              ) : (
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+              )}
+              <input
+                className={`input pl-10 ${
+                  phoneTouched && form.phone.trim()
+                    ? PHONE_REGEX.test(form.phone.trim())
+                      ? 'border-green-500/50 focus:border-green-500 focus:ring-green-500/20'
+                      : 'border-amber-500/50 focus:border-amber-500 focus:ring-amber-500/20'
+                    : ''
+                }`}
+                value={form.phone}
+                onChange={e=>setForm(f=>({...f,phone:e.target.value}))}
+                placeholder="Ej: +53 55280263"
+                onFocus={() => setPhoneTouched(true)}
+              />
+              {phoneTouched && form.phone.trim() && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  {PHONE_REGEX.test(form.phone.trim()) ? (
+                    <span className="text-[10px] text-green-400 font-medium">Válido</span>
+                  ) : (
+                    <span className="text-[10px] text-amber-400 font-medium">Inválido</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
           <div><label className="label">Notas</label><input className="input" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
-          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSave} disabled={saving||!form.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editSupplier?'Actualizar':'Crear'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>{setShowModal(false); setPhoneTouched(false);}} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSave} disabled={saving||!form.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editSupplier?'Actualizar':'Crear'}</button></div>
         </div>
       </Modal>
 
