@@ -36,6 +36,7 @@ export default function ContabilidadPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
+  const [periodFilter, setPeriodFilter] = useState<'total' | 'week' | 'month' | '90days'>('total');
 
   const load = useCallback(async () => {
     try {
@@ -354,39 +355,101 @@ export default function ContabilidadPage() {
         </div>
       )}
 
-      {/* Historical Totals */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="card p-4">
-          <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wide mb-3">Ingresos históricos</h4>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-[#8b949e]">En efectivo</span>
-              <span className="text-green-400 font-medium">{formatCurrency(Number(data.total_cash_in ?? 0))}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[#8b949e]">Por transferencia</span>
-              <span className="text-blue-400 font-medium">{formatCurrency(Number(data.total_transfer_in ?? 0))}</span>
-            </div>
-            <div className="border-t border-[#21262d] pt-2 flex justify-between font-semibold">
-              <span className="text-[#e6edf3]">Total ingresado</span>
-              <span className="text-[#e6edf3]">{formatCurrency(Number(data.total_cash_in ?? 0) + Number(data.total_transfer_in ?? 0))}</span>
-            </div>
+      {/* Period Filter */}
+      <div className="card p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-xs text-[#8b949e] uppercase tracking-wide font-semibold">Filtrar por periodo</span>
+          <div className="flex gap-1 ml-auto">
+            {(['total', 'week', 'month', '90days'] as const).map(p => (
+              <button
+                key={p}
+                onClick={() => setPeriodFilter(p)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  periodFilter === p
+                    ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
+                    : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#1c2128] border border-transparent'
+                )}
+              >
+                {p === 'total' ? 'Todo' : p === 'week' ? 'Semana' : p === 'month' ? 'Último mes' : '90 días'}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="card p-4">
-          <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wide mb-3">Egresos históricos</h4>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-[#8b949e]">En efectivo</span>
-              <span className="text-red-400 font-medium">{formatCurrency(Number(data.total_cash_out ?? 0))}</span>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="card p-4">
+            <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wide mb-3">
+              Ingresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : 'últimos 90 días'}
+            </h4>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-[#8b949e]">En efectivo</span>
+                <span className="text-green-400 font-medium">
+                  {formatCurrency(
+                    periodFilter === 'total'
+                      ? Number(data.total_cash_in ?? 0)
+                      : Number(data[`${periodFilter}_income_cash` as keyof R] ?? 0)
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#8b949e]">Por transferencia</span>
+                <span className="text-blue-400 font-medium">
+                  {formatCurrency(
+                    periodFilter === 'total'
+                      ? Number(data.total_transfer_in ?? 0)
+                      : Number(data[`${periodFilter}_income_transfer` as keyof R] ?? 0)
+                  )}
+                </span>
+              </div>
+              <div className="border-t border-[#21262d] pt-2 flex justify-between font-semibold">
+                <span className="text-[#e6edf3]">Total ingresado</span>
+                <span className="text-[#e6edf3]">
+                  {formatCurrency(
+                    periodFilter === 'total'
+                      ? Number(data.total_cash_in ?? 0) + Number(data.total_transfer_in ?? 0)
+                      : Number(data[`${periodFilter}_income` as keyof R] ?? 0)
+                  )}
+                </span>
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span className="text-[#8b949e]">Por transferencia</span>
-              <span className="text-red-400 font-medium">{formatCurrency(Number(data.total_transfer_out ?? 0))}</span>
-            </div>
-            <div className="border-t border-[#21262d] pt-2 flex justify-between font-semibold">
-              <span className="text-[#e6edf3]">Total egresado</span>
-              <span className="text-[#e6edf3]">{formatCurrency(Number(data.total_cash_out ?? 0) + Number(data.total_transfer_out ?? 0))}</span>
+          </div>
+          <div className="card p-4">
+            <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wide mb-3">
+              Egresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : 'últimos 90 días'}
+            </h4>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-[#8b949e]">En efectivo</span>
+                <span className="text-red-400 font-medium">
+                  {formatCurrency(
+                    periodFilter === 'total'
+                      ? Number(data.total_cash_out ?? 0)
+                      : Number(data[`${periodFilter}_expenses_cash` as keyof R] ?? 0)
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#8b949e]">Por transferencia</span>
+                <span className="text-red-400 font-medium">
+                  {formatCurrency(
+                    periodFilter === 'total'
+                      ? Number(data.total_transfer_out ?? 0)
+                      : Number(data[`${periodFilter}_expenses_transfer` as keyof R] ?? 0)
+                  )}
+                </span>
+              </div>
+              <div className="border-t border-[#21262d] pt-2 flex justify-between font-semibold">
+                <span className="text-[#e6edf3]">Total egresado</span>
+                <span className="text-[#e6edf3]">
+                  {formatCurrency(
+                    periodFilter === 'total'
+                      ? Number(data.total_cash_out ?? 0) + Number(data.total_transfer_out ?? 0)
+                      : Number(data[`${periodFilter}_expenses` as keyof R] ?? 0)
+                  )}
+                </span>
+              </div>
             </div>
           </div>
         </div>

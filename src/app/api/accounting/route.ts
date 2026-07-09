@@ -80,6 +80,102 @@ export const GET = handle(async () => {
      WHERE payment_method IS NULL`
   );
 
+  // ── Period-filtered inflows (sales payments) ──
+  const periodSalesInflows = await query<{ cash: number; transfer: number; period: string }>(`
+    SELECT
+      'week' AS period,
+      COALESCE(SUM(p.amount_cash), 0) AS cash,
+      COALESCE(SUM(p.amount_transfer), 0) AS transfer
+    FROM payments p
+    JOIN sales s ON s.id = p.sale_id
+    WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+
+    UNION ALL
+
+    SELECT
+      'month' AS period,
+      COALESCE(SUM(p.amount_cash), 0) AS cash,
+      COALESCE(SUM(p.amount_transfer), 0) AS transfer
+    FROM payments p
+    JOIN sales s ON s.id = p.sale_id
+    WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+
+    UNION ALL
+
+    SELECT
+      '90days' AS period,
+      COALESCE(SUM(p.amount_cash), 0) AS cash,
+      COALESCE(SUM(p.amount_transfer), 0) AS transfer
+    FROM payments p
+    JOIN sales s ON s.id = p.sale_id
+    WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+  `);
+
+  // ── Period-filtered inflows (customer payments) ──
+  const periodCustomerInflows = await query<{ cash: number; transfer: number; mixed: number; period: string }>(`
+    SELECT
+      'week' AS period,
+      COALESCE(SUM(CASE WHEN method='cash' THEN amount ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
+      COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
+    FROM customer_payments
+    WHERE date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+
+    UNION ALL
+
+    SELECT
+      'month' AS period,
+      COALESCE(SUM(CASE WHEN method='cash' THEN amount ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
+      COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
+    FROM customer_payments
+    WHERE date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+
+    UNION ALL
+
+    SELECT
+      '90days' AS period,
+      COALESCE(SUM(CASE WHEN method='cash' THEN amount ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
+      COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
+    FROM customer_payments
+    WHERE date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+  `);
+
+  // ── Period-filtered outflows (expenses) ──
+  const periodExpenses = await query<{ cash: number; transfer: number; mixed: number; unclassified: number; period: string }>(`
+    SELECT
+      'week' AS period,
+      COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN payment_method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
+      COALESCE(SUM(CASE WHEN payment_method='mixed' THEN amount ELSE 0 END), 0) AS mixed,
+      COALESCE(SUM(CASE WHEN payment_method IS NULL THEN amount ELSE 0 END), 0) AS unclassified
+    FROM expenses
+    WHERE date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+
+    UNION ALL
+
+    SELECT
+      'month' AS period,
+      COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN payment_method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
+      COALESCE(SUM(CASE WHEN payment_method='mixed' THEN amount ELSE 0 END), 0) AS mixed,
+      COALESCE(SUM(CASE WHEN payment_method IS NULL THEN amount ELSE 0 END), 0) AS unclassified
+    FROM expenses
+    WHERE date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+
+    UNION ALL
+
+    SELECT
+      '90days' AS period,
+      COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN payment_method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
+      COALESCE(SUM(CASE WHEN payment_method='mixed' THEN amount ELSE 0 END), 0) AS mixed,
+      COALESCE(SUM(CASE WHEN payment_method IS NULL THEN amount ELSE 0 END), 0) AS unclassified
+    FROM expenses
+    WHERE date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+  `);
+
   // ── 10. Cash register entries (initial + adjustments) ──
   const registerEntries = await query<{ cash_total: number; transfer_total: number }>(
     `SELECT
@@ -359,6 +455,40 @@ export const GET = handle(async () => {
     };
   });
 
+  // ── Calculate period-filtered totals ──
+  function extractPeriod(rows: { period: string; cash: number; transfer: number; mixed?: number; unclassified?: number }[], periodKey: string) {
+    const row = rows.find(r => r.period === periodKey);
+    if (!row) return { cash: 0, transfer: 0, mixed: 0, unclassified: 0 };
+    return {
+      cash: Number(row.cash ?? 0),
+      transfer: Number(row.transfer ?? 0),
+      mixed: Number(row.mixed ?? 0),
+      unclassified: Number(row.unclassified ?? 0),
+    };
+  }
+
+  function calcPeriodInflows(periodKey: string) {
+    const sales = extractPeriod(periodSalesInflows, periodKey);
+    const cust = extractPeriod(periodCustomerInflows, periodKey);
+    const totalCash = sales.cash + cust.cash + (cust.mixed / 2);
+    const totalTransfer = sales.transfer + cust.transfer + (cust.mixed / 2);
+    return { cash: totalCash, transfer: totalTransfer, total: totalCash + totalTransfer };
+  }
+
+  function calcPeriodOutflows(periodKey: string) {
+    const exp = extractPeriod(periodExpenses, periodKey);
+    const totalCash = exp.cash + (exp.mixed / 2);
+    const totalTransfer = exp.transfer + (exp.mixed / 2);
+    return { cash: totalCash, transfer: totalTransfer, total: totalCash + totalTransfer };
+  }
+
+  const weekIn = calcPeriodInflows('week');
+  const monthIn = calcPeriodInflows('month');
+  const days90In = calcPeriodInflows('90days');
+  const weekOut = calcPeriodOutflows('week');
+  const monthOut = calcPeriodOutflows('month');
+  const days90Out = calcPeriodOutflows('90days');
+
   return ok({
     // Balances actuales
     cash_balance: Math.round(cashBalance * 100) / 100,
@@ -372,6 +502,28 @@ export const GET = handle(async () => {
     // Egresos históricos
     total_cash_out: Math.round(totalCashOut * 100) / 100,
     total_transfer_out: Math.round(totalTransferOut * 100) / 100,
+
+    // Periodos
+    week_income: Math.round(weekIn.total * 100) / 100,
+    week_income_cash: Math.round(weekIn.cash * 100) / 100,
+    week_income_transfer: Math.round(weekIn.transfer * 100) / 100,
+    week_expenses: Math.round(weekOut.total * 100) / 100,
+    week_expenses_cash: Math.round(weekOut.cash * 100) / 100,
+    week_expenses_transfer: Math.round(weekOut.transfer * 100) / 100,
+
+    month_income: Math.round(monthIn.total * 100) / 100,
+    month_income_cash: Math.round(monthIn.cash * 100) / 100,
+    month_income_transfer: Math.round(monthIn.transfer * 100) / 100,
+    month_expenses: Math.round(monthOut.total * 100) / 100,
+    month_expenses_cash: Math.round(monthOut.cash * 100) / 100,
+    month_expenses_transfer: Math.round(monthOut.transfer * 100) / 100,
+
+    days90_income: Math.round(days90In.total * 100) / 100,
+    days90_income_cash: Math.round(days90In.cash * 100) / 100,
+    days90_income_transfer: Math.round(days90In.transfer * 100) / 100,
+    days90_expenses: Math.round(days90Out.total * 100) / 100,
+    days90_expenses_cash: Math.round(days90Out.cash * 100) / 100,
+    days90_expenses_transfer: Math.round(days90Out.transfer * 100) / 100,
 
     // Registros de caja
     register_cash: Math.round(registerCash * 100) / 100,
