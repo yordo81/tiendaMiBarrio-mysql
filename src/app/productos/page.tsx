@@ -54,15 +54,77 @@ export default function ProductosPage() {
   const [productsLoading, setProductsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const [reservModal, setReservModal] = useState<{
-    product: { id: string; name: string; sale_price: number; stock: number; unit: string } | null;
-  }>({ product: null });
-  const [reservForm, setReservForm] = useState({ customer_name: '', customer_phone: '', quantity: 1, notes: '' });
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [phoneTouched, setPhoneTouched] = useState(false);
   const [reservSaving, setReservSaving] = useState(false);
   const [reservSuccess, setReservSuccess] = useState<string | null>(null);
   const [reservError, setReservError] = useState<string | null>(null);
+
+  // ── Shopping cart state ──
+  interface CartItem {
+    product: {
+      id: string;
+      name: string;
+      sale_price: number;
+      stock: number;
+      unit: string;
+    };
+    quantity: number;
+  }
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [cartNotification, setCartNotification] = useState<string | null>(null);
+
+  function addToCart(product: ProductItem) {
+    setCart(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      if (existing) {
+        return prev.map(item =>
+          item.product.id === product.id
+            ? { ...item, quantity: Math.min(item.quantity + 1, item.product.stock) }
+            : item
+        );
+      }
+      return [...prev, {
+        product: {
+          id: product.id,
+          name: product.name,
+          sale_price: product.sale_price,
+          stock: product.stock,
+          unit: product.unit,
+        },
+        quantity: 1,
+      }];
+    });
+    setCartNotification(product.name);
+    setTimeout(() => setCartNotification(null), 2000);
+  }
+
+  function removeFromCart(productId: string) {
+    setCart(prev => prev.filter(item => item.product.id !== productId));
+  }
+
+  function updateCartQuantity(productId: string, quantity: number) {
+    setCart(prev => prev.map(item =>
+      item.product.id === productId
+        ? { ...item, quantity: Math.max(1, Math.min(quantity, item.product.stock)) }
+        : item
+    ));
+  }
+
+  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const cartTotal = cart.reduce((sum, item) => sum + item.product.sale_price * item.quantity, 0);
+
+  function clearCart() {
+    setCart([]);
+    setCartForm({ customer_name: '', customer_phone: '', notes: '' });
+    setPhoneError(null);
+    setPhoneTouched(false);
+    setReservSuccess(null);
+    setReservError(null);
+  }
+
+  const [cartForm, setCartForm] = useState({ customer_name: '', customer_phone: '', notes: '' });
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -108,17 +170,17 @@ export default function ProductosPage() {
       .filter((c): c is ProductsByCategory => c !== null);
   }, [productsByCategory, searchQuery, selectedCategory]);
 
-  async function handleReservation(e: React.FormEvent) {
+  async function handleCartReservation(e: React.FormEvent) {
     e.preventDefault();
-    if (!reservModal.product || !reservForm.customer_name.trim() || reservForm.quantity <= 0) return;
+    if (!cartForm.customer_name.trim() || cart.length === 0) return;
     setReservSaving(true);
     setReservError(null);
     setReservSuccess(null);
     setPhoneError(null);
 
     // Validar formato de teléfono si se proporcionó
-    if (reservForm.customer_phone.trim()) {
-      if (!PHONE_REGEX.test(reservForm.customer_phone.trim())) {
+    if (cartForm.customer_phone.trim()) {
+      if (!PHONE_REGEX.test(cartForm.customer_phone.trim())) {
         setPhoneError('Formato inválido. Ejemplo: +53 55280263');
         setReservSaving(false);
         return;
@@ -130,28 +192,21 @@ export default function ProductosPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          product_id: reservModal.product.id,
-          customer_name: reservForm.customer_name,
-          customer_phone: reservForm.customer_phone,
-          quantity: reservForm.quantity,
-          notes: reservForm.notes,
+          items: cart.map(item => ({
+            product_id: item.product.id,
+            quantity: item.quantity,
+          })),
+          customer_name: cartForm.customer_name,
+          customer_phone: cartForm.customer_phone,
+          notes: cartForm.notes,
         }),
       });
       const data = await res.json();
       if (!res.ok) { setReservError(data.error ?? 'Error al crear reservación'); return; }
       setReservSuccess(data.message ?? 'Reservación creada con éxito');
-      setReservForm({ customer_name: '', customer_phone: '', quantity: 1, notes: '' });
+      setCartForm({ customer_name: '', customer_phone: '', notes: '' });
       setPhoneError(null);
     } catch { setReservError('Error de conexión'); } finally { setReservSaving(false); }
-  }
-
-  function openReserv(product: ProductItem) {
-    setReservModal({ product: { id: product.id, name: product.name, sale_price: product.sale_price, stock: product.stock, unit: product.unit } });
-    setReservForm({ customer_name: '', customer_phone: '', quantity: 1, notes: '' });
-    setReservSuccess(null);
-    setReservError(null);
-    setPhoneError(null);
-    setPhoneTouched(false);
   }
 
   // ── Search result count ──
@@ -208,7 +263,21 @@ export default function ProductosPage() {
             </nav>
 
             {/* Actions */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              {/* Cart button */}
+              <button
+                onClick={() => setCartOpen(true)}
+                className="relative p-2.5 text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                aria-label="Abrir carrito"
+              >
+                <ShoppingCart className="w-5 h-5" />
+                {cartCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-brand-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-lg shadow-brand-500/30">
+                    {cartCount > 99 ? '99+' : cartCount}
+                  </span>
+                )}
+              </button>
+
               {user ? (
                 <Link
                   href="/dashboard"
@@ -474,7 +543,7 @@ export default function ProductosPage() {
 
                           {/* Add button */}
                           <button
-                            onClick={() => openReserv(product)}
+                            onClick={() => addToCart(product)}
                             className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-brand-600/20 hover:shadow-brand-600/40 hover:-translate-y-0.5 active:translate-y-0"
                           >
                             <Plus className="w-3.5 h-3.5" />
@@ -501,188 +570,252 @@ export default function ProductosPage() {
           )}
         </div>
 
-        {/* ── Reservation Modal ── */}
-        {reservModal.product && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <div
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => { if (!reservSaving) setReservModal({ product: null }); }}
-            />
-            <div className="relative w-full max-w-md bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl p-6 animate-in zoom-in-95 duration-200">
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="font-display text-lg text-[#e6edf3]">Reservar producto</h3>
+        {/* ── Cart notification toast ── */}
+        {cartNotification && (
+          <div className="fixed bottom-6 right-6 z-[90] bg-[#161b22] border border-[#30363d] rounded-xl px-5 py-3 shadow-2xl shadow-brand-600/10 animate-in slide-in-from-right-5 fade-in duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-green-500/10 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-[#e6edf3]">Agregado al carrito</p>
+                <p className="text-xs text-[#8b949e]">{cartNotification}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Cart Panel (slide-out drawer) ── */}
+        {cartOpen && (
+          <div className="fixed inset-0 z-[100]">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (!reservSaving) setCartOpen(false); }} />
+            <div className="absolute right-0 top-0 bottom-0 w-full max-w-md bg-[#161b22] border-l border-[#30363d] shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[#21262d]">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-brand-500/10 rounded-xl flex items-center justify-center">
+                    <ShoppingCart className="w-4 h-4 text-brand-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#e6edf3]">
+                      Tu carrito {cartCount > 0 && <span className="text-brand-400">({cartCount})</span>}
+                    </h3>
+                    <p className="text-[10px] text-[#6e7681]">{cart.length} producto(s)</p>
+                  </div>
+                </div>
                 <button
-                  onClick={() => setReservModal({ product: null })}
-                  disabled={reservSaving}
-                  className="p-1.5 text-[#6e7681] hover:text-[#e6edf3] rounded-lg hover:bg-[#21262d] transition-colors disabled:opacity-50"
+                  onClick={() => setCartOpen(false)}
+                  className="p-1.5 text-[#6e7681] hover:text-[#e6edf3] rounded-lg hover:bg-[#21262d] transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Product info */}
-              <div className="flex items-center gap-3 p-3 bg-[#0d1117] rounded-xl border border-[#21262d] mb-5">
-                <div className="w-10 h-10 bg-brand-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <ShoppingCart className="w-5 h-5 text-brand-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-[#e6edf3] truncate">{reservModal.product.name}</p>
-                  <p className="text-xs text-[#8b949e]">{fmtPrice(reservModal.product.sale_price)} · {reservModal.product.unit}</p>
-                </div>
-                <span className="text-base font-bold text-brand-400">{fmtPrice(reservModal.product.sale_price)}</span>
-              </div>
-
               {reservSuccess ? (
-                <div className="text-center py-6">
-                  <div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-green-500/30">
-                    <svg className="w-7 h-7 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
+                /* ── Success state ── */
+                <div className="flex-1 flex items-center justify-center p-6">
+                  <div className="text-center max-w-sm">
+                    <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-5 border-2 border-green-500/30">
+                      <svg className="w-8 h-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <h4 className="text-lg font-semibold text-[#e6edf3] mb-2">¡Reservación creada!</h4>
+                    <p className="text-sm text-[#8b949e] mb-6">{reservSuccess}</p>
+                    <button
+                      onClick={() => { clearCart(); setCartOpen(false); }}
+                      className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-xl transition-all"
+                    >
+                      Seguir viendo productos
+                    </button>
                   </div>
-                  <h4 className="text-base font-semibold text-[#e6edf3] mb-2">¡Reservación creada!</h4>
-                  <p className="text-sm text-[#8b949e]">{reservSuccess}</p>
-                  <button
-                    onClick={() => setReservModal({ product: null })}
-                    className="mt-5 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-xl transition-all"
-                  >
-                    Cerrar
-                  </button>
+                </div>
+              ) : cart.length === 0 ? (
+                /* ── Empty cart ── */
+                <div className="flex-1 flex items-center justify-center p-6">
+                  <div className="text-center">
+                    <div className="w-16 h-16 bg-[#21262d] rounded-full flex items-center justify-center mx-auto mb-4">
+                      <ShoppingCart className="w-7 h-7 text-[#6e7681]" />
+                    </div>
+                    <p className="text-sm text-[#8b949e] mb-1">Tu carrito está vacío</p>
+                    <p className="text-xs text-[#6e7681]">Agrega productos desde el catálogo</p>
+                    <button
+                      onClick={() => setCartOpen(false)}
+                      className="mt-5 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-xl transition-all"
+                    >
+                      Explorar productos
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <form onSubmit={handleReservation} className="space-y-4">
-                  <div>
-                    <label className="label">Tu nombre *</label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
-                      <input
-                        className="input pl-10"
-                        placeholder="Ej: Juan Pérez"
-                        value={reservForm.customer_name}
-                        onChange={e => setReservForm(f => ({ ...f, customer_name: e.target.value }))}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="label">Teléfono (opcional)</label>
-                    <div className="relative">
-                      {reservForm.customer_phone.trim() ? (
-                        PHONE_REGEX.test(reservForm.customer_phone.trim()) ? (
-                          <CheckCircle className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-400" />
-                        ) : (
-                          <PhoneOff className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400" />
-                        )
-                      ) : (
-                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
-                      )}
-                      <input
-                        className={`input pl-10 ${
-                          phoneTouched && reservForm.customer_phone.trim()
-                            ? PHONE_REGEX.test(reservForm.customer_phone.trim())
-                              ? 'border-green-500/50 focus:border-green-500 focus:ring-green-500/20'
-                              : 'border-amber-500/50 focus:border-amber-500 focus:ring-amber-500/20'
-                            : ''
-                        }`}
-                        placeholder="Ej: +53 55280263"
-                        value={reservForm.customer_phone}
-                        onChange={e => setReservForm(f => ({ ...f, customer_phone: e.target.value }))}
-                        onFocus={() => setPhoneTouched(true)}
-                      />
-                      {/* Status hint */}
-                      {phoneTouched && reservForm.customer_phone.trim() && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                          {PHONE_REGEX.test(reservForm.customer_phone.trim()) ? (
-                            <span className="text-[10px] text-green-400 font-medium">Válido</span>
-                          ) : (
-                            <span className="text-[10px] text-amber-400 font-medium">Inválido</span>
-                          )}
+                /* ── Cart items + form ── */
+                <div className="flex-1 overflow-y-auto">
+                  <div className="p-5 space-y-3">
+                    {cart.map(item => (
+                      <div key={item.product.id} className="bg-[#0d1117] rounded-xl border border-[#21262d] p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-[#e6edf3] truncate">{item.product.name}</p>
+                            <p className="text-xs text-[#8b949e]">{fmtPrice(item.product.sale_price)} / {item.product.unit}</p>
+                          </div>
+                          <button
+                            onClick={() => removeFromCart(item.product.id)}
+                            className="p-1 text-[#6e7681] hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-colors flex-shrink-0"
+                            aria-label="Eliminar producto"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
-                      )}
+                        <div className="flex items-center justify-between mt-3">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => updateCartQuantity(item.product.id, item.quantity - 1)}
+                              disabled={item.quantity <= 1}
+                              className="w-8 h-8 bg-[#21262d] hover:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                              </svg>
+                            </button>
+                            <span className="w-10 text-center text-sm font-semibold text-[#e6edf3]">{item.quantity}</span>
+                            <button
+                              onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
+                              disabled={item.quantity >= item.product.stock}
+                              className="w-8 h-8 bg-[#21262d] hover:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                              </svg>
+                            </button>
+                          </div>
+                          <span className="text-sm font-semibold text-brand-400">
+                            {fmtPrice(item.product.sale_price * item.quantity)}
+                          </span>
+                        </div>
+                        {item.quantity >= item.product.stock && (
+                          <p className="text-[10px] text-amber-400 mt-1.5">
+                            Stock máximo disponible: {item.product.stock} {item.product.unit}(s)
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Total */}
+                  <div className="px-5 py-3 border-t border-[#21262d] bg-[#0d1117]/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#8b949e]">Total estimado</span>
+                      <span className="text-xl font-bold text-brand-400">{fmtPrice(cartTotal)}</span>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="label">Cantidad *</label>
-                    <div className="flex items-center gap-2">
+                  {/* Customer form */}
+                  <form onSubmit={handleCartReservation} className="px-5 py-4 space-y-4">
+                    <div>
+                      <label className="label">Tu nombre *</label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+                        <input
+                          className="input pl-10"
+                          placeholder="Ej: Juan Pérez"
+                          value={cartForm.customer_name}
+                          onChange={e => setCartForm(f => ({ ...f, customer_name: e.target.value }))}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="label">Teléfono (opcional)</label>
+                      <div className="relative">
+                        {cartForm.customer_phone.trim() ? (
+                          PHONE_REGEX.test(cartForm.customer_phone.trim()) ? (
+                            <CheckCircle className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-400" />
+                          ) : (
+                            <PhoneOff className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400" />
+                          )
+                        ) : (
+                          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+                        )}
+                        <input
+                          className={`input pl-10 ${
+                            phoneTouched && cartForm.customer_phone.trim()
+                              ? PHONE_REGEX.test(cartForm.customer_phone.trim())
+                                ? 'border-green-500/50 focus:border-green-500 focus:ring-green-500/20'
+                                : 'border-amber-500/50 focus:border-amber-500 focus:ring-amber-500/20'
+                              : ''
+                          }`}
+                          placeholder="Ej: +53 55280263"
+                          value={cartForm.customer_phone}
+                          onChange={e => setCartForm(f => ({ ...f, customer_phone: e.target.value }))}
+                          onFocus={() => setPhoneTouched(true)}
+                        />
+                        {phoneTouched && cartForm.customer_phone.trim() && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                            {PHONE_REGEX.test(cartForm.customer_phone.trim()) ? (
+                              <span className="text-[10px] text-green-400 font-medium">Válido</span>
+                            ) : (
+                              <span className="text-[10px] text-amber-400 font-medium">Inválido</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="label">Notas (opcional)</label>
                       <input
-                        type="number"
-                        min="1"
-                        max={reservModal.product.stock}
-                        step="1"
-                        className="input text-center font-semibold"
-                        value={reservForm.quantity}
-                        onChange={e => setReservForm(f => ({ ...f, quantity: Math.max(1, parseInt(e.target.value) || 1) }))}
-                        required
+                        className="input"
+                        placeholder="Ej: Prefiero que me llamen en la tarde"
+                        value={cartForm.notes}
+                        onChange={e => setCartForm(f => ({ ...f, notes: e.target.value }))}
                       />
-                      <span className="text-sm text-[#6e7681] min-w-[60px]">
-                        {reservModal.product.unit}(s)
-                      </span>
                     </div>
-                    <p className="text-[10px] text-[#6e7681] mt-1">
-                      Disponible: {reservModal.product.stock} {reservModal.product.unit}(s)
-                    </p>
-                  </div>
 
-                  <div>
-                    <label className="label">Notas (opcional)</label>
-                    <input
-                      className="input"
-                      placeholder="Ej: Prefiero que me llamen en la tarde"
-                      value={reservForm.notes}
-                      onChange={e => setReservForm(f => ({ ...f, notes: e.target.value }))}
-                    />
-                  </div>
+                    {phoneError && (
+                      <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-amber-400 text-sm flex items-center gap-2">
+                        <Phone className="w-4 h-4 flex-shrink-0" />
+                        {phoneError}
+                      </div>
+                    )}
 
-                  {/* Total price summary */}
-                  <div className="bg-[#0d1117] rounded-xl border border-[#21262d] p-3 flex items-center justify-between">
-                    <span className="text-sm text-[#8b949e]">Total estimado:</span>
-                    <span className="text-lg font-bold text-brand-400">
-                      {fmtPrice(reservModal.product.sale_price * reservForm.quantity)}
-                    </span>
-                  </div>
+                    {reservError && (
+                      <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
+                        {reservError}
+                      </div>
+                    )}
 
-                  {phoneError && (
-                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-amber-400 text-sm flex items-center gap-2">
-                      <Phone className="w-4 h-4 flex-shrink-0" />
-                      {phoneError}
+                    <div className="flex gap-3 pt-1 pb-2">
+                      <button
+                        type="button"
+                        onClick={() => setCartOpen(false)}
+                        disabled={reservSaving}
+                        className="btn-secondary flex-1 disabled:opacity-50"
+                      >
+                        Seguir viendo
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={reservSaving || !cartForm.customer_name.trim() || cart.length === 0}
+                        className="btn-primary flex-1 disabled:opacity-50"
+                      >
+                        {reservSaving ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Reservando...
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-center gap-2">
+                            <ShoppingCart className="w-4 h-4" />
+                            Reservar todo
+                          </span>
+                        )}
+                      </button>
                     </div>
-                  )}
-
-                  {reservError && (
-                    <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
-                      {reservError}
-                    </div>
-                  )}
-
-                  <div className="flex gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setReservModal({ product: null })}
-                      disabled={reservSaving}
-                      className="btn-secondary flex-1 disabled:opacity-50"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={reservSaving || !reservForm.customer_name.trim() || reservForm.quantity <= 0}
-                      className="btn-primary flex-1 disabled:opacity-50"
-                    >
-                      {reservSaving ? (
-                        <span className="flex items-center justify-center gap-2">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Reservando...
-                        </span>
-                      ) : (
-                        <span className="flex items-center justify-center gap-2">
-                          <ShoppingCart className="w-4 h-4" />
-                          Reservar
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                </form>
+                  </form>
+                </div>
               )}
             </div>
           </div>

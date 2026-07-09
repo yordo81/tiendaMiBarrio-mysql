@@ -220,47 +220,73 @@ export const PUT = handle(async (req: Request) => {
   return ok({ ok: true, id, status });
 });
 
-// ── POST: Crear reservación (pública, landing page) ──
+// ── POST: Crear reservación(es) (pública, landing page) ──
+// Soporta tanto un solo producto como múltiples productos (carrito)
+// Formato legacy: { product_id, quantity, customer_name, customer_phone, notes }
+// Formato carrito: { items: [{ product_id, quantity }], customer_name, customer_phone, notes }
 export const POST = handle(async (req: Request) => {
-  const { product_id, customer_name, customer_phone, quantity, notes } = await req.json();
+  const body = await req.json() as { customer_name?: string; customer_phone?: string; notes?: string; items?: { product_id: string; quantity: number }[]; product_id?: string; quantity?: number };
+  const { customer_name, customer_phone, notes } = body;
+  const items: { product_id: string; quantity: number }[] = body.items ?? [{ product_id: body.product_id ?? '', quantity: body.quantity ?? 0 }];
 
-  if (!product_id) return err('El producto es requerido');
   if (!customer_name?.trim()) return err('Tu nombre es requerido');
-  if (!quantity || quantity <= 0) return err('La cantidad debe ser mayor a 0');
 
   // Validar formato de teléfono si se proporcionó
   if (customer_phone?.trim() && !isValidPhone(customer_phone)) {
     return err('Formato de teléfono inválido. Ejemplo: +53 55280263');
   }
 
-  // Verificar que el producto existe y tiene stock
-  const product = await query<{
+  if (!items?.length) return err('Debes agregar al menos un producto');
+
+  for (const item of items) {
+    if (!item.product_id) return err('Cada producto debe tener un ID');
+    if (!item.quantity || item.quantity <= 0) return err('La cantidad debe ser mayor a 0');
+  }
+
+  // Verificar que todos los productos existen y tienen stock suficiente
+  const placeholders = items.map(() => '?').join(',');
+  const productIds = items.map(i => i.product_id);
+  const products = await query<{
     id: string;
     name: string;
     sale_price: number;
     stock: number;
     unit: string;
-  }>('SELECT id, name, sale_price, stock, unit FROM products WHERE id = ? AND active = 1', [product_id]);
+  }>(`SELECT id, name, sale_price, stock, unit FROM products WHERE id IN (${placeholders}) AND active = 1`, productIds);
 
-  if (product.length === 0) return err('Producto no encontrado o no disponible');
-
-  const available = Number(product[0].stock);
-  if (available < quantity) {
-    return err(`Stock insuficiente. Disponible: ${available} ${product[0].unit}, solicitado: ${quantity}`);
+  if (products.length !== items.length) {
+    return err('Uno o más productos no fueron encontrados o no están disponibles');
   }
 
-  const id = randomUUID();
+  const productMap = new Map(products.map(p => [p.id, p]));
+  const productNames: string[] = [];
+
+  for (const item of items) {
+    const prod = productMap.get(item.product_id);
+    if (!prod) return err('Producto no encontrado');
+    const available = Number(prod.stock);
+    if (available < item.quantity) {
+      return err(`Stock insuficiente para "${prod.name}". Disponible: ${available} ${prod.unit}, solicitado: ${item.quantity}`);
+    }
+    productNames.push(`${item.quantity} ${prod.unit}(s) de ${prod.name}`);
+  }
+
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const ids: string[] = [];
 
-  await execute(
-    `INSERT INTO reservations (id, product_id, customer_name, customer_phone, quantity, status, notes, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-    [id, product_id, customer_name.trim(), normalizePhone(customer_phone), quantity, notes?.trim() ?? null, ts, ts]
-  );
+  for (const item of items) {
+    const id = randomUUID();
+    ids.push(id);
+    await execute(
+      `INSERT INTO reservations (id, product_id, customer_name, customer_phone, quantity, status, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+      [id, item.product_id, customer_name.trim(), normalizePhone(customer_phone), item.quantity, notes?.trim() ?? null, ts, ts]
+    );
+  }
 
-  return ok({
-    ok: true,
-    id,
-    message: `Reservación creada para ${quantity} ${product[0].unit}(s) de ${product[0].name}. Te contactaremos pronto.`,
-  }, 201);
+  const message = items.length === 1
+    ? `Reservación creada para ${productNames[0]}. Te contactaremos pronto.`
+    : `Reservación creada para ${items.length} producto(s): ${productNames.join(', ')}. Te contactaremos pronto.`;
+
+  return ok({ ok: true, ids, message }, 201);
 });
