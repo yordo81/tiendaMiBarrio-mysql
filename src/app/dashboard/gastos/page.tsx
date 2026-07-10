@@ -19,6 +19,8 @@ export default function GastosPage() {
   const [locations, setLocations] = useState<R[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<R | null>(null);
@@ -60,7 +62,13 @@ export default function GastosPage() {
     } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
   }
 
-  const filtered = expenses.filter(e => String(e.description??'').toLowerCase().includes(search.toLowerCase()) || String(e.category_name??'').toLowerCase().includes(search.toLowerCase()));
+  const filtered = expenses.filter(e => {
+    const matchSearch = String(e.description??'').toLowerCase().includes(search.toLowerCase()) || String(e.category_name??'').toLowerCase().includes(search.toLowerCase());
+    if (!matchSearch) return false;
+    if (dateFrom && String(e.date??'') < dateFrom) return false;
+    if (dateTo && String(e.date??'') > dateTo) return false;
+    return true;
+  });
   const paginated = pageSize === 0 ? filtered : filtered.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
   // Reset page when search changes
@@ -75,7 +83,14 @@ export default function GastosPage() {
       </div>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]"/><input className="input pl-9" placeholder="Buscar gastos..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
-        <button onClick={()=>setShowModal(true)} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Registrar gasto</button>
+        <div className="flex gap-2 items-center">
+          <input type="date" className="input text-sm max-w-[140px]" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} title="Desde" />
+          <input type="date" className="input text-sm max-w-[140px]" value={dateTo} onChange={e=>setDateTo(e.target.value)} title="Hasta" />
+          {(dateFrom||dateTo) && (
+            <button onClick={()=>{setDateFrom('');setDateTo('')}} className="btn-secondary p-2" title="Limpiar filtros"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+          )}
+          <button onClick={()=>setShowModal(true)} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Registrar gasto</button>
+        </div>
       </div>
       <div className="card overflow-hidden">
         {loading?<div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"/></div>
