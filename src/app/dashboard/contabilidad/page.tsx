@@ -132,6 +132,10 @@ export default function ContabilidadPage() {
     : 0;
   const yMaxEvo = Math.ceil(maxEvo * 1.15 / 1000) * 1000 || 1000;
   const hasInitialBalance = entries.some(e => String(e.type) === 'initial');
+  const totalPurchases = Number(data.total_purchases ?? 0);
+  const totalCapitalInjected = Number(data.total_capital_injected ?? 0);
+  const capitalInjectedCash = Number(data.capital_injected_cash ?? 0);
+  const capitalInjectedTransfer = Number(data.capital_injected_transfer ?? 0);
 
   // Filtro de búsqueda
   const q = search.toLowerCase();
@@ -262,6 +266,35 @@ export default function ContabilidadPage() {
           <p className="text-xs text-[#6e7681] mt-2">
             {formatCurrency(cashBalance)} efectivo + {formatCurrency(transferBalance)} transferencia
           </p>
+        </div>
+      </div>
+
+      {/* Capital & Inventory Investments */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-[#e6edf3] mb-4 flex items-center gap-2">
+          <TrendingDown className="w-4 h-4 text-orange-400" />
+          Inversiones en inventario
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-orange-500/5 border border-orange-500/10 rounded-xl p-4">
+            <p className="text-xs text-orange-400 font-medium flex items-center gap-1.5 mb-1">
+              <TrendingDown className="w-3 h-3" /> Compras totales (reinversión)
+            </p>
+            <p className="text-lg font-semibold text-orange-400">{formatCurrency(totalPurchases)}</p>
+            <p className="text-[10px] text-[#6e7681] mt-1">Dinero reinvertido en mercancía</p>
+          </div>
+          <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-xl p-4">
+            <p className="text-xs text-emerald-400 font-medium flex items-center gap-1.5 mb-1">
+              <ArrowUpRight className="w-3 h-3" /> Aportes de capital
+            </p>
+            <p className="text-lg font-semibold text-emerald-400">{formatCurrency(totalCapitalInjected)}</p>
+            <p className="text-[10px] text-[#6e7681] mt-1">
+              {capitalInjectedCash > 0 ? `Ef: ${formatCurrency(capitalInjectedCash)}` : ''}
+              {capitalInjectedCash > 0 && capitalInjectedTransfer > 0 ? ' · ' : ''}
+              {capitalInjectedTransfer > 0 ? `Tr: ${formatCurrency(capitalInjectedTransfer)}` : ''}
+              {totalCapitalInjected === 0 ? 'Sin aportes registrados' : ''}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -485,8 +518,8 @@ export default function ContabilidadPage() {
               const totalAmount = Number(m.total_amount ?? 0);
               const cashAmt = Number(m.cash_amount ?? 0);
               const transferAmt = Number(m.transfer_amount ?? 0);
-              const isInflow = type === 'Venta' || type === 'Abono cliente' || type === 'Saldo inicial';
-              const isOutflow = type.startsWith('Gasto');
+              const isInflow = type === 'Venta' || type === 'Abono cliente' || type === 'Saldo inicial' || type === 'Aporte de capital';
+              const isOutflow = type.startsWith('Gasto') || type === 'Compra inventario';
 
               const TypeIcon = isInflow ? TrendingUp : isOutflow ? TrendingDown : Settings;
               let typeColor = isInflow ? 'text-green-400 bg-green-500/10' :

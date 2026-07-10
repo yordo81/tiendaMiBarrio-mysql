@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
-import { pool, query, transaction } from '@/lib/db/mysql';
+import { pool, query, transaction, execute } from '@/lib/db/mysql';
 import { handle, ok, err, notFound } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
@@ -99,10 +99,28 @@ export const POST = handle(async (req: Request) => {
       if (locs[0].length > 0) targetLocationId = locs[0][0].id;
     }
 
+    // ── Obtener nombres para la nota contable ──
+    const prodRes = await conn.execute(
+      'SELECT name FROM products WHERE id=?', [product_id]
+    ) as unknown as [{ name: string }[], unknown];
+    const suppRes = await conn.execute(
+      'SELECT name FROM suppliers WHERE id=?', [supplier_id]
+    ) as unknown as [{ name: string }[], unknown];
+    const productName = prodRes[0][0]?.name ?? 'Producto';
+    const supplierName = suppRes[0][0]?.name ?? 'Proveedor';
+
     const purchaseId = randomUUID();
+    const totalCost = Math.round(purchaseQty * purchasePrice * 100) / 100;
     await conn.execute(
       'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, Math.round(purchaseQty * purchasePrice * 100) / 100, targetLocationId ?? null, notes ?? null, sessionUser.id, ts]
+      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, notes ?? null, sessionUser.id, ts]
+    );
+
+    // ── Registrar en contabilidad como egreso por reinversión ──
+    await conn.execute(
+      `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
+       VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?)`,
+      [randomUUID(), -totalCost, `Compra de inventario: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, ts]
     );
 
     if (targetLocationId) {

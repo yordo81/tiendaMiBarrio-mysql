@@ -80,6 +80,22 @@ export const GET = handle(async () => {
      WHERE payment_method IS NULL`
   );
 
+  // ── 9b. Purchase outflows (inventory reinvestment) ──
+  const purchaseOutflows = await query<{ total: number }>(
+    `SELECT COALESCE(SUM(cash_amount + transfer_amount), 0) AS total
+     FROM cash_register
+     WHERE type = 'purchase'`
+  );
+
+  // ── 9c. Capital injections (new capital from owner) ──
+  const capitalInjections = await query<{ total_cash: number; total_transfer: number }>(
+    `SELECT
+       COALESCE(SUM(cash_amount), 0) AS total_cash,
+       COALESCE(SUM(transfer_amount), 0) AS total_transfer
+     FROM cash_register
+     WHERE type = 'capital'`
+  );
+
   // ── Period-filtered inflows (sales payments) ──
   const periodSalesInflows = await query<{ cash: number; transfer: number; period: string }>(`
     SELECT
@@ -176,12 +192,13 @@ export const GET = handle(async () => {
     WHERE date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
   `);
 
-  // ── 10. Cash register entries (initial + adjustments) ──
+  // ── 10. Cash register entries (initial + adjustments only, not purchases/capital) ──
   const registerEntries = await query<{ cash_total: number; transfer_total: number }>(
     `SELECT
        COALESCE(SUM(cash_amount), 0) AS cash_total,
        COALESCE(SUM(transfer_amount), 0) AS transfer_total
-     FROM cash_register`
+     FROM cash_register
+     WHERE type IN ('initial', 'adjustment')`
   );
 
   // ── Calculate totals ──
@@ -194,13 +211,18 @@ export const GET = handle(async () => {
     + (Number(mixedFromCustomers[0]?.total ?? 0) / 2);
 
   const totalCashOut = Number(cashExpenses[0]?.total ?? 0)
-    + (Number(mixedExpenses[0]?.total ?? 0) / 2);
+    + (Number(mixedExpenses[0]?.total ?? 0) / 2)
+    + Math.abs(Number(purchaseOutflows[0]?.total ?? 0));
 
   const totalTransferOut = Number(transferExpenses[0]?.total ?? 0)
     + (Number(mixedExpenses[0]?.total ?? 0) / 2);
 
-  const registerCash = Number(registerEntries[0]?.cash_total ?? 0);
-  const registerTransfer = Number(registerEntries[0]?.transfer_total ?? 0);
+  const registerCash = Number(registerEntries[0]?.cash_total ?? 0)
+    + Number(capitalInjections[0]?.total_cash ?? 0);
+  const registerTransfer = Number(registerEntries[0]?.transfer_total ?? 0)
+    + Number(capitalInjections[0]?.total_transfer ?? 0);
+
+  // Purchases stored as negative in cash_register; Math.abs converts to positive outflow below
 
   const cashBalance = registerCash + totalCashIn - totalCashOut;
   const transferBalance = registerTransfer + totalTransferIn - totalTransferOut;
@@ -313,7 +335,12 @@ export const GET = handle(async () => {
     UNION ALL
     (SELECT
       cr.id, cr.date,
-      CASE WHEN cr.type = 'initial' THEN 'Saldo inicial' ELSE 'Ajuste de caja' END AS type,
+      CASE
+        WHEN cr.type = 'initial' THEN 'Saldo inicial'
+        WHEN cr.type = 'purchase' THEN 'Compra inventario'
+        WHEN cr.type = 'capital' THEN 'Aporte de capital'
+        ELSE 'Ajuste de caja'
+      END AS type,
       cr.notes AS description,
       'register' AS method,
       cr.cash_amount, cr.transfer_amount,
@@ -528,6 +555,12 @@ export const GET = handle(async () => {
     // Registros de caja
     register_cash: Math.round(registerCash * 100) / 100,
     register_transfer: Math.round(registerTransfer * 100) / 100,
+
+    // Inversiones en inventario
+    total_purchases: Math.round(Math.abs(Number(purchaseOutflows[0]?.total ?? 0)) * 100) / 100,
+    total_capital_injected: Math.round((Number(capitalInjections[0]?.total_cash ?? 0) + Number(capitalInjections[0]?.total_transfer ?? 0)) * 100) / 100,
+    capital_injected_cash: Math.round(Number(capitalInjections[0]?.total_cash ?? 0) * 100) / 100,
+    capital_injected_transfer: Math.round(Number(capitalInjections[0]?.total_transfer ?? 0) * 100) / 100,
 
     // No clasificados
     unclassified_expenses: Math.round(Number(unclassifiedExpenses[0]?.total ?? 0) * 100) / 100,
