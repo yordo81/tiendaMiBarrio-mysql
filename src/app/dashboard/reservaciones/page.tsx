@@ -19,6 +19,12 @@ export default function ReservacionesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editQuantity, setEditQuantity] = useState(1);
+  const [savingQty, setSavingQty] = useState(false);
+  const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
+  const [editNotes, setEditNotes] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -48,8 +54,68 @@ export default function ReservacionesPage() {
       });
       if (!res.ok) throw new Error('Error al actualizar');
       toast.success(status === 'confirmed' ? 'Reservación confirmada' : 'Reservación cancelada');
+      setEditingId(null);
+      setEditingNotesId(null);
       load();
     } catch { toast.error('Error al actualizar reservación'); }
+  }
+
+  function startEdit(r: Reservation) {
+    setEditingId(r.id);
+    setEditQuantity(Number(r.quantity));
+    setEditingNotesId(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+  }
+
+  function startEditNotes(r: Reservation) {
+    setEditingNotesId(r.id);
+    setEditNotes(r.notes ?? '');
+    setEditingId(null);
+  }
+
+  function cancelEditNotes() {
+    setEditingNotesId(null);
+  }
+
+  async function handleSaveNotes(id: string) {
+    setSavingNotes(true);
+    try {
+      const res = await fetch('/api/reservations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, notes: editNotes }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Error al actualizar notas');
+      toast.success('Notas actualizadas correctamente');
+      setEditingNotesId(null);
+      load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Error al actualizar notas'); }
+    finally { setSavingNotes(false); }
+  }
+
+  async function handleSaveQuantity(id: string) {
+    if (editQuantity <= 0) {
+      toast.error('La cantidad debe ser mayor a 0');
+      return;
+    }
+    setSavingQty(true);
+    try {
+      const res = await fetch('/api/reservations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, quantity: editQuantity }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Error al actualizar cantidad');
+      toast.success('Cantidad actualizada correctamente');
+      setEditingId(null);
+      load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Error al actualizar cantidad'); }
+    finally { setSavingQty(false); }
   }
 
   const filtered = reservations.filter(r => {
@@ -154,7 +220,64 @@ export default function ReservacionesPage() {
                       </td>
                       <td className="px-4 py-3 text-[#e6edf3]">{r.customer_name}</td>
                       <td className="px-4 py-3 text-[#8b949e] text-xs">{r.customer_phone ?? '—'}</td>
-                      <td className="px-4 py-3 text-[#e6edf3] font-medium">{Number(r.quantity)}</td>
+                      <td className="px-4 py-3">
+                        {editingId === r.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setEditQuantity(Math.max(1, editQuantity - 1))}
+                              disabled={editQuantity <= 1 || savingQty}
+                              className="w-7 h-7 bg-[#21262d] hover:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                              </svg>
+                            </button>
+                            <span className="w-10 text-center text-sm font-semibold text-[#e6edf3]">{editQuantity}</span>
+                            <button
+                              onClick={() => setEditQuantity(editQuantity + 1)}
+                              disabled={savingQty}
+                              className="w-7 h-7 bg-[#21262d] hover:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleSaveQuantity(r.id)}
+                              disabled={savingQty}
+                              className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10 transition-colors"
+                              title="Guardar"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              disabled={savingQty}
+                              className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
+                              title="Cancelar"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[#e6edf3] font-medium">{Number(r.quantity)}</span>
+                            {r.status === 'pending' && (
+                              <button
+                                onClick={() => startEdit(r)}
+                                className="p-0.5 rounded text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"
+                                title="Editar cantidad"
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={cn('inline-flex items-center gap-1', st.color)}>
                           {r.status === 'confirmed' && <Check className="w-3 h-3" />}
@@ -162,7 +285,53 @@ export default function ReservacionesPage() {
                           {st.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-[#6e7681] text-xs max-w-[120px] truncate">{r.notes || '—'}</td>
+                      <td className="px-4 py-3 text-xs max-w-[140px]">
+                        {editingNotesId === r.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              className="input text-xs py-1.5 px-2 w-full"
+                              value={editNotes}
+                              onChange={e => setEditNotes(e.target.value)}
+                              placeholder="Sin notas"
+                              disabled={savingNotes}
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleSaveNotes(r.id)}
+                              disabled={savingNotes}
+                              className="p-1 rounded text-green-400 hover:bg-green-500/10 transition-colors flex-shrink-0"
+                              title="Guardar"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={cancelEditNotes}
+                              disabled={savingNotes}
+                              className="p-1 rounded text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0"
+                              title="Cancelar"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 group">
+                            <span className="text-[#6e7681] truncate block max-w-[100px]">{r.notes || '—'}</span>
+                            {r.status === 'pending' && (
+                              <button
+                                onClick={() => startEditNotes(r)}
+                                className="p-0.5 rounded text-[#6e7681] opacity-0 group-hover:opacity-100 hover:text-brand-400 hover:bg-brand-500/10 transition-all flex-shrink-0"
+                                title="Editar notas"
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         {r.status === 'pending' && (
                           <div className="flex items-center gap-1">
