@@ -35,16 +35,17 @@ export const GET = handle(async (req: Request) => {
   return ok(rows);
 });
 
-// ── PUT: Actualizar estado de una reservación (confirmar/cancelar) ──
+// ── PUT: Actualizar estado y/o cantidad de una reservación ──
+// Soporta:
+//   - Cambiar estado: { id, status }
+//   - Editar cantidad: { id, quantity }
+//   - Confirmar: { id, status: 'confirmed' }
 // Al confirmar, se crea automáticamente una venta y se descuenta del inventario.
 export const PUT = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { id, status } = await req.json();
+  const { id, status, quantity, notes } = await req.json() as { id?: string; status?: string; quantity?: number; notes?: string | null };
 
   if (!id) return err('ID de reservación requerido');
-  if (!['pending', 'confirmed', 'cancelled'].includes(status)) {
-    return err('Estado inválido. Valores: pending, confirmed, cancelled');
-  }
 
   const existing = await query<{
     id: string;
@@ -63,6 +64,75 @@ export const PUT = handle(async (req: Request) => {
 
   const reservation = existing[0];
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+  // ── Editar notas (sin cambiar estado ni cantidad) ──
+  if (notes !== undefined && quantity === undefined && status === undefined) {
+    await execute(
+      'UPDATE reservations SET notes = ?, updated_at = ? WHERE id = ?',
+      [notes?.trim() ?? null, ts, id]
+    );
+
+    await logAudit({
+      user_id: sessionUser.id,
+      user_name: sessionUser.name,
+      action: 'update',
+      entity_type: 'reservation',
+      entity_id: id,
+      entity_name: `Notas actualizadas en reservación de ${reservation.customer_name}`,
+      details: {
+        product_id: reservation.product_id,
+        customer_name: reservation.customer_name,
+      },
+    });
+
+    return ok({ ok: true, id, notes: notes?.trim() ?? null, message: 'Notas actualizadas correctamente' });
+  }
+
+  // ── Editar cantidad (sin cambiar estado) ──
+  if (quantity !== undefined && status === undefined) {
+    if (quantity <= 0) return err('La cantidad debe ser mayor a 0');
+
+    // Validar stock disponible
+    const product = await queryOne<{
+      name: string;
+      stock: number;
+      unit: string;
+    }>('SELECT name, stock, unit FROM products WHERE id = ? AND active = 1', [reservation.product_id]);
+
+    if (!product) return err('Producto no encontrado o no disponible');
+
+    // Validar contra el stock global
+    const availableStock = Number(product.stock);
+    if (availableStock < quantity) {
+      return err(`Stock insuficiente para "${product.name}". Disponible: ${availableStock} ${product.unit}, solicitado: ${quantity}`);
+    }
+
+    await execute(
+      'UPDATE reservations SET quantity = ?, updated_at = ? WHERE id = ?',
+      [quantity, ts, id]
+    );
+
+    await logAudit({
+      user_id: sessionUser.id,
+      user_name: sessionUser.name,
+      action: 'update',
+      entity_type: 'reservation',
+      entity_id: id,
+      entity_name: `Cantidad actualizada en reservación de ${reservation.customer_name} — de ${reservation.quantity} a ${quantity}`,
+      details: {
+        product_id: reservation.product_id,
+        old_quantity: reservation.quantity,
+        new_quantity: quantity,
+        customer_name: reservation.customer_name,
+      },
+    });
+
+    return ok({ ok: true, id, quantity, message: 'Cantidad actualizada correctamente' });
+  }
+
+  if (!['pending', 'confirmed', 'cancelled'].includes(status ?? '')) {
+    return err('Estado inválido. Valores: pending, confirmed, cancelled');
+  }
 
   if (status === 'confirmed') {
     // ── CONFIRMAR: Crear venta + descontar inventario ──

@@ -1,37 +1,128 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import {
   LayoutDashboard,
   Package,
   ShoppingCart,
-  Users,
-  Truck,
-  TrendingDown,
-  BarChart2,
-  UserCog,
-  Warehouse,
-  ArrowRightLeft,
-  ShoppingBag,
-  Shield,
-  DollarSign,
   ArrowRight,
   Menu,
   X,
   Store,
-  TrendingUp,
-  Zap,
-  Clock,
-  ChevronRight,
-  CalendarCheck,
+  Plus,
+  Phone,
+  PhoneOff,
+  CheckCircle,
+  User,
+  Loader2,
+  Search,
+  SlidersHorizontal,
+  XCircle,
 } from 'lucide-react';
+
+interface ProductItem {
+  id: string;
+  name: string;
+  description: string | null;
+  category_id: string | null;
+  sale_price: number;
+  cost: number;
+  stock: number;
+  min_stock: number;
+  unit: string;
+  image_url: string | null;
+  category_name: string | null;
+}
+
+interface ProductsByCategory {
+  category_id: string;
+  category_name: string;
+  products: ProductItem[];
+}
+
+const PHONE_REGEX = /^(\+?53)?[\s.-]?\d{7,8}$/;
 
 export default function HomePage() {
   const { user } = useAuthStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [productsByCategory, setProductsByCategory] = useState<ProductsByCategory[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [phoneTouched, setPhoneTouched] = useState(false);
+  const [reservSaving, setReservSaving] = useState(false);
+  const [reservSuccess, setReservSuccess] = useState<string | null>(null);
+  const [reservError, setReservError] = useState<string | null>(null);
+
+  // ── Shopping cart state ──
+  interface CartItem {
+    product: {
+      id: string;
+      name: string;
+      sale_price: number;
+      stock: number;
+      unit: string;
+    };
+    quantity: number;
+  }
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [cartNotification, setCartNotification] = useState<string | null>(null);
+
+  function addToCart(product: ProductItem) {
+    setCart(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      if (existing) {
+        return prev.map(item =>
+          item.product.id === product.id
+            ? { ...item, quantity: Math.min(item.quantity + 1, item.product.stock) }
+            : item
+        );
+      }
+      return [...prev, {
+        product: {
+          id: product.id,
+          name: product.name,
+          sale_price: product.sale_price,
+          stock: product.stock,
+          unit: product.unit,
+        },
+        quantity: 1,
+      }];
+    });
+    setCartNotification(product.name);
+    setTimeout(() => setCartNotification(null), 2000);
+  }
+
+  function removeFromCart(productId: string) {
+    setCart(prev => prev.filter(item => item.product.id !== productId));
+  }
+
+  function updateCartQuantity(productId: string, quantity: number) {
+    setCart(prev => prev.map(item =>
+      item.product.id === productId
+        ? { ...item, quantity: Math.max(1, Math.min(quantity, item.product.stock)) }
+        : item
+    ));
+  }
+
+  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const cartTotal = cart.reduce((sum, item) => sum + item.product.sale_price * item.quantity, 0);
+
+  function clearCart() {
+    setCart([]);
+    setCartForm({ customer_name: '', customer_phone: '', notes: '' });
+    setPhoneError(null);
+    setPhoneTouched(false);
+    setReservSuccess(null);
+    setReservError(null);
+  }
+
+  const [cartForm, setCartForm] = useState({ customer_name: '', customer_phone: '', notes: '' });
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -39,18 +130,87 @@ export default function HomePage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-    setMobileMenuOpen(false);
-  };
+  // Fetch products by category on mount
+  useEffect(() => {
+    fetch('/api/reservations/products')
+      .then(r => r.json())
+      .then(d => { setProductsByCategory(d); setProductsLoading(false); })
+      .catch(() => setProductsLoading(false));
+  }, []);
 
-  const navLinks = [
-    { id: 'hero', label: 'Inicio' },
-    { id: 'productos', label: 'Productos', isExternal: true },
-    { id: 'features', label: 'Características' },
-    { id: 'modules', label: 'Módulos' },
-    { id: 'cta', label: 'Contacto' },
-  ];
+  const fmtPrice = (n: number) => `$${new Intl.NumberFormat('es-DO', { minimumFractionDigits: 2 }).format(n)}`;
+
+  // ── Filter & Search ──
+  const allCategories = useMemo(() => {
+    return productsByCategory.map(c => ({ id: c.category_id, name: c.category_name }));
+  }, [productsByCategory]);
+
+  const filteredProducts = useMemo(() => {
+    if (!searchQuery && !selectedCategory) return productsByCategory;
+
+    const q = searchQuery.toLowerCase().trim();
+    return productsByCategory
+      .map(cat => {
+        // If a category filter is active, skip non-matching categories
+        if (selectedCategory && cat.category_id !== selectedCategory) return null;
+
+        // Filter products within the category by search query
+        const filtered = q
+          ? cat.products.filter(p =>
+              p.name.toLowerCase().includes(q) ||
+              (p.description?.toLowerCase().includes(q) ?? false)
+            )
+          : cat.products;
+
+        if (filtered.length === 0) return null;
+        return { ...cat, products: filtered };
+      })
+      .filter((c): c is ProductsByCategory => c !== null);
+  }, [productsByCategory, searchQuery, selectedCategory]);
+
+  async function handleCartReservation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!cartForm.customer_name.trim() || cart.length === 0) return;
+    setReservSaving(true);
+    setReservError(null);
+    setReservSuccess(null);
+    setPhoneError(null);
+
+    // Validar formato de teléfono si se proporcionó
+    if (cartForm.customer_phone.trim()) {
+      if (!PHONE_REGEX.test(cartForm.customer_phone.trim())) {
+        setPhoneError('Formato inválido. Ejemplo: +53 55280263');
+        setReservSaving(false);
+        return;
+      }
+    }
+
+    try {
+      const res = await fetch('/api/reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: cart.map(item => ({
+            product_id: item.product.id,
+            quantity: item.quantity,
+          })),
+          customer_name: cartForm.customer_name,
+          customer_phone: cartForm.customer_phone,
+          notes: cartForm.notes,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setReservError(data.error ?? 'Error al crear reservación'); return; }
+      setReservSuccess(data.message ?? 'Reservación creada con éxito');
+      setCartForm({ customer_name: '', customer_phone: '', notes: '' });
+      setPhoneError(null);
+    } catch { setReservError('Error de conexión'); } finally { setReservSaving(false); }
+  }
+
+  // ── Search result count ──
+  const totalFilteredProducts = useMemo(() => {
+    return filteredProducts.reduce((sum, cat) => sum + cat.products.length, 0);
+  }, [filteredProducts]);
 
   return (
     <div className="min-h-screen bg-[#0d1117]">
@@ -64,8 +224,7 @@ export default function HomePage() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 md:h-20">
-            {/* Logo */}
-            <Link href="/" className="flex items-center gap-3 group">
+            <Link href="/inicio" className="flex items-center gap-3 group">
               <div className="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center shadow-md shadow-brand-600/30 group-hover:shadow-brand-600/50 transition-all duration-300">
                 <Store className="w-5 h-5 text-white" />
               </div>
@@ -74,36 +233,49 @@ export default function HomePage() {
                   TiendaMiBarrio
                 </span>
                 <span className="text-[10px] text-brand-400 uppercase tracking-widest font-medium">
-                  Sistema de Gestión
+                  Productos
                 </span>
               </div>
             </Link>
 
             {/* Desktop nav */}
             <nav className="hidden md:flex items-center gap-1">
-              {navLinks.map(({ id, label, isExternal }) =>
-                isExternal ? (
-                  <Link
-                    key={id}
-                    href="/productos"
-                    className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
-                  >
-                    {label}
-                  </Link>
-                ) : (
-                  <button
-                    key={id}
-                    onClick={() => scrollTo(id)}
-                    className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
-                  >
-                    {label}
-                  </button>
-                )
-              )}
+              <Link
+                href="/inicio"
+                className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
+              >
+                Inicio
+              </Link>
+              <Link
+                href="/inicio#features"
+                className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
+              >
+                Características
+              </Link>
+              <Link
+                href="/inicio#cta"
+                className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
+              >
+                Contacto
+              </Link>
             </nav>
 
             {/* Actions */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              {/* Cart button */}
+              <button
+                onClick={() => setCartOpen(true)}
+                className="relative p-2.5 text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                aria-label="Abrir carrito"
+              >
+                <ShoppingCart className="w-5 h-5" />
+                {cartCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-brand-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-lg shadow-brand-500/30">
+                    {cartCount > 99 ? '99+' : cartCount}
+                  </span>
+                )}
+              </button>
+
               {user ? (
                 <Link
                   href="/dashboard"
@@ -122,7 +294,6 @@ export default function HomePage() {
                 </Link>
               )}
 
-              {/* Mobile menu toggle */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 className="md:hidden p-2 text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
@@ -134,30 +305,30 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Mobile menu */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-[#21262d] bg-[#0d1117]/95 backdrop-blur-md">
             <div className="px-4 py-4 space-y-1">
-              {navLinks.map(({ id, label, isExternal }) =>
-                isExternal ? (
-                  <Link
-                    key={id}
-                    href="/productos"
-                    className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    {label}
-                  </Link>
-                ) : (
-                  <button
-                    key={id}
-                    onClick={() => scrollTo(id)}
-                    className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
-                  >
-                    {label}
-                  </button>
-                )
-              )}
+              <Link
+                href="/inicio"
+                className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Inicio
+              </Link>
+              <Link
+                href="/inicio#features"
+                className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Características
+              </Link>
+              <Link
+                href="/inicio#cta"
+                className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Contacto
+              </Link>
               <div className="pt-2">
                 {user ? (
                   <Link
@@ -182,451 +353,509 @@ export default function HomePage() {
         )}
       </header>
 
-      {/* ──────── HERO SECTION ──────── */}
-      <section
-        id="hero"
-        className="relative min-h-screen flex items-center pt-20 overflow-hidden"
-      >
-        {/* Background glow */}
+      {/* ──────── HERO / HEADER ──────── */}
+      <section className="relative pt-28 pb-12 overflow-hidden">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-40 -right-40 w-[600px] h-[600px] bg-brand-600/5 rounded-full blur-3xl" />
           <div className="absolute -bottom-40 -left-40 w-[500px] h-[500px] bg-brand-500/5 rounded-full blur-3xl" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-brand-400/3 rounded-full blur-3xl" />
         </div>
 
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
-          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-            {/* Left — text content */}
-            <div className="space-y-8">
-              {/* Badge */}
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500/10 border border-brand-500/20 rounded-full">
-                <Zap className="w-4 h-4 text-brand-400" />
-                <span className="text-sm font-medium text-brand-400">
-                  Sistema de Gestión Integral
-                </span>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-brand-500/10 border border-brand-500/20 rounded-full mb-5">
+              <ShoppingCart className="w-4 h-4 text-brand-400" />
+              <span className="text-sm font-medium text-brand-400">Catálogo de Productos</span>
+            </div>
+            <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl text-[#e6edf3] mb-4">
+              Explora nuestros productos
+            </h1>
+            <p className="text-[#8b949e] max-w-2xl mx-auto mb-8">
+              Haz tu pedido directamente desde aquí. Selecciona los productos
+              que necesitas y te contactaremos para coordinar la entrega.
+            </p>
+
+            {/* ── SEARCH BAR ── */}
+            <div className="max-w-2xl mx-auto space-y-3">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6e7681]" />
+                <input
+                  className="w-full bg-[#161b22] border border-[#30363d] rounded-2xl py-4 pl-12 pr-10 text-[#e6edf3] placeholder-[#6e7681] text-base focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all"
+                  placeholder="Buscar productos por nombre o descripción..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#6e7681] hover:text-[#e6edf3] transition-colors"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                )}
               </div>
 
-              {/* Heading */}
-              <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl text-[#e6edf3] leading-tight">
-                Gestiona tu{' '}
-                <span className="text-brand-400">tienda de barrio</span>{' '}
-                con facilidad
-              </h1>
-
-              <p className="text-lg text-[#8b949e] max-w-lg leading-relaxed">
-                Controla inventario, ventas, gastos y clientes desde un solo
-                lugar. Una solución simple, moderna y poderosa para tu negocio.
-              </p>
-
-              {/* CTA buttons */}
-              <div className="flex flex-wrap gap-4">
-                {user ? (
-                  <Link
-                    href="/dashboard"
-                    className="inline-flex items-center gap-2 px-8 py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-brand-600/30 hover:shadow-brand-600/50 hover:-translate-y-0.5"
-                  >
-                    Ir al Dashboard
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
-                ) : (
-                  <Link
-                    href="/auth/login"
-                    className="inline-flex items-center gap-2 px-8 py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-brand-600/30 hover:shadow-brand-600/50 hover:-translate-y-0.5"
-                  >
-                    Comenzar ahora
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
-                )}
+              {/* Category filter chips */}
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[#6e7681]" />
                 <button
-                  onClick={() => scrollTo('features')}
-                  className="inline-flex items-center gap-2 px-8 py-3.5 bg-[#21262d] hover:bg-[#2d333b] text-[#e6edf3] font-semibold rounded-xl border border-[#30363d] transition-all duration-200 hover:-translate-y-0.5"
+                  onClick={() => setSelectedCategory('')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+                    !selectedCategory
+                      ? 'bg-brand-600/20 border-brand-600/50 text-brand-400'
+                      : 'border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#6e7681]'
+                  }`}
                 >
-                  Conocer más
-                  <ChevronRight className="w-4 h-4" />
+                  Todas
+                </button>
+                {allCategories.map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(selectedCategory === cat.id ? '' : cat.id)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+                      selectedCategory === cat.id
+                        ? 'bg-brand-600/20 border-brand-600/50 text-brand-400'
+                        : 'border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#6e7681]'
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
+
+              {/* Results count */}
+              {!productsLoading && (
+                <p className="text-xs text-[#6e7681]">
+                  {searchQuery || selectedCategory
+                    ? `${totalFilteredProducts} resultado(s)`
+                    : `${filteredProducts.reduce((s, c) => s + c.products.length, 0)} producto(s) disponible(s)`}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ──────── PRODUCTOS GRID ──────── */}
+      <section className="pb-20 lg:pb-28">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {productsLoading ? (
+            <div className="flex justify-center py-16">
+              <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="text-center py-16">
+              <Package className="w-16 h-16 text-[#21262d] mx-auto mb-4" />
+              <p className="text-[#6e7681] text-sm">
+                {searchQuery
+                  ? 'No hay productos que coincidan con tu búsqueda.'
+                  : 'No hay productos disponibles actualmente.'}
+              </p>
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setSelectedCategory(''); }}
+                  className="mt-4 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-xl transition-all"
+                >
+                  Limpiar filtros
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-16">
+              {filteredProducts.map((cat) => (
+                <div key={cat.category_id || 'uncategorized'}>
+                  {/* Category header */}
+                  <div className="flex items-center gap-3 mb-8">
+                    <div className="w-10 h-10 bg-brand-500/10 rounded-xl flex items-center justify-center">
+                      <Package className="w-5 h-5 text-brand-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-semibold text-[#e6edf3]">{cat.category_name}</h3>
+                      <p className="text-xs text-[#6e7681]">{cat.products.length} producto(s)</p>
+                    </div>
+                  </div>
+
+                  {/* Products grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {cat.products.map((product) => {
+                      const isLowStock = product.stock <= product.min_stock;
+                      return (
+                        <div
+                          key={product.id}
+                          className="group card p-4 hover:border-brand-500/30 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-brand-600/5 flex flex-col active:scale-[0.98] active:border-brand-500/30"
+                        >
+                          {/* Product image */}
+                          <div className="w-full aspect-square bg-gradient-to-br from-brand-500/10 to-brand-600/5 rounded-xl mb-3 flex items-center justify-center overflow-hidden">
+                            {product.image_url ? (
+                              <img
+                                src={product.image_url}
+                                alt={product.name}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                  (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <ShoppingCart className={`w-10 h-10 text-brand-400/30 group-hover:text-brand-400/50 transition-colors ${product.image_url ? 'hidden' : ''}`} />
+                          </div>
+
+                          {/* Stock badge */}
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            {isLowStock ? (
+                              <span className="text-[10px] font-medium text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20">
+                                Stock bajo
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-medium text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20">
+                                Disponible
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Product name */}
+                          <h4 className="text-sm font-semibold text-[#e6edf3] mb-1 line-clamp-2 group-hover:text-brand-400 transition-colors">
+                            {product.name}
+                          </h4>
+
+                          {/* Description */}
+                          {product.description && (
+                            <p className="text-xs text-[#6e7681] line-clamp-2 mb-2">
+                              {product.description}
+                            </p>
+                          )}
+
+                          {/* Spacer */}
+                          <div className="flex-1" />
+
+                          {/* Price */}
+                          <div className="flex items-baseline gap-1.5 mb-3">
+                            <span className="text-lg font-bold text-brand-400">
+                              {fmtPrice(product.sale_price)}
+                            </span>
+                            <span className="text-[10px] text-[#6e7681]">
+                              / {product.unit}
+                            </span>
+                          </div>
+
+                          {/* Add button */}
+                          <button
+                            onClick={() => addToCart(product)}
+                            className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 md:py-2.5 bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-xs font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-brand-600/20 hover:shadow-brand-600/40 active:scale-95 hover:-translate-y-0.5 active:translate-y-0"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Agregar
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Bottom CTA */}
+          {!productsLoading && filteredProducts.length > 0 && (
+            <div className="mt-16 text-center">
+              <p className="text-sm text-[#8b949e] mb-4">
+                ¿No encuentras lo que buscas?{' '}
+                <span className="text-brand-400 font-medium">Contáctanos</span> y
+                te ayudaremos.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* ── Cart notification toast ── */}
+        {cartNotification && (
+          <div className="fixed bottom-4 left-4 right-4 md:bottom-6 md:right-6 md:left-auto z-[90] bg-[#161b22] border border-[#30363d] rounded-xl px-5 py-3 shadow-2xl shadow-brand-600/10 animate-in slide-in-from-bottom-5 md:slide-in-from-right-5 fade-in duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-green-500/10 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-[#e6edf3]">Agregado al carrito</p>
+                <p className="text-xs text-[#8b949e]">{cartNotification}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Cart Panel (slide-out drawer) ── */}
+        {cartOpen && (
+          <div className="fixed inset-0 z-[100]">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (!reservSaving) setCartOpen(false); }} />
+            <div className="fixed inset-0 md:absolute md:right-0 md:top-0 md:bottom-0 md:left-auto md:max-w-md bg-[#161b22] md:border-l border-[#30363d] shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+              {/* Drag handle (mobile) */}
+              <div className="md:hidden flex justify-center pt-2 pb-1 pointer-events-none absolute top-0 left-0 right-0 z-10">
+                <div className="w-10 h-1 bg-[#30363d] rounded-full" />
+              </div>
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 pt-4 md:pt-4 pb-4 border-b border-[#21262d]">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-brand-500/10 rounded-xl flex items-center justify-center">
+                    <ShoppingCart className="w-4 h-4 text-brand-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#e6edf3]">
+                      Tu carrito {cartCount > 0 && <span className="text-brand-400">({cartCount})</span>}
+                    </h3>
+                    <p className="text-[10px] text-[#6e7681]">{cart.length} producto(s)</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setCartOpen(false)}
+                  className="p-2.5 md:p-1.5 text-[#6e7681] hover:text-[#e6edf3] rounded-lg hover:bg-[#21262d] transition-colors"
+                >
+                  <X className="w-5 h-5 md:w-4 md:h-4" />
                 </button>
               </div>
 
-              {/* Trust stats bar */}
-              <div className="flex items-center gap-8 pt-4">
-                <div>
-                  <p className="text-2xl font-bold text-[#e6edf3]">100%</p>
-                  <p className="text-xs text-[#6e7681]">Offline-first</p>
-                </div>
-                <div className="w-px h-10 bg-[#21262d]" />
-                <div>
-                  <p className="text-2xl font-bold text-[#e6edf3]">Open Source</p>
-                  <p className="text-xs text-[#6e7681]">Código abierto</p>
-                </div>
-                <div className="w-px h-10 bg-[#21262d]" />
-                <div>
-                  <p className="text-2xl font-bold text-[#e6edf3]">MySQL</p>
-                  <p className="text-xs text-[#6e7681]">Base de datos</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Right — dashboard mockup card */}
-            <div className="hidden lg:flex items-center justify-center">
-              <div className="relative">
-                {/* Main mockup card */}
-                <div className="card p-8 w-[480px] shadow-2xl shadow-brand-600/10 rotate-2 hover:rotate-0 transition-transform duration-500">
-                  <div className="space-y-5">
-                    {/* Mock header */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-brand-600/30 rounded-lg flex items-center justify-center">
-                          <ShoppingCart className="w-4 h-4 text-brand-400" />
-                        </div>
-                        <span className="text-sm font-semibold text-[#e6edf3]">
-                          Dashboard
-                        </span>
-                      </div>
-                      <div className="flex gap-1.5">
-                        <div className="w-2 h-2 rounded-full bg-green-500" />
-                        <div className="w-2 h-2 rounded-full bg-yellow-500" />
-                        <div className="w-2 h-2 rounded-full bg-red-500" />
-                      </div>
+              {reservSuccess ? (
+                /* ── Success state ── */
+                <div className="flex-1 flex items-center justify-center p-6">
+                  <div className="text-center max-w-sm">
+                    <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-5 border-2 border-green-500/30">
+                      <svg className="w-8 h-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
                     </div>
-
-                    {/* Mock stat cards */}
-                    <div className="grid grid-cols-3 gap-3">
-                      {[
-                        { label: 'Ventas hoy', value: '$12,450', color: 'bg-brand-500' },
-                        { label: 'Ganancia', value: '$4,230', color: 'bg-green-500' },
-                        { label: 'Stock bajo', value: '3', color: 'bg-yellow-500' },
-                      ].map((stat, i) => (
-                        <div
-                          key={i}
-                          className="bg-[#0d1117] rounded-lg p-3 border border-[#21262d]"
-                        >
-                          <p className="text-[10px] text-[#6e7681]">{stat.label}</p>
-                          <p className="text-lg font-bold text-[#e6edf3] mt-0.5">
-                            {stat.value}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Mock chart bars */}
-                    <div className="bg-[#0d1117] rounded-lg p-4 border border-[#21262d]">
-                      <p className="text-xs text-[#6e7681] mb-3">
-                        Ventas últimos 7 días
-                      </p>
-                      <div className="flex items-end gap-2 h-24">
-                        {[
-                          { day: 'Lun', h: 35 },
-                          { day: 'Mar', h: 50 },
-                          { day: 'Mié', h: 45 },
-                          { day: 'Jue', h: 70 },
-                          { day: 'Vie', h: 55 },
-                          { day: 'Sáb', h: 85 },
-                          { day: 'Dom', h: 65 },
-                        ].map(({ day, h }, i) => (
-                          <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                            <div className="w-full bg-brand-500/20 rounded-t relative h-20">
-                              <div
-                                className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-brand-500 to-brand-400 rounded-t transition-all duration-500"
-                                style={{ height: `${h}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] text-[#6e7681]">{day}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Mock feature list */}
-                    <div className="space-y-2.5">
-                      {[
-                        'Control de Inventario en Tiempo Real',
-                        'Gestión de Ventas y Clientes',
-                        'Reportes y Análisis',
-                      ].map((item, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-2.5 text-xs text-[#8b949e]"
-                        >
-                          <div className="w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0" />
-                          {item}
-                        </div>
-                      ))}
-                    </div>
+                    <h4 className="text-lg font-semibold text-[#e6edf3] mb-2">¡Reservación creada!</h4>
+                    <p className="text-sm text-[#8b949e] mb-6">{reservSuccess}</p>
+                    <button
+                      onClick={() => { clearCart(); setCartOpen(false); }}
+                      className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-xl transition-all"
+                    >
+                      Seguir viendo productos
+                    </button>
                   </div>
                 </div>
-
-                {/* Floating accent cards */}
-                <div className="absolute -top-6 -right-6 w-24 h-24 bg-[#161b22] border border-[#30363d] rounded-2xl shadow-xl flex items-center justify-center -rotate-6 hover:rotate-0 transition-all duration-300">
-                  <Package className="w-8 h-8 text-brand-400" />
-                </div>
-                <div className="absolute -bottom-6 -left-6 w-20 h-20 bg-[#161b22] border border-[#30363d] rounded-2xl shadow-xl flex items-center justify-center rotate-6 hover:rotate-0 transition-all duration-300">
-                  <BarChart2 className="w-7 h-7 text-green-400" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Scroll indicator */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 hidden md:block">
-          <div className="w-6 h-10 border-2 border-[#30363d] rounded-full flex justify-center p-1 animate-bounce">
-            <div className="w-1.5 h-3 bg-brand-400 rounded-full" />
-          </div>
-        </div>
-      </section>
-
-      {/* ──────── FEATURES STRIP ──────── */}
-      <section className="py-14 border-y border-[#21262d] bg-[#161b22]/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 lg:gap-8">
-            {[
-              {
-                icon: Zap,
-                title: 'Rápido y Ligero',
-                desc: 'Interfaz optimizada para el trabajo diario',
-              },
-              {
-                icon: Clock,
-                title: 'Tiempo Real',
-                desc: 'Datos actualizados al instante',
-              },
-              {
-                icon: Shield,
-                title: 'Seguro',
-                desc: 'Datos protegidos y respaldados',
-              },
-              {
-                icon: TrendingUp,
-                title: 'Escalable',
-                desc: 'Crece con tu negocio sin límites',
-              },
-            ].map(({ icon: Icon, title, desc }, i) => (
-              <div key={i} className="text-center p-4 group">
-                <div className="inline-flex items-center justify-center w-12 h-12 bg-brand-500/10 rounded-xl mb-3 group-hover:bg-brand-500/20 transition-colors">
-                  <Icon className="w-6 h-6 text-brand-400" />
-                </div>
-                <h3 className="text-sm font-semibold text-[#e6edf3] mb-1">
-                  {title}
-                </h3>
-                <p className="text-xs text-[#6e7681]">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ──────── FEATURES SECTION ──────── */}
-      <section id="features" className="py-20 lg:py-28">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Section header */}
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-brand-500/10 border border-brand-500/20 rounded-full mb-6">
-              <span className="text-sm font-medium text-brand-400">
-                Características
-              </span>
-            </div>
-            <h2 className="font-display text-3xl sm:text-4xl text-[#e6edf3] mb-4">
-              Todo lo que necesitas para gestionar tu tienda
-            </h2>
-            <p className="text-[#8b949e] max-w-2xl mx-auto">
-              Un sistema completo con todas las herramientas necesarias para
-              administrar tu negocio de manera eficiente y profesional.
-            </p>
-          </div>
-
-          {/* Feature cards */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              {
-                icon: Package,
-                title: 'Control de Inventario',
-                desc: 'Gestiona productos, stock mínimo, y recibe alertas cuando sea necesario reponer.',
-                gradient: 'from-blue-500/20 to-blue-600/10',
-              },
-              {
-                icon: ShoppingCart,
-                title: 'Gestión de Ventas',
-                desc: 'Registra ventas, maneja pagos en efectivo, transferencia y crédito de forma sencilla.',
-                gradient: 'from-emerald-500/20 to-emerald-600/10',
-              },
-              {
-                icon: Users,
-                title: 'Clientes',
-                desc: 'Administra tu cartera de clientes y controla saldos pendientes con facilidad.',
-                gradient: 'from-purple-500/20 to-purple-600/10',
-              },
-              {
-                icon: Truck,
-                title: 'Proveedores',
-                desc: 'Mantén un registro de tus proveedores y precios de compra actualizados.',
-                gradient: 'from-orange-500/20 to-orange-600/10',
-              },
-              {
-                icon: TrendingDown,
-                title: 'Gastos',
-                desc: 'Controla todos los gastos operativos del negocio y categorízalos.',
-                gradient: 'from-rose-500/20 to-rose-600/10',
-              },
-              {
-                icon: BarChart2,
-                title: 'Reportes',
-                desc: 'Obtén reportes detallados de ventas, rentabilidad y rendimiento del negocio.',
-                gradient: 'from-cyan-500/20 to-cyan-600/10',
-              },
-            ].map(({ icon: Icon, title, desc, gradient }, i) => (
-              <div
-                key={i}
-                className="group card p-6 hover:border-brand-500/30 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-brand-600/5"
-              >
-                <div
-                  className={`inline-flex items-center justify-center w-12 h-12 rounded-xl mb-4 bg-gradient-to-br ${gradient}`}
-                >
-                  <Icon className="w-6 h-6 text-[#e6edf3]" />
-                </div>
-                <h3 className="text-lg font-semibold text-[#e6edf3] mb-2 group-hover:text-brand-400 transition-colors">
-                  {title}
-                </h3>
-                <p className="text-sm text-[#8b949e] leading-relaxed">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ──────── MODULES SECTION ──────── */}
-      <section id="modules" className="py-20 lg:py-28 bg-[#161b22]/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Section header */}
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-brand-500/10 border border-brand-500/20 rounded-full mb-6">
-              <span className="text-sm font-medium text-brand-400">Módulos</span>
-            </div>
-            <h2 className="font-display text-3xl sm:text-4xl text-[#e6edf3] mb-4">
-              Módulos del Sistema
-            </h2>
-            <p className="text-[#8b949e] max-w-2xl mx-auto">
-              Cada módulo está diseñado para cubrir un aspecto específico de tu
-              negocio, accesible según tu rol.
-            </p>
-          </div>
-
-          {/* Modules grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {[
-              { icon: Package, name: 'Inventario', desc: 'Productos y stock' },
-              { icon: ShoppingBag, name: 'Compras', desc: 'Órdenes de compra' },
-              { icon: ShoppingCart, name: 'Ventas', desc: 'Punto de venta' },
-              { icon: Users, name: 'Clientes', desc: 'Cartera de clientes' },
-              { icon: Truck, name: 'Proveedores', desc: 'Gestión proveedores' },
-              { icon: TrendingDown, name: 'Gastos', desc: 'Gastos operativos' },
-              { icon: DollarSign, name: 'Contabilidad', desc: 'Libro diario' },
-              { icon: BarChart2, name: 'Reportes', desc: 'Análisis y métricas' },
-              { icon: Warehouse, name: 'Almacenes', desc: 'Multi-ubicación' },
-              { icon: ArrowRightLeft, name: 'Traslados', desc: 'Entre almacenes' },
-              { icon: Shield, name: 'Auditoría', desc: 'Registro de cambios' },
-              { icon: CalendarCheck, name: 'Reservaciones', desc: 'Pedidos de clientes' },
-              { icon: UserCog, name: 'Usuarios', desc: 'Roles y permisos' },
-            ].map(({ icon: Icon, name, desc }, i) => (
-              <div
-                key={i}
-                className="group card p-5 text-center hover:border-brand-500/30 transition-all duration-300 hover:-translate-y-0.5 cursor-default"
-              >
-                <div className="inline-flex items-center justify-center w-12 h-12 bg-brand-500/10 rounded-xl mb-3 group-hover:bg-brand-500/20 transition-colors">
-                  <Icon className="w-6 h-6 text-brand-400" />
-                </div>
-                <h3 className="text-sm font-semibold text-[#e6edf3] mb-0.5">
-                  {name}
-                </h3>
-                <p className="text-xs text-[#6e7681]">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ──────── CTA SECTION ──────── */}
-      <section id="cta" className="py-20 lg:py-28">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-900/40 via-brand-700/20 to-[#161b22] border border-brand-500/20 p-8 md:p-12 lg:p-16">
-            {/* Decorative blobs */}
-            <div className="absolute top-0 right-0 w-64 h-64 bg-brand-500/5 rounded-full blur-3xl" />
-            <div className="absolute bottom-0 left-0 w-48 h-48 bg-brand-400/5 rounded-full blur-3xl" />
-
-            <div className="relative grid lg:grid-cols-2 gap-8 items-center">
-              <div className="space-y-6">
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-brand-500/15 border border-brand-500/25 rounded-full">
-                  <Zap className="w-4 h-4 text-brand-400" />
-                  <span className="text-sm font-medium text-brand-400">
-                    Comienza ahora
-                  </span>
-                </div>
-                <h2 className="font-display text-3xl sm:text-4xl text-[#e6edf3] leading-tight">
-                  ¿Listo para optimizar tu negocio?
-                </h2>
-                <p className="text-[#8b949e] max-w-md leading-relaxed">
-                  Únete a otros dueños de negocio que ya están usando
-                  TiendaMiBarrio para gestionar sus tiendas de manera eficiente
-                  y profesional.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  {user ? (
-                    <Link
-                      href="/dashboard"
-                      className="inline-flex items-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-brand-600/30 hover:shadow-brand-600/50 hover:-translate-y-0.5"
-                    >
-                      Ir al Dashboard
-                      <ArrowRight className="w-4 h-4" />
-                    </Link>
-                  ) : (
-                    <Link
-                      href="/auth/login"
-                      className="inline-flex items-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-brand-600/30 hover:shadow-brand-600/50 hover:-translate-y-0.5"
-                    >
-                      Acceder al Sistema
-                      <ArrowRight className="w-4 h-4" />
-                    </Link>
-                  )}
-                  {!user && (
-                    <Link
-                      href="/auth/login"
-                      className="inline-flex items-center gap-2 px-6 py-3 bg-[#21262d] hover:bg-[#2d333b] text-[#e6edf3] font-semibold rounded-xl border border-[#30363d] transition-all duration-200 hover:-translate-y-0.5"
-                    >
-                      Crear Cuenta
-                    </Link>
-                  )}
-                </div>
-              </div>
-
-              {/* Stats grid */}
-              <div className="hidden lg:flex justify-center">
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { number: '12+', label: 'Módulos' },
-                    { number: '100%', label: 'Offline' },
-                    { number: 'MySQL', label: 'Base datos' },
-                    { number: 'Gratis', label: 'Open Source' },
-                  ].map(({ number, label }, i) => (
-                    <div
-                      key={i}
-                      className="bg-[#0d1117]/60 border border-[#21262d] rounded-xl p-5 text-center backdrop-blur-sm hover:border-brand-500/30 transition-colors"
-                    >
-                      <p className="text-2xl font-bold text-brand-400">{number}</p>
-                      <p className="text-xs text-[#6e7681] mt-1">{label}</p>
+              ) : cart.length === 0 ? (
+                /* ── Empty cart ── */
+                <div className="flex-1 flex items-center justify-center p-6">
+                  <div className="text-center">
+                    <div className="w-16 h-16 bg-[#21262d] rounded-full flex items-center justify-center mx-auto mb-4">
+                      <ShoppingCart className="w-7 h-7 text-[#6e7681]" />
                     </div>
-                  ))}
+                    <p className="text-sm text-[#8b949e] mb-1">Tu carrito está vacío</p>
+                    <p className="text-xs text-[#6e7681]">Agrega productos desde el catálogo</p>
+                    <button
+                      onClick={() => setCartOpen(false)}
+                      className="mt-5 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-xl transition-all"
+                    >
+                      Explorar productos
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* ── Cart items + form ── */
+                <div className="flex-1 overflow-y-auto">
+                  <div className="p-5 space-y-3">
+                    {cart.map(item => (
+                      <div key={item.product.id} className="bg-[#0d1117] rounded-xl border border-[#21262d] p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-[#e6edf3] truncate">{item.product.name}</p>
+                            <p className="text-xs text-[#8b949e]">{fmtPrice(item.product.sale_price)} / {item.product.unit}</p>
+                          </div>
+                          <button
+                            onClick={() => removeFromCart(item.product.id)}
+                            className="p-1 text-[#6e7681] hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-colors flex-shrink-0"
+                            aria-label="Eliminar producto"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between mt-3">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => updateCartQuantity(item.product.id, item.quantity - 1)}
+                              disabled={item.quantity <= 1}
+                              className="w-11 h-11 md:w-8 md:h-8 bg-[#21262d] hover:bg-[#2d333b] active:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                            >
+                              <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                              </svg>
+                            </button>
+                            <span className="w-12 text-center text-base md:text-sm font-semibold text-[#e6edf3]">{item.quantity}</span>
+                            <button
+                              onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
+                              disabled={item.quantity >= item.product.stock}
+                              className="w-11 h-11 md:w-8 md:h-8 bg-[#21262d] hover:bg-[#2d333b] active:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                              </svg>
+                            </button>
+                          </div>
+                          <span className="text-sm font-semibold text-brand-400">
+                            {fmtPrice(item.product.sale_price * item.quantity)}
+                          </span>
+                        </div>
+                        {item.quantity >= item.product.stock && (
+                          <p className="text-[10px] text-amber-400 mt-1.5">
+                            Stock máximo disponible: {item.product.stock} {item.product.unit}(s)
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Total */}
+                  <div className="px-5 py-3 border-t border-[#21262d] bg-[#0d1117]/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#8b949e]">Total estimado</span>
+                      <span className="text-xl font-bold text-brand-400">{fmtPrice(cartTotal)}</span>
+                    </div>
+                  </div>
+
+                  {/* Customer form */}
+                  <form onSubmit={handleCartReservation} className="px-5 py-4 space-y-4">
+                    <div>
+                      <label className="label">Tu nombre *</label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+                        <input
+                          className="input pl-10"
+                          placeholder="Ej: Juan Pérez"
+                          value={cartForm.customer_name}
+                          onChange={e => setCartForm(f => ({ ...f, customer_name: e.target.value }))}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="label">Teléfono (opcional)</label>
+                      <div className="relative">
+                        {cartForm.customer_phone.trim() ? (
+                          PHONE_REGEX.test(cartForm.customer_phone.trim()) ? (
+                            <CheckCircle className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-400" />
+                          ) : (
+                            <PhoneOff className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400" />
+                          )
+                        ) : (
+                          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+                        )}
+                        <input
+                          className={`input pl-10 ${
+                            phoneTouched && cartForm.customer_phone.trim()
+                              ? PHONE_REGEX.test(cartForm.customer_phone.trim())
+                                ? 'border-green-500/50 focus:border-green-500 focus:ring-green-500/20'
+                                : 'border-amber-500/50 focus:border-amber-500 focus:ring-amber-500/20'
+                              : ''
+                          }`}
+                          placeholder="Ej: +53 55280263"
+                          value={cartForm.customer_phone}
+                          onChange={e => setCartForm(f => ({ ...f, customer_phone: e.target.value }))}
+                          onFocus={() => setPhoneTouched(true)}
+                        />
+                        {phoneTouched && cartForm.customer_phone.trim() && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                            {PHONE_REGEX.test(cartForm.customer_phone.trim()) ? (
+                              <span className="text-[10px] text-green-400 font-medium">Válido</span>
+                            ) : (
+                              <span className="text-[10px] text-amber-400 font-medium">Inválido</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="label">Notas (opcional)</label>
+                      <input
+                        className="input"
+                        placeholder="Ej: Prefiero que me llamen en la tarde"
+                        value={cartForm.notes}
+                        onChange={e => setCartForm(f => ({ ...f, notes: e.target.value }))}
+                      />
+                    </div>
+
+                    {phoneError && (
+                      <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-amber-400 text-sm flex items-center gap-2">
+                        <Phone className="w-4 h-4 flex-shrink-0" />
+                        {phoneError}
+                      </div>
+                    )}
+
+                    {reservError && (
+                      <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
+                        {reservError}
+                      </div>
+                    )}
+
+                    <div className="flex gap-3 pt-1 pb-2">
+                      <button
+                        type="button"
+                        onClick={() => setCartOpen(false)}
+                        disabled={reservSaving}
+                        className="btn-secondary flex-1 disabled:opacity-50"
+                      >
+                        Seguir viendo
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={reservSaving || !cartForm.customer_name.trim() || cart.length === 0}
+                        className="btn-primary flex-1 disabled:opacity-50"
+                      >
+                        {reservSaving ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Reservando...
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-center gap-2">
+                            <ShoppingCart className="w-4 h-4" />
+                            Reservar todo
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        )}
       </section>
+
+      {/* ── Mobile bottom cart bar ── */}
+      {cart.length > 0 && (            <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#161b22]/95 backdrop-blur-md border-t border-[#30363d] shadow-2xl shadow-black/50 md:hidden pb-[env(safe-area-inset-bottom,0px)]">
+          <div className="flex items-center justify-between px-4 py-3">
+            <button
+              onClick={() => setCartOpen(true)}
+              className="flex items-center gap-3 flex-1 min-w-0"
+            >
+              <div className="relative flex-shrink-0">
+                <ShoppingCart className="w-5 h-5 text-brand-400" />
+                <span className="absolute -top-2 -right-2 w-4 h-4 bg-brand-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center ring-2 ring-[#161b22]">
+                  {cartCount > 99 ? '99+' : cartCount}
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-[#6e7681]">{cart.length} producto(s)</p>
+                <p className="text-sm font-bold text-brand-400">{fmtPrice(cartTotal)}</p>
+              </div>
+            </button>
+            <button
+              onClick={() => setCartOpen(true)}
+              className="flex-shrink-0 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-sm font-semibold rounded-xl transition-all shadow-lg shadow-brand-600/30 active:scale-95"
+            >
+              Ver carrito
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ──────── FOOTER ──────── */}
       <footer className="border-t border-[#21262d] bg-[#161b22]/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 pb-24 md:pb-12">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            {/* Brand column */}
             <div className="col-span-2 md:col-span-1">
-              <Link href="/" className="flex items-center gap-3 mb-4">
+              <Link href="/inicio" className="flex items-center gap-3 mb-4">
                 <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
                   <Store className="w-4 h-4 text-white" />
                 </div>
@@ -639,76 +868,46 @@ export default function HomePage() {
                 de manera simple y eficiente.
               </p>
             </div>
-
-            {/* Modules links */}
             <div>
-              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">
-                Módulos
-              </h4>
+              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">Módulos</h4>
               <ul className="space-y-2.5">
                 {['Inventario', 'Ventas', 'Compras', 'Clientes', 'Reservaciones'].map((item) => (
                   <li key={item}>
-                    <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">
-                      {item}
-                    </span>
+                    <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">{item}</span>
                   </li>
                 ))}
               </ul>
             </div>
-
-            {/* Company links */}
             <div>
-              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">
-                Empresa
-              </h4>
+              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">Empresa</h4>
               <ul className="space-y-2.5">
-                {['Acerca de', 'Características', 'Precios', 'FAQ'].map(
-                  (item) => (
-                    <li key={item}>
-                      <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">
-                        {item}
-                      </span>
-                    </li>
-                  )
-                )}
+                {['Acerca de', 'Características', 'Precios', 'FAQ'].map((item) => (
+                  <li key={item}>
+                    <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">{item}</span>
+                  </li>
+                ))}
               </ul>
             </div>
-
-            {/* Support links */}
             <div>
-              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">
-                Soporte
-              </h4>
+              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">Soporte</h4>
               <ul className="space-y-2.5">
-                {['Documentación', 'Reportar Error', 'Sugerencias', 'Contacto'].map(
-                  (item) => (
-                    <li key={item}>
-                      <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">
-                        {item}
-                      </span>
-                    </li>
-                  )
-                )}
+                {['Documentación', 'Reportar Error', 'Sugerencias', 'Contacto'].map((item) => (
+                  <li key={item}>
+                    <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">{item}</span>
+                  </li>
+                ))}
               </ul>
             </div>
           </div>
 
-          {/* Bottom bar */}
           <div className="border-t border-[#21262d] mt-10 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-xs text-[#6e7681]">
-              © {new Date().getFullYear()} TiendaMiBarrio. Todos los derechos
-              reservados.
+              © {new Date().getFullYear()} TiendaMiBarrio. Todos los derechos reservados.
             </p>
             <div className="flex items-center gap-4 text-xs text-[#6e7681]">
-              <span className="hover:text-[#e6edf3] transition-colors cursor-default">
-                Términos
-              </span>
-              <span className="hover:text-[#e6edf3] transition-colors cursor-default">
-                Privacidad
-              </span>
-              <span className="hover:text-[#e6edf3] transition-colors cursor-default">
-                Licencia
-              </span>
+              <span className="hover:text-[#e6edf3] transition-colors cursor-default">Términos</span>
+              <span className="hover:text-[#e6edf3] transition-colors cursor-default">Privacidad</span>
+              <span className="hover:text-[#e6edf3] transition-colors cursor-default">Licencia</span>
             </div>
           </div>
         </div>
