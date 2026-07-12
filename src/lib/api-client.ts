@@ -1,15 +1,62 @@
 // Typed fetch wrapper for all API calls in the MySQL version
 
+/**
+ * Dispatched when an API call returns 401 Unauthorized.
+ * The detail contains the URL that triggered the error.
+ * Components can listen for this event to show session-expired notifications.
+ */
+export const UNAUTHORIZED_EVENT = 'api:unauthorized';
+
+/**
+ * Custom event detail for unauthorized API calls.
+ */
+export interface UnauthorizedEventDetail {
+  url: string;
+  message: string;
+}
+
+/**
+ * Dispatch a global custom event for 401 errors so components can react
+ * (e.g. show a toast, clear auth state, etc.) without being forcefully redirected.
+ */
+function dispatchUnauthorized(url: string) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent<UnauthorizedEventDetail>(UNAUTHORIZED_EVENT, {
+      detail: { url, message: 'Sesión expirada. Por favor, inicia sesión de nuevo.' },
+    })
+  );
+}
+
 export async function apiFetch<T = unknown>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
-    throw new Error(err?.error ?? 'Error en la solicitud');
+
+  if (res.status === 401) {
+    dispatchUnauthorized(url);
+    throw new Error('Sesión expirada. Inicia sesión de nuevo para continuar.');
   }
-  return res.json() as Promise<T>;
+
+  if (!res.ok) {
+    let errorMsg = 'Error en la solicitud';
+    try {
+      const errBody = await res.json() as { error?: string };
+      errorMsg = errBody?.error ?? errorMsg;
+    } catch {
+      // If JSON parsing fails, use status text if available
+      errorMsg = res.statusText || `Error ${res.status}`;
+    }
+    throw new Error(errorMsg);
+  }
+
+  // Parse successful response, handling potential JSON parse errors gracefully
+  try {
+    return await res.json() as Promise<T>;
+  } catch {
+    throw new Error(`Error al procesar la respuesta del servidor (${url})`);
+  }
 }
 
 export const api = {
