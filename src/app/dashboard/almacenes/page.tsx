@@ -7,7 +7,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/toaster';
 import Pagination from '@/components/ui/Pagination';
-import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw, Package, DollarSign, Layers } from 'lucide-react';
+import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw, Package, DollarSign, Layers, Search } from 'lucide-react';
 type R = Record<string,unknown>;
 
 const movLabel:Record<string,string> = { entrada:'Entrada', salida:'Salida', traslado_out:'Traslado (salida)', traslado_in:'Traslado (entrada)', venta:'Venta', ajuste:'Ajuste' };
@@ -43,15 +43,19 @@ export default function AlmacenesPage() {
   const paginatedTransfers = transferPageSize === 0
     ? transfers
     : transfers.slice((transferPage - 1) * transferPageSize, transferPage * transferPageSize);
-  // Pagination for stock & movements inside detail modal
+  // Search & pagination for stock & movements inside detail modal
+  const [stockSearch, setStockSearch] = useState('');
   const [stockPage, setStockPage] = useState(1);
   const [stockPageSize, setStockPageSize] = useState(10);
   const [movPage, setMovPage] = useState(1);
   const [movPageSize, setMovPageSize] = useState(10);
   const activeStock = locStock.filter(s => Number(s.quantity) > 0);
+  const filteredStock = stockSearch.trim()
+    ? activeStock.filter(s => String(s.product_name ?? '').toLowerCase().includes(stockSearch.toLowerCase()))
+    : activeStock;
   const paginatedStock = stockPageSize === 0
-    ? activeStock
-    : activeStock.slice((stockPage - 1) * stockPageSize, stockPage * stockPageSize);
+    ? filteredStock
+    : filteredStock.slice((stockPage - 1) * stockPageSize, stockPage * stockPageSize);
   const paginatedMoves = movPageSize === 0
     ? locMoves
     : locMoves.slice((movPage - 1) * movPageSize, movPage * movPageSize);
@@ -81,7 +85,7 @@ export default function AlmacenesPage() {
     setLocStock(st); setLocMoves(mv);
   }
 
-  async function openDetail(loc: R) { setSelLoc(loc); setDetailTab('stock'); setShowDetail(true); loadDetail(String(loc.id)); }
+  async function openDetail(loc: R) { setSelLoc(loc); setDetailTab('stock'); setStockSearch(''); setStockPage(1); setShowDetail(true); loadDetail(String(loc.id)); }
 
   async function handleSaveLoc() {
     if (!locForm.name.trim()) return;
@@ -251,27 +255,51 @@ export default function AlmacenesPage() {
           </div>
 
           {detailTab==='stock'&&(
-            activeStock.length===0?(
-              <div className="flex flex-col items-center justify-center py-10 text-[#6e7681]">
-                <PackagePlus size={32} className="mb-3 opacity-40"/>
-                <p className="text-sm text-center">Sin stock en este almacén.</p>
-                <p className="text-xs text-center mt-1">Usa <strong className="text-[#e6edf3]">Entrada</strong> para cargar productos aquí.</p>
+            <>
+              {/* Search input for stock */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+                <input
+                  className="input pl-9"
+                  placeholder="Buscar producto por nombre..."
+                  value={stockSearch}
+                  onChange={e => { setStockSearch(e.target.value); setStockPage(1); }}
+                />
+                {activeStock.length > 0 && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#6e7681]">
+                    {filteredStock.length} / {activeStock.length}
+                  </span>
+                )}
               </div>
-            ):(<>
-              <div className="overflow-x-auto rounded-xl border border-[#21262d]">
-                <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[#21262d] bg-[#0d1117]">{['Producto','Stock disponible','Unidad'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{h}</th>)}</tr></thead>
-                  <tbody>{paginatedStock.map(s=>(
-                    <tr key={String(s.id)} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
-                      <td className="px-4 py-2.5 text-[#e6edf3] font-medium">{String(s.product_name??'—')}</td>
-                      <td className="px-4 py-2.5"><span className={cn('font-semibold',Number(s.quantity)<=0?'text-red-400':'text-green-400')}>{formatNumber(Number(s.quantity),2)}</span></td>
-                      <td className="px-4 py-2.5 text-[#8b949e]">{String(s.unit??'')}</td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-              <Pagination currentPage={stockPage} totalItems={activeStock.length} pageSize={stockPageSize} onPageChange={setStockPage} onPageSizeChange={setStockPageSize} /></>
-            )
+
+              {filteredStock.length===0?(
+                <div className="flex flex-col items-center justify-center py-10 text-[#6e7681]">
+                  <PackagePlus size={32} className="mb-3 opacity-40"/>
+                  <p className="text-sm text-center">
+                    {stockSearch
+                      ? 'No hay productos que coincidan con la búsqueda.'
+                      : 'Sin stock en este almacén.'}
+                  </p>
+                  {!stockSearch && (
+                    <p className="text-xs text-center mt-1">Usa <strong className="text-[#e6edf3]">Entrada</strong> para cargar productos aquí.</p>
+                  )}
+                </div>
+              ):(<>
+                <div className="overflow-x-auto rounded-xl border border-[#21262d]">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-[#21262d] bg-[#0d1117]">{['Producto','Stock disponible','Unidad'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                    <tbody>{paginatedStock.map(s=>(
+                      <tr key={String(s.id)} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
+                        <td className="px-4 py-2.5 text-[#e6edf3] font-medium">{String(s.product_name??'—')}</td>
+                        <td className="px-4 py-2.5"><span className={cn('font-semibold',Number(s.quantity)<=0?'text-red-400':'text-green-400')}>{formatNumber(Number(s.quantity),2)}</span></td>
+                        <td className="px-4 py-2.5 text-[#8b949e]">{String(s.unit??'')}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+                <Pagination currentPage={stockPage} totalItems={filteredStock.length} pageSize={stockPageSize} onPageChange={setStockPage} onPageSizeChange={setStockPageSize} /></>
+              )}
+            </>
           )}
 
           {detailTab==='movimientos'&&(

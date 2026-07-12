@@ -16,8 +16,8 @@ export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
   const { type, cash_amount, transfer_amount, notes, date } = await req.json();
 
-  if (!type || !['initial', 'adjustment'].includes(type)) {
-    return err('Tipo inválido. Use: initial o adjustment');
+  if (!type || !['initial', 'adjustment', 'capital'].includes(type)) {
+    return err('Tipo inválido. Use: initial, adjustment o capital');
   }
   if (cash_amount == null || transfer_amount == null) {
     return err('Se requieren cash_amount y transfer_amount');

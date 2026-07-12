@@ -20,6 +20,7 @@ export default function ContabilidadPage() {
   const [loading, setLoading] = useState(true);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showInitialModal, setShowInitialModal] = useState(false);
+  const [showCapitalModal, setShowCapitalModal] = useState(false);
   const [adjustForm, setAdjustForm] = useState({
     type: 'adjustment' as 'initial' | 'adjustment',
     cash_amount: 0,
@@ -27,6 +28,11 @@ export default function ContabilidadPage() {
     notes: '',
   });
   const [initialForm, setInitialForm] = useState({
+    cash_amount: 0,
+    transfer_amount: 0,
+    notes: '',
+  });
+  const [capitalForm, setCapitalForm] = useState({
     cash_amount: 0,
     transfer_amount: 0,
     notes: '',
@@ -73,6 +79,31 @@ export default function ContabilidadPage() {
       toast.success('Saldo inicial registrado');
       setShowInitialModal(false);
       setInitialForm({ cash_amount: 0, transfer_amount: 0, notes: '' });
+      load();
+    } catch (e) {
+      if (e instanceof Error) toast.error(e.message);
+    }
+  }
+
+  async function handleCapitalInjection() {
+    if (!capitalForm.cash_amount && !capitalForm.transfer_amount) {
+      toast.error('Debes ingresar al menos un monto');
+      return;
+    }
+    if (capitalForm.cash_amount < 0 || capitalForm.transfer_amount < 0) {
+      toast.error('Los montos no pueden ser negativos');
+      return;
+    }
+    try {
+      await api.createCashRegisterEntry({
+        type: 'capital',
+        cash_amount: capitalForm.cash_amount,
+        transfer_amount: capitalForm.transfer_amount,
+        notes: capitalForm.notes || 'Aporte de capital',
+      });
+      toast.success('Aporte de capital registrado');
+      setShowCapitalModal(false);
+      setCapitalForm({ cash_amount: 0, transfer_amount: 0, notes: '' });
       load();
     } catch (e) {
       if (e instanceof Error) toast.error(e.message);
@@ -177,6 +208,9 @@ export default function ContabilidadPage() {
               <Wallet className="w-4 h-4" />Saldo inicial
             </button>
           )}
+          <button onClick={() => setShowCapitalModal(true)} className="btn-secondary flex items-center gap-1.5 text-sm">
+            <TrendingUp className="w-4 h-4" />Aportar capital
+          </button>
           <button onClick={() => setShowAdjustModal(true)} className="btn-secondary flex items-center gap-1.5 text-sm">
             <Settings className="w-4 h-4" />Ajustar
           </button>
@@ -613,6 +647,40 @@ export default function ContabilidadPage() {
         </div>
       </Modal>
 
+      {/* Modal: Aporte de Capital */}
+      <Modal open={showCapitalModal} onClose={() => setShowCapitalModal(false)} title="Registrar aporte de capital">
+        <div className="space-y-4">
+          <p className="text-sm text-[#8b949e]">
+            Registra un aporte de capital del dueño al negocio. Esto incrementará el saldo disponible.
+          </p>
+          <div>
+            <label className="label">Efectivo aportado</label>
+            <input type="number" min="0" step="1" className="input"
+              value={capitalForm.cash_amount || ''}
+              onChange={e => setCapitalForm(f => ({ ...f, cash_amount: parseFloat(e.target.value) || 0 }))}
+            />
+          </div>
+          <div>
+            <label className="label">Transferencia aportada</label>
+            <input type="number" min="0" step="1" className="input"
+              value={capitalForm.transfer_amount || ''}
+              onChange={e => setCapitalForm(f => ({ ...f, transfer_amount: parseFloat(e.target.value) || 0 }))}
+            />
+          </div>
+          <div>
+            <label className="label">Nota (opcional)</label>
+            <input type="text" className="input" placeholder="Ej: Aporte para nueva mercancía"
+              value={capitalForm.notes}
+              onChange={e => setCapitalForm(f => ({ ...f, notes: e.target.value }))}
+            />
+          </div>
+          <div className="flex flex-col xs:flex-row gap-2 justify-end pt-2">
+            <button onClick={() => setShowCapitalModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
+            <button onClick={handleCapitalInjection} className="btn-primary flex-1 xs:flex-none">Registrar aporte</button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Modal: Ajuste */}
       <Modal open={showAdjustModal} onClose={() => setShowAdjustModal(false)} title="Ajuste de caja">
         <div className="space-y-4">
@@ -657,8 +725,8 @@ export default function ContabilidadPage() {
             entries.map(e => (
               <div key={String(e.id)} className="bg-[#161b22] rounded-xl p-4 border border-[#21262d]">
                 <div className="flex items-center justify-between mb-2">
-                  <span className={cn('badge', String(e.type) === 'initial' ? 'badge-info' : 'badge-warning')}>
-                    {String(e.type) === 'initial' ? 'Saldo inicial' : 'Ajuste'}
+                  <span className={cn('badge', String(e.type) === 'initial' ? 'badge-info' : String(e.type) === 'capital' ? 'badge-success' : 'badge-warning')}>
+                    {String(e.type) === 'initial' ? 'Saldo inicial' : String(e.type) === 'capital' ? 'Aporte capital' : 'Ajuste'}
                   </span>
                   <span className="text-xs text-[#6e7681]">
                     {e.created_at ? formatDateTime(String(e.created_at)) : '—'}
