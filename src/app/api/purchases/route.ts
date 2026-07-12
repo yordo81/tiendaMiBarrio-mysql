@@ -39,7 +39,7 @@ export const GET = handle(async (req: Request) => {
 
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { product_id, supplier_id, quantity, price, location_id, notes } = await req.json();
+  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital } = await req.json();
 
   if (!product_id || !supplier_id || !quantity || quantity <= 0 || price == null || price < 0) {
     return err('Faltan datos: producto, proveedor, cantidad (>0) y precio requeridos');
@@ -116,12 +116,22 @@ export const POST = handle(async (req: Request) => {
       [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, notes ?? null, sessionUser.id, ts]
     );
 
-    // ── Registrar en contabilidad como egreso por reinversión ──
-    await conn.execute(
-      `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
-       VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?)`,
-      [randomUUID(), -totalCost, `Compra de inventario: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, ts]
-    );
+    // ── Registrar en contabilidad ──
+    if (is_capital) {
+      // Aporte de capital nuevo: ingresa dinero a la caja
+      await conn.execute(
+        `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
+         VALUES (?, 'capital', ?, 0, ?, ?, ?, ?)`,
+        [randomUUID(), totalCost, `Aporte de capital para compra: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, ts]
+      );
+    } else {
+      // Reinversión: egreso de caja por compra de inventario
+      await conn.execute(
+        `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
+         VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?)`,
+        [randomUUID(), -totalCost, `Compra de inventario: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, ts]
+      );
+    }
 
     if (targetLocationId) {
       await conn.execute(

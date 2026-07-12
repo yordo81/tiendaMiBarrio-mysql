@@ -27,7 +27,7 @@ export default function InventarioPage() {
   const [showModal, setShowModal] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
-  const [purchaseForm, setPurchaseForm] = useState({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '' });
+  const [purchaseForm, setPurchaseForm] = useState({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', is_capital: false });
   const [purchaseSaving, setPurchaseSaving] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [editProduct, setEditProduct] = useState<AnyRecord | null>(null);
@@ -76,7 +76,7 @@ export default function InventarioPage() {
   // Cargar datos cada vez que cambie el filtro de ubicación
   useEffect(() => { load(locFilter || undefined); }, [load, locFilter]);
 
-  function openNew() { setEditProduct(null); setForm({ name:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '' }); setImageFile(null); setImagePreview(null); setShowModal(true); }
+  function openNew() { setEditProduct(null); setForm({ name:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '', is_capital: false }); setImageFile(null); setImagePreview(null); setShowModal(true); }
   function openEdit(p: AnyRecord) { setEditProduct(p); setForm({ ...p, supplier_ids: (p.supplier_ids as string[]|undefined) ?? [] }); setImageFile(null); setImagePreview(String(p.image_url??'')); setShowModal(true); }
 
   async function handleSave() {
@@ -97,7 +97,10 @@ export default function InventarioPage() {
       }
       const payload = { ...form, image_url: imageUrl || null };
       if (editProduct) await api.updateProduct(String(editProduct.id), payload);
-      else await api.createProduct(payload);
+      else await api.createProduct({
+        ...payload,
+        is_capital: form.is_capital === true,
+      });
       toast.success(editProduct ? 'Producto actualizado' : 'Producto creado');
       setShowModal(false); load();
     } catch(e) { toast.error(e instanceof Error ? e.message : 'Error al guardar'); } finally { setSaving(false); setImageUploading(false); }
@@ -124,6 +127,7 @@ export default function InventarioPage() {
       price: 0,
       location_id: locations.length > 0 ? String(locations[0].id) : '',
       notes: '',
+      is_capital: false,
     });
     setPurchaseLocStockMap({});
     setShowPurchaseModal(true);
@@ -167,7 +171,15 @@ export default function InventarioPage() {
     }
     setPurchaseSaving(true);
     try {
-      const res = await api.registerPurchase(purchaseForm);
+      const res = await api.registerPurchase({
+        product_id: purchaseForm.product_id,
+        supplier_id: purchaseForm.supplier_id,
+        quantity: purchaseForm.quantity,
+        price: purchaseForm.price,
+        location_id: purchaseForm.location_id,
+        notes: purchaseForm.notes,
+        is_capital: purchaseForm.is_capital,
+      });
       toast.success(`Compra registrada — costo promedio: $${Number((res as any).cost_after).toFixed(2)}`);
       setShowPurchaseModal(false);
       load();
@@ -457,7 +469,33 @@ export default function InventarioPage() {
           <div><label className="label">Unidad</label><input className="input" value={String(form.unit??'unidad')} onChange={e=>setForm(f=>({...f,unit:e.target.value}))}/></div>
           <div><label className="label">Precio de venta</label><input type="number" min="0" step="1" className="input" value={Number(form.sale_price??0)} onChange={e=>setForm(f=>({...f,sale_price:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Costo</label><input type="number" min="0" step="1" className="input" value={Number(form.cost??0)} onChange={e=>setForm(f=>({...f,cost:parseFloat(e.target.value)||0}))}/></div>
-          <div><label className="label">Stock {editProduct?'actual':'inicial'}</label><input type="number" min="0" step="1" className="input" value={Number(form.stock??0)} onChange={e=>setForm(f=>({...f,stock:parseFloat(e.target.value)||0}))}/></div>
+          <div>
+            <label className="label">Stock {editProduct?'actual':'inicial'}</label>
+            <input type="number" min="0" step="1" className="input" value={Number(form.stock??0)} onChange={e=>setForm(f=>({...f,stock:parseFloat(e.target.value)||0}))}/>
+            {!editProduct && Number(form.stock??0) > 0 && (
+              <div className="mt-3 bg-[#0d1117] rounded-xl border border-[#21262d] p-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={form.is_capital === true}
+                      onChange={e => setForm(f => ({ ...f, is_capital: e.target.checked }))}
+                    />
+                    <div className="w-10 h-6 bg-[#21262d] rounded-full peer-checked:bg-brand-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-[#e6edf3] font-medium">¿Es aporte de capital nuevo?</p>
+                    <p className="text-xs text-[#6e7681]">
+                      {form.is_capital
+                        ? 'Se registrará como ingreso de nuevo capital del dueño (incrementa el saldo disponible)'
+                        : 'Se registrará como reinversión de ganancias (egreso de caja por compra de inventario)'}
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
+          </div>
           {!editProduct && (
             <div><label className="label">Almacén destino</label>
               <select className="input" value={String(form.location_id??'')} onChange={e=>setForm(f=>({...f,location_id:e.target.value}))}>
@@ -552,6 +590,29 @@ export default function InventarioPage() {
             <div><label className="label">Precio unitario *</label><input type="number" min="0" step="1" className="input" value={purchaseForm.price || ''} onChange={e => setPurchaseForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))} /></div>
           </div>
           <div><label className="label">Notas</label><input className="input" placeholder="Ej: Factura #123, lote..." value={purchaseForm.notes} onChange={e => setPurchaseForm(f => ({ ...f, notes: e.target.value }))} /></div>
+
+          {/* Tipo de inversión */}
+          <div className="bg-[#0d1117] rounded-xl border border-[#21262d] p-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={purchaseForm.is_capital}
+                  onChange={e => setPurchaseForm(f => ({ ...f, is_capital: e.target.checked }))}
+                />
+                <div className="w-10 h-6 bg-[#21262d] rounded-full peer-checked:bg-brand-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4" />
+              </div>
+              <div>
+                <p className="text-sm text-[#e6edf3] font-medium">¿Es aporte de capital nuevo?</p>
+                <p className="text-xs text-[#6e7681]">
+                  {purchaseForm.is_capital
+                    ? 'Se registrará como ingreso de nuevo capital del dueño (incrementa el saldo disponible)'
+                    : 'Se registrará como reinversión de ganancias (egreso de caja por compra de inventario)'}
+                </p>
+              </div>
+            </label>
+          </div>
 
           {/* Resumen con costo promedio */}
           {purchaseForm.product_id && purchaseForm.quantity > 0 && purchaseForm.price >= 0 && (() => {

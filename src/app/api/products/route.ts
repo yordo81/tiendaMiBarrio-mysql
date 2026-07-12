@@ -84,6 +84,7 @@ export const POST = handle(async (request: Request) => {
   const body = await request.json();
   const id = randomUUID();
   const ts = new Date().toISOString().slice(0,19).replace('T',' ');
+  const isCapital = body.is_capital === true;
 
   await execute(
     `INSERT INTO products (id,name,description,category_id,sale_price,cost,stock,min_stock,unit,image_url,active,created_at,updated_at)
@@ -123,6 +124,26 @@ export const POST = handle(async (request: Request) => {
          VALUES (?, ?, ?, 'entrada', ?, ?, ?, ?)`,
         [randomUUID(), targetLocationId, id, initialStock, 'Stock inicial', sessionUser.id, ts]
       );
+    }
+
+    // ── Registrar en contabilidad ──
+    const totalCost = Math.round(initialStock * Number(body.cost ?? 0) * 100) / 100;
+    if (totalCost > 0) {
+      if (isCapital) {
+        await execute(
+          `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
+           VALUES (?, 'capital', ?, 0, ?, ?, ?, ?)`,
+          [randomUUID(), totalCost,
+           `Aporte de capital para stock inicial: ${initialStock} × ${body.name}`, ts, sessionUser.id, ts]
+        );
+      } else {
+        await execute(
+          `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
+           VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?)`,
+          [randomUUID(), -totalCost,
+           `Compra por stock inicial: ${initialStock} × ${body.name}`, ts, sessionUser.id, ts]
+        );
+      }
     }
   }
 
