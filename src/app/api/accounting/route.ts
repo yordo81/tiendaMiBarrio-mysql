@@ -545,12 +545,12 @@ export const GET = handle(async () => {
     month_expenses_cash: Math.round(monthOut.cash * 100) / 100,
     month_expenses_transfer: Math.round(monthOut.transfer * 100) / 100,
 
-    days90_income: Math.round(days90In.total * 100) / 100,
-    days90_income_cash: Math.round(days90In.cash * 100) / 100,
-    days90_income_transfer: Math.round(days90In.transfer * 100) / 100,
-    days90_expenses: Math.round(days90Out.total * 100) / 100,
-    days90_expenses_cash: Math.round(days90Out.cash * 100) / 100,
-    days90_expenses_transfer: Math.round(days90Out.transfer * 100) / 100,
+    '90days_income': Math.round(days90In.total * 100) / 100,
+    '90days_income_cash': Math.round(days90In.cash * 100) / 100,
+    '90days_income_transfer': Math.round(days90In.transfer * 100) / 100,
+    '90days_expenses': Math.round(days90Out.total * 100) / 100,
+    '90days_expenses_cash': Math.round(days90Out.cash * 100) / 100,
+    '90days_expenses_transfer': Math.round(days90Out.transfer * 100) / 100,
 
     // Registros de caja
     register_cash: Math.round(registerCash * 100) / 100,
