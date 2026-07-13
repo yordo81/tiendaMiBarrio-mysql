@@ -42,20 +42,28 @@ export default function VentasPage() {
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
   const { user } = useAuthStore();
 
+  // Date range filter — default to current month
+  const today = new Date();
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
+  const [fromDate, setFromDate] = useState(fmtDate(firstOfMonth));
+  const [toDate, setToDate] = useState(fmtDate(today));
+
   // Pagination
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
   const load = useCallback(async () => {
     try {
-      const [s, p, c, l] = await Promise.all([api.getSales('limit=50'), api.getProducts(), api.getCustomers(), api.getLocations()]);
+      const params = `from=${fromDate}&to=${toDate}&limit=200`;
+      const [s, p, c, l] = await Promise.all([api.getSales(params), api.getProducts(), api.getCustomers(), api.getLocations()]);
       setSales(s); setProducts(p); setCustomers(c); setLocations(l);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al cargar los datos');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fromDate, toDate]);
   useEffect(() => { load(); }, [load]);
 
   const cartTotal = cart.reduce((a,i) => a + i.quantity * i.unit_price, 0);
@@ -166,7 +174,28 @@ export default function VentasPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]"/><input className="input pl-9" placeholder="Buscar ventas..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
+        <div className="flex items-center gap-3 flex-1 w-full sm:w-auto flex-wrap">
+          <div className="relative flex-1 min-w-[160px] max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]"/>
+            <input className="input pl-9" placeholder="Buscar ventas..." value={search} onChange={e=>setSearch(e.target.value)}/>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-[#8b949e] whitespace-nowrap">Desde</label>
+            <input
+              type="date"
+              className="input py-1.5 px-2 text-xs w-36"
+              value={fromDate}
+              onChange={e => { setFromDate(e.target.value); setPage(1); }}
+            />
+            <label className="text-xs text-[#8b949e] whitespace-nowrap">Hasta</label>
+            <input
+              type="date"
+              className="input py-1.5 px-2 text-xs w-36"
+              value={toDate}
+              onChange={e => { setToDate(e.target.value); setPage(1); }}
+            />
+          </div>
+        </div>
         <button onClick={()=>{resetForm();setShowNew(true);}} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nueva venta</button>
       </div>
 

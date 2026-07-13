@@ -40,6 +40,17 @@ export default function InventarioPage() {
   const [moveLocStock, setMoveLocStock] = useState<number | null>(null);
   const [purchaseLocStockMap, setPurchaseLocStockMap] = useState<Record<string, number>>({});
   const [showZeroStock, setShowZeroStock] = useState(false);
+  const [showLowStockBanner, setShowLowStockBanner] = useState(() => localStorage.getItem('inv_hide_low_stock') !== 'true');
+
+  function dismissLowStockBanner() {
+    setShowLowStockBanner(false);
+    localStorage.setItem('inv_hide_low_stock', 'true');
+  }
+
+  function restoreLowStockBanner() {
+    setShowLowStockBanner(true);
+    localStorage.removeItem('inv_hide_low_stock');
+  }
   const [showCatModal, setShowCatModal] = useState(false);
   const [editCat, setEditCat] = useState<AnyRecord | null>(null);
   const [deleteCat, setDeleteCat] = useState<AnyRecord | null>(null);
@@ -243,10 +254,17 @@ export default function InventarioPage() {
 
       {tab === 'productos' && (
         <>
-          {lowStock.length > 0 && (
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3 flex items-center gap-3">
+          {lowStock.length > 0 && showLowStockBanner && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3 flex items-center gap-3 group">
               <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0"/>
-              <p className="text-yellow-400 text-sm"><span className="font-semibold">{lowStock.length}</span> producto(s) con stock bajo: {lowStock.slice(0,3).map(p=>String(p.name)).join(', ')}{lowStock.length>3?'...':''}</p>
+              <p className="text-yellow-400 text-sm flex-1"><span className="font-semibold">{lowStock.length}</span> producto(s) con stock bajo: {lowStock.slice(0,3).map(p=>String(p.name)).join(', ')}{lowStock.length>3?'...':''}</p>
+              <button
+                onClick={dismissLowStockBanner}
+                className="text-yellow-400/60 hover:text-yellow-400 transition-colors p-1 rounded-lg hover:bg-yellow-500/10"
+                title="Ocultar aviso"
+              >
+                <XIcon className="w-4 h-4" />
+              </button>
             </div>
           )}
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
@@ -263,6 +281,15 @@ export default function InventarioPage() {
               <button onClick={()=>setShowZeroStock(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showZeroStock ? 'bg-brand-600/20 border-brand-600/50 text-brand-400' : 'border-[#30363d] text-[#6e7681] hover:text-[#8b949e] hover:border-[#6e7681]')}>
                 <span className="text-sm">{showZeroStock ? '☑' : '☐'}</span> Stock 0
               </button>
+              {!showLowStockBanner && lowStock.length > 0 && (
+                <button
+                  onClick={restoreLowStockBanner}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border border-[#30363d] text-yellow-400 hover:text-yellow-300 hover:border-yellow-500/40 hover:bg-yellow-500/5 transition-colors"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Stock bajo ({lowStock.length})
+                </button>
+              )}
             </div>
             <div className="flex gap-2">
               <button onClick={() => openPurchase()} className="btn-secondary flex items-center gap-2 flex-shrink-0"><ShoppingBag className="w-4 h-4"/>Registrar compra</button>
