@@ -12,8 +12,12 @@ function fmtDateInTz(date: Date, timezone: string): string {
   }).format(date);
 }
 
-export const GET = handle(async () => {
+export const GET = handle(async (req) => {
   await requireAuth();
+  const { searchParams } = new URL(req.url);
+  const from = searchParams.get('from');
+  const to = searchParams.get('to');
+  const hasCustomRange = !!(from && to);
 
   // ── 1. Cash inflows from sales payments ──
   const cashFromSales = await query<{ total: number }>(
@@ -311,7 +315,7 @@ export const GET = handle(async () => {
       (p.amount_cash + p.amount_transfer) AS total_amount,
       s.id AS reference
     FROM payments p JOIN sales s ON s.id = p.sale_id
-    WHERE s.status != 'cancelled')
+    WHERE s.status != 'cancelled' ${hasCustomRange ? 'AND p.date >= ? AND p.date <= ?' : ''})
     UNION ALL
     (SELECT
       cp.id, cp.date, 'Abono cliente' AS type,
@@ -319,7 +323,8 @@ export const GET = handle(async () => {
       cp.method, cp.amount AS cash_amount, 0 AS transfer_amount,
       cp.amount AS total_amount,
       c.name AS reference
-    FROM customer_payments cp JOIN customers c ON c.id = cp.customer_id)
+    FROM customer_payments cp JOIN customers c ON c.id = cp.customer_id
+    ${hasCustomRange ? 'WHERE cp.date >= ? AND cp.date <= ?' : ''})
     UNION ALL
     (SELECT
       e.id, e.date,
@@ -331,7 +336,8 @@ export const GET = handle(async () => {
       e.amount AS total_amount,
       ec.name AS reference
     FROM expenses e
-    LEFT JOIN expense_categories ec ON ec.id = e.category_id)
+    LEFT JOIN expense_categories ec ON ec.id = e.category_id
+    ${hasCustomRange ? 'WHERE e.date >= ? AND e.date <= ?' : ''})
     UNION ALL
     (SELECT
       cr.id, cr.date,
@@ -346,12 +352,17 @@ export const GET = handle(async () => {
       cr.cash_amount, cr.transfer_amount,
       (cr.cash_amount + cr.transfer_amount) AS total_amount,
       cr.type AS reference
-    FROM cash_register cr)
+    FROM cash_register cr
+    ${hasCustomRange ? 'WHERE cr.date >= ? AND cr.date <= ?' : ''})
     ORDER BY date DESC
     LIMIT 50
-  `);
+  `, hasCustomRange ? [from!, to! + ' 23:59:59', from!, to! + ' 23:59:59', from!, to! + ' 23:59:59', from!, to! + ' 23:59:59'] : []);
 
-  // ── Daily evolution (last 30 days) ──
+  // ── Daily evolution ──
+  const evoDays = hasCustomRange
+    ? Math.max(1, Math.min(90, Math.ceil((new Date(to!).getTime() - new Date(from!).getTime()) / (1000 * 60 * 60 * 24)) + 1))
+    : 30;
+  const evoStartDate = hasCustomRange ? from! : `DATE_SUB(NOW(), INTERVAL ${evoDays} DAY)`;
 
   // 1. Daily inflows: sales payments + customer payments
   const dailyInflows = await query<{ date: string; cash: number; transfer: number }>(`
@@ -366,7 +377,7 @@ export const GET = handle(async () => {
         p.amount_transfer AS transfer
       FROM payments p
       JOIN sales s ON s.id = p.sale_id
-      WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+      WHERE s.status != 'cancelled' ${hasCustomRange ? 'AND p.date >= ? AND p.date <= ?' : `AND p.date >= DATE_SUB(NOW(), INTERVAL ${evoDays} DAY)`}
 
       UNION ALL
 
@@ -379,11 +390,11 @@ export const GET = handle(async () => {
              WHEN cp.method = 'mixed' THEN cp.amount / 2
              ELSE 0 END AS transfer
       FROM customer_payments cp
-      WHERE cp.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+      ${hasCustomRange ? 'WHERE cp.date >= ? AND cp.date <= ?' : `WHERE cp.date >= DATE_SUB(NOW(), INTERVAL ${evoDays} DAY)`}
     ) AS combined
     GROUP BY DATE(date)
     ORDER BY DATE(date)
-  `);
+  `, hasCustomRange ? [from!, to! + ' 23:59:59', from!, to! + ' 23:59:59'] : []);
 
   // 2. Daily outflows: expenses
   const dailyOutflows = await query<{ date: string; cash: number; transfer: number }>(`
@@ -392,42 +403,72 @@ export const GET = handle(async () => {
       COALESCE(SUM(CASE WHEN e.payment_method = 'cash' THEN e.amount WHEN e.payment_method = 'mixed' THEN e.amount / 2 ELSE 0 END), 0) AS cash,
       COALESCE(SUM(CASE WHEN e.payment_method = 'transfer' THEN e.amount WHEN e.payment_method = 'mixed' THEN e.amount / 2 ELSE 0 END), 0) AS transfer
     FROM expenses e
-    WHERE e.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    ${hasCustomRange ? 'WHERE e.date >= ? AND e.date <= ?' : `WHERE e.date >= DATE_SUB(NOW(), INTERVAL ${evoDays} DAY)`}
     GROUP BY DATE(e.date)
     ORDER BY DATE(e.date)
-  `);
+  `, hasCustomRange ? [from!, to! + ' 23:59:59'] : []);
 
-  // 3. Cash register entries within last 30 days (distributed by date)
+  // 3. Cash register entries within date range (distributed by date)
   const registerByDate = await query<{ date: string; cash: number; transfer: number }>(`
     SELECT
       DATE(date) AS date,
       COALESCE(SUM(cash_amount), 0) AS cash,
       COALESCE(SUM(transfer_amount), 0) AS transfer
     FROM cash_register
-    WHERE date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    ${hasCustomRange ? 'WHERE date >= ? AND date <= ?' : `WHERE date >= DATE_SUB(NOW(), INTERVAL ${evoDays} DAY)`}
     GROUP BY DATE(date)
     ORDER BY DATE(date)
-  `);
+  `, hasCustomRange ? [from!, to! + ' 23:59:59'] : []);
 
-  // 4. Register balance BEFORE the 30-day window (starting point)
+  // 4. Register balance BEFORE the date window (starting point)
   const registerBeforeWindow = await query<{ cash: number; transfer: number }>(`
     SELECT
       COALESCE(SUM(cash_amount), 0) AS cash,
       COALESCE(SUM(transfer_amount), 0) AS transfer
     FROM cash_register
-    WHERE date < DATE_SUB(NOW(), INTERVAL 30 DAY)
-  `);
+    ${hasCustomRange ? 'WHERE date < ?' : 'WHERE date < DATE_SUB(NOW(), INTERVAL ' + evoDays + ' DAY)'}
+  `, hasCustomRange ? [from!] : []);
+
+  // ── Compute totals from daily data to align chart with balance cards ──
+  const registerWithinDaysCash = registerByDate.reduce((s, r) => s + Number(r.cash), 0);
+  const registerWithinDaysTransfer = registerByDate.reduce((s, r) => s + Number(r.transfer), 0);
+  const cashInDaysTotal = dailyInflows.reduce((s, r) => s + Number(r.cash), 0);
+  const transferInDaysTotal = dailyInflows.reduce((s, r) => s + Number(r.transfer), 0);
+  const cashOutDaysTotal = dailyOutflows.reduce((s, r) => s + Number(r.cash), 0);
+  const transferOutDaysTotal = dailyOutflows.reduce((s, r) => s + Number(r.transfer), 0);
+
+  // Offset needed so the chart's last day equals the balance cards
+  // This accounts for any operational flows (sales, expenses, customer payments)
+  // that occurred before the date window and aren't in the register entries.
+  const chartUnadjustedCash = Number(registerBeforeWindow[0]?.cash ?? 0)
+    + registerWithinDaysCash + cashInDaysTotal - cashOutDaysTotal;
+  const chartUnadjustedTransfer = Number(registerBeforeWindow[0]?.transfer ?? 0)
+    + registerWithinDaysTransfer + transferInDaysTotal - transferOutDaysTotal;
+  const preWindowOffsetCash = cashBalance - chartUnadjustedCash;
+  const preWindowOffsetTransfer = transferBalance - chartUnadjustedTransfer;
 
   // Build daily evolution with running balances
   const dateMap = new Map<string, { date: string; cash_in: number; transfer_in: number; cash_out: number; transfer_out: number; register_cash: number; register_transfer: number; net_cash: number; net_transfer: number }>();
 
-  // Generate last 30 days (using same timezone as MySQL - America/Havana)
-  const today = new Date();
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const key = fmtDateInTz(d, timezone);
-    dateMap.set(key, { date: key, cash_in: 0, transfer_in: 0, cash_out: 0, transfer_out: 0, register_cash: 0, register_transfer: 0, net_cash: 0, net_transfer: 0 });
+  // Generate date range
+  if (hasCustomRange) {
+    const start = new Date(from!);
+    const end = new Date(to!);
+    const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    for (let i = 0; i <= diffDays && i < 90; i++) {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      const key = fmtDateInTz(d, timezone);
+      dateMap.set(key, { date: key, cash_in: 0, transfer_in: 0, cash_out: 0, transfer_out: 0, register_cash: 0, register_transfer: 0, net_cash: 0, net_transfer: 0 });
+    }
+  } else {
+    const today = new Date();
+    for (let i = evoDays - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = fmtDateInTz(d, timezone);
+      dateMap.set(key, { date: key, cash_in: 0, transfer_in: 0, cash_out: 0, transfer_out: 0, register_cash: 0, register_transfer: 0, net_cash: 0, net_transfer: 0 });
+    }
   }
 
   dailyInflows.forEach(row => {
@@ -458,9 +499,10 @@ export const GET = handle(async () => {
   });
 
   // Calculate running net balance for each day
-  // Starting running balance = register entries before 30-day window
-  let runningCash = Math.round(Number(registerBeforeWindow[0]?.cash ?? 0) * 100) / 100;
-  let runningTransfer = Math.round(Number(registerBeforeWindow[0]?.transfer ?? 0) * 100) / 100;
+  // Starting running balance = register entries before window + pre-window operational offset
+  // so the chart's final point matches the balance cards exactly.
+  let runningCash = Math.round((Number(registerBeforeWindow[0]?.cash ?? 0) + preWindowOffsetCash) * 100) / 100;
+  let runningTransfer = Math.round((Number(registerBeforeWindow[0]?.transfer ?? 0) + preWindowOffsetTransfer) * 100) / 100;
 
   const dailyEvolution = Array.from(dateMap.values()).map(entry => {
     // Apply register entries on their specific date, then add inflows/outflows
@@ -481,6 +523,67 @@ export const GET = handle(async () => {
       net_transfer: Math.round((entry.transfer_in - entry.transfer_out) * 100) / 100,
     };
   });
+
+  // ── Custom-range totals ──
+  let customIncomeTotal = 0;
+  let customIncomeCash = 0;
+  let customIncomeTransfer = 0;
+  let customExpensesTotal = 0;
+  let customExpensesCash = 0;
+  let customExpensesTransfer = 0;
+
+  if (hasCustomRange) {
+    const cSales = await query<{ total_cash: number; total_transfer: number }>(
+      `SELECT
+         COALESCE(SUM(p.amount_cash), 0) AS total_cash,
+         COALESCE(SUM(p.amount_transfer), 0) AS total_transfer
+       FROM payments p
+       JOIN sales s ON s.id = p.sale_id
+       WHERE s.status != 'cancelled' AND p.date >= ? AND p.date <= ?`,
+      [from!, to! + ' 23:59:59']
+    );
+    const cCust = await query<{ cash: number; transfer: number; mixed: number }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN method='cash' THEN amount ELSE 0 END), 0) AS cash,
+         COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
+         COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
+       FROM customer_payments
+       WHERE date >= ? AND date <= ?`,
+      [from!, to! + ' 23:59:59']
+    );
+    const cExp = await query<{ cash: number; transfer: number; mixed: number }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount ELSE 0 END), 0) AS cash,
+         COALESCE(SUM(CASE WHEN payment_method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
+         COALESCE(SUM(CASE WHEN payment_method='mixed' THEN amount ELSE 0 END), 0) AS mixed
+       FROM expenses
+       WHERE date >= ? AND date <= ?`,
+      [from!, to! + ' 23:59:59']
+    );
+    const cPurch = await query<{ total: number }>(
+      `SELECT COALESCE(SUM(cash_amount + transfer_amount), 0) AS total
+       FROM cash_register
+       WHERE type = 'purchase' AND date >= ? AND date <= ?`,
+      [from!, to! + ' 23:59:59']
+    );
+
+    const salesCash = Number(cSales[0]?.total_cash ?? 0);
+    const salesTransfer = Number(cSales[0]?.total_transfer ?? 0);
+    const custCash = Number(cCust[0]?.cash ?? 0);
+    const custTransfer = Number(cCust[0]?.transfer ?? 0);
+    const custMixed = Number(cCust[0]?.mixed ?? 0);
+    const expCash = Number(cExp[0]?.cash ?? 0);
+    const expTransfer = Number(cExp[0]?.transfer ?? 0);
+    const expMixed = Number(cExp[0]?.mixed ?? 0);
+    const purchases = Math.abs(Number(cPurch[0]?.total ?? 0));
+
+    customIncomeCash = salesCash + custCash + (custMixed / 2);
+    customIncomeTransfer = salesTransfer + custTransfer + (custMixed / 2);
+    customIncomeTotal = customIncomeCash + customIncomeTransfer;
+    customExpensesCash = expCash + (expMixed / 2);
+    customExpensesTransfer = expTransfer + (expMixed / 2);
+    customExpensesTotal = customExpensesCash + customExpensesTransfer + purchases;
+  }
 
   // ── Calculate period-filtered totals ──
   function extractPeriod(rows: { period: string; cash: number; transfer: number; mixed?: number; unclassified?: number }[], periodKey: string) {
@@ -576,5 +679,17 @@ export const GET = handle(async () => {
 
     // Movimientos recientes
     recent_movements: recentMovements,
+
+    // Rango personalizado
+    ...(hasCustomRange ? {
+      custom_from: from!,
+      custom_to: to!,
+      custom_income: Math.round(customIncomeTotal * 100) / 100,
+      custom_income_cash: Math.round(customIncomeCash * 100) / 100,
+      custom_income_transfer: Math.round(customIncomeTransfer * 100) / 100,
+      custom_expenses: Math.round(customExpensesTotal * 100) / 100,
+      custom_expenses_cash: Math.round(customExpensesCash * 100) / 100,
+      custom_expenses_transfer: Math.round(customExpensesTransfer * 100) / 100,
+    } : {}),
   });
 });

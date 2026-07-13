@@ -151,7 +151,7 @@ export const api = {
   createLocationMovement: (data: unknown) => apiFetch('/api/location-movements', { method: 'POST', body: JSON.stringify(data) }),
 
   // Accounting / Contabilidad
-  getAccounting: () => apiFetch<Record<string, unknown>>('/api/accounting'),
+  getAccounting: (params?: string) => apiFetch<Record<string, unknown>>(`/api/accounting${params ? '?' + params : ''}`),
   getCashRegister: () => apiFetch<Record<string, unknown>[]>('/api/cash-register'),
   createCashRegisterEntry: (data: unknown) => apiFetch('/api/cash-register', { method: 'POST', body: JSON.stringify(data) }),
 

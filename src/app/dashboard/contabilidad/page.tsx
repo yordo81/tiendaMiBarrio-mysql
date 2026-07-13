@@ -6,11 +6,12 @@ import { toast } from '@/components/ui/toaster';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
+import InfoTooltip from '@/components/ui/Tooltip';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import {
   DollarSign, ArrowUpRight, ArrowDownRight,
   Wallet, Banknote, TrendingUp, TrendingDown,
-  Settings, Plus, History, Search,
+  Settings, Plus, History, Search, Info,
 } from 'lucide-react';
 
 type R = Record<string, unknown>;
@@ -42,12 +43,20 @@ export default function ContabilidadPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
-  const [periodFilter, setPeriodFilter] = useState<'total' | 'week' | 'month' | '90days'>('total');
+  const [periodFilter, setPeriodFilter] = useState<'total' | 'week' | 'month' | '90days' | 'custom'>('total');
+  const todayForDate = new Date();
+  const fmtDateLocal = (d: Date) => d.toISOString().slice(0, 10);
+  const firstOfMonth = new Date(todayForDate.getFullYear(), todayForDate.getMonth(), 1);
+  const [fromDate, setFromDate] = useState(fmtDateLocal(firstOfMonth));
+  const [toDate, setToDate] = useState(fmtDateLocal(todayForDate));
 
   const load = useCallback(async () => {
     try {
+      const acctPromise = periodFilter === 'custom'
+        ? api.getAccounting(`from=${fromDate}&to=${toDate}`)
+        : api.getAccounting();
       const [acct, reg] = await Promise.all([
-        api.getAccounting() as Promise<R>,
+        acctPromise as Promise<R>,
         api.getCashRegister() as Promise<R[]>,
       ]);
       setData(acct);
@@ -57,7 +66,7 @@ export default function ContabilidadPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [periodFilter, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
   // Reset page when data or search changes
@@ -157,6 +166,16 @@ export default function ContabilidadPage() {
   const unclassifiedExpenses = Number(data.unclassified_expenses ?? 0);
   const movements = (data.recent_movements ?? []) as R[];
 
+  // Custom range data (when filter is 'custom')
+  const customIncome = Number(data.custom_income ?? 0);
+  const customIncomeCash = Number(data.custom_income_cash ?? 0);
+  const customIncomeTransfer = Number(data.custom_income_transfer ?? 0);
+  const customExpenses = Number(data.custom_expenses ?? 0);
+  const customExpensesCash = Number(data.custom_expenses_cash ?? 0);
+  const customExpensesTransfer = Number(data.custom_expenses_transfer ?? 0);
+  const customFrom = String(data.custom_from ?? '');
+  const customTo = String(data.custom_to ?? '');
+
   const dailyEvolution = (data.daily_evolution ?? []) as R[];
   const maxEvo = dailyEvolution.length
     ? Math.max(...dailyEvolution.flatMap(d => [Number(d.running_cash ?? 0), Number(d.running_transfer ?? 0)]))
@@ -179,14 +198,29 @@ export default function ContabilidadPage() {
     : movements;
   const paginatedMovements = pageSize === 0 ? filteredMovements : filteredMovements.slice((page - 1) * pageSize, page * pageSize);
 
+  const chartLabelMap: Record<string, string> = { running_cash: 'Efectivo', running_transfer: 'Transferencia' };
+
   const ChartTip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
     if (!active || !payload?.length) return null;
+    // Find the current day's data entry from dailyEvolution
+    const dayEntry = dailyEvolution.find((d: R) => String(d.date) === label);
     return (
       <div className="bg-[#1c2128] border border-[#30363d] rounded-xl px-3 py-2.5 text-xs shadow-xl">
-        <p className="text-[#8b949e] mb-1 font-medium">{label}</p>
+        <p className="text-[#8b949e] mb-1.5 font-medium border-b border-[#30363d] pb-1">{label}</p>
         {payload.map((p, i) => (
-          <p key={i} className="font-semibold" style={{ color: p.color }}>{p.name}: {formatCurrency(p.value)}</p>
+          <p key={i} className="font-semibold mb-1" style={{ color: p.color }}>
+            {chartLabelMap[p.name] ?? p.name}: {formatCurrency(p.value)}
+          </p>
         ))}
+        {dayEntry && (
+          <div className="border-t border-[#30363d] pt-1.5 mt-1.5 space-y-0.5 text-[10px] text-[#6e7681]">
+            <p>Ingresos: +{formatCurrency(Number(dayEntry.cash_in) + Number(dayEntry.transfer_in))}</p>
+            <p>Egresos: -{formatCurrency(Number(dayEntry.cash_out) + Number(dayEntry.transfer_out))}</p>
+            {(Number(dayEntry.register_cash) !== 0 || Number(dayEntry.register_transfer) !== 0) && (
+              <p>Ajustes caja: {formatCurrency(Number(dayEntry.register_cash) + Number(dayEntry.register_transfer))}</p>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -247,60 +281,74 @@ export default function ContabilidadPage() {
       )}
 
       {/* Balance Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="card p-5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-green-500/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-green-500/15 border border-green-500/20 flex items-center justify-center">
-              <Banknote className="w-5 h-5 text-green-400" />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">          <div className="card p-5 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-green-500/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-green-500/15 border border-green-500/20 flex items-center justify-center">
+                <Banknote className="w-5 h-5 text-green-400" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs text-[#6e7681] uppercase tracking-wide font-medium">Efectivo</p>
+                <InfoTooltip content="Saldo total calculado desde el primer registro. Incluye: saldo inicial, aportes de capital, ventas, abonos de clientes, gastos y compras de inventario." side="top">
+                  <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+                </InfoTooltip>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-[#6e7681] uppercase tracking-wide font-medium">Efectivo</p>
+            <p className="text-2xl font-bold text-green-400">${formatCurrency(cashBalance).replace('$', '')}</p>
+            <div className="flex items-center gap-2 mt-2 text-xs text-[#6e7681]">
+              <span className={cn('flex items-center gap-1', todayNetCash >= 0 ? 'text-green-400' : 'text-red-400')}>
+                {todayNetCash >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                Hoy: {formatCurrency(Math.abs(todayNetCash))}
+              </span>
+              <InfoTooltip content="Ingresos menos egresos del día de hoy en efectivo (ventas + abonos de clientes - gastos)." side="bottom">
+                <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+              </InfoTooltip>
             </div>
           </div>
-          <p className="text-2xl font-bold text-green-400">${formatCurrency(cashBalance).replace('$', '')}</p>
-          <div className="flex items-center gap-2 mt-2 text-xs text-[#6e7681]">
-            <span className={cn('flex items-center gap-1', todayNetCash >= 0 ? 'text-green-400' : 'text-red-400')}>
-              {todayNetCash >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-              Hoy: {formatCurrency(Math.abs(todayNetCash))}
-            </span>
-          </div>
-        </div>
 
-        <div className="card p-5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/20 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-blue-400" />
+          <div className="card p-5 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/20 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-blue-400" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs text-[#6e7681] uppercase tracking-wide font-medium">Transferencia</p>
+                <InfoTooltip content="Saldo total calculado desde el primer registro. Incluye: saldo inicial, aportes de capital, ventas, abonos de clientes, gastos y compras de inventario." side="top">
+                  <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+                </InfoTooltip>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-[#6e7681] uppercase tracking-wide font-medium">Transferencia</p>
+            <p className="text-2xl font-bold text-blue-400">${formatCurrency(transferBalance).replace('$', '')}</p>
+            <div className="flex items-center gap-2 mt-2 text-xs text-[#6e7681]">
+              <span className={cn('flex items-center gap-1', todayNetTransfer >= 0 ? 'text-blue-400' : 'text-red-400')}>
+                {todayNetTransfer >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                Hoy: {formatCurrency(Math.abs(todayNetTransfer))}
+              </span>
+              <InfoTooltip content="Ingresos menos egresos del día de hoy por transferencia (ventas + abonos de clientes - gastos)." side="bottom">
+                <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+              </InfoTooltip>
             </div>
           </div>
-          <p className="text-2xl font-bold text-blue-400">${formatCurrency(transferBalance).replace('$', '')}</p>
-          <div className="flex items-center gap-2 mt-2 text-xs text-[#6e7681]">
-            <span className={cn('flex items-center gap-1', todayNetTransfer >= 0 ? 'text-blue-400' : 'text-red-400')}>
-              {todayNetTransfer >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-              Hoy: {formatCurrency(Math.abs(todayNetTransfer))}
-            </span>
-          </div>
-        </div>
 
-        <div className="card p-5 relative overflow-hidden bg-gradient-to-br from-brand-600/10 to-transparent border-brand-500/20">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-brand-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-brand-500/15 border border-brand-500/20 flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-brand-400" />
+          <div className="card p-5 relative overflow-hidden bg-gradient-to-br from-brand-600/10 to-transparent border-brand-500/20">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-brand-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-brand-500/15 border border-brand-500/20 flex items-center justify-center">
+                <DollarSign className="w-5 h-5 text-brand-400" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs text-[#6e7681] uppercase tracking-wide font-medium">Total disponible</p>
+                <InfoTooltip content="Suma del efectivo y la transferencia disponibles. Incluye todos los movimientos desde el inicio de la contabilidad." side="top">
+                  <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+                </InfoTooltip>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-[#6e7681] uppercase tracking-wide font-medium">Total disponible</p>
-            </div>
+            <p className="text-2xl font-bold text-brand-400">${formatCurrency(totalBalance).replace('$', '')}</p>
+            <p className="text-xs text-[#6e7681] mt-2">
+              {formatCurrency(cashBalance)} efectivo + {formatCurrency(transferBalance)} transferencia
+            </p>
           </div>
-          <p className="text-2xl font-bold text-brand-400">${formatCurrency(totalBalance).replace('$', '')}</p>
-          <p className="text-xs text-[#6e7681] mt-2">
-            {formatCurrency(cashBalance)} efectivo + {formatCurrency(transferBalance)} transferencia
-          </p>
-        </div>
       </div>
 
       {/* Capital & Inventory Investments */}
@@ -334,7 +382,12 @@ export default function ContabilidadPage() {
 
       {/* Today's Flow */}
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-[#e6edf3] mb-4">Flujo del día</h3>
+        <div className="flex items-center gap-2 mb-4">
+          <h3 className="text-sm font-semibold text-[#e6edf3]">Flujo del día</h3>
+          <InfoTooltip content="Ingresos y egresos registrados hoy. Incluye ventas, abonos de clientes y gastos. Los pagos mixtos se dividen 50% efectivo / 50% transferencia." side="top">
+            <Info className="w-3.5 h-3.5 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+          </InfoTooltip>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-green-500/5 border border-green-500/10 rounded-xl p-4">
             <p className="text-xs text-green-400 font-medium flex items-center gap-1.5 mb-1">
@@ -367,7 +420,14 @@ export default function ContabilidadPage() {
       {dailyEvolution.length > 0 && (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-[#e6edf3]">Evolución últimos 30 días</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-[#e6edf3]">
+                {periodFilter === 'custom' ? `Evolución del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}` : 'Evolución últimos 30 días'}
+              </h3>
+              <InfoTooltip content="Saldo acumulado día a día durante el periodo seleccionado. El valor final del gráfico coincide exactamente con los saldos mostrados en las tarjetas. Incluye: saldo inicial, aportes, ventas, abonos de clientes, gastos y compras de inventario." side="top">
+                <Info className="w-3.5 h-3.5 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+              </InfoTooltip>
+            </div>
           </div>
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={dailyEvolution} margin={{ top: 4, right: 4, left: -15, bottom: 0 }}>
@@ -424,10 +484,10 @@ export default function ContabilidadPage() {
 
       {/* Period Filter */}
       <div className="card p-4">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 mb-4">
           <span className="text-xs text-[#8b949e] uppercase tracking-wide font-semibold">Filtrar por periodo</span>
-          <div className="flex gap-1 ml-auto">
-            {(['total', 'week', 'month', '90days'] as const).map(p => (
+          <div className="flex flex-wrap gap-1">
+            {(['total', 'week', 'month', '90days', 'custom'] as const).map(p => (
               <button
                 key={p}
                 onClick={() => setPeriodFilter(p)}
@@ -438,16 +498,34 @@ export default function ContabilidadPage() {
                     : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#1c2128] border border-transparent'
                 )}
               >
-                {p === 'total' ? 'Todo' : p === 'week' ? 'Semana' : p === 'month' ? 'Último mes' : '90 días'}
+                {p === 'total' ? 'Todo' : p === 'week' ? 'Semana' : p === 'month' ? 'Último mes' : p === '90days' ? '90 días' : 'Personalizado'}
               </button>
             ))}
           </div>
+          {periodFilter === 'custom' && (
+            <div className="flex items-center gap-2 sm:ml-auto">
+              <label className="text-xs text-[#8b949e] whitespace-nowrap">Desde</label>
+              <input
+                type="date"
+                className="input py-1.5 px-2 text-xs w-36"
+                value={fromDate}
+                onChange={e => { setFromDate(e.target.value); setPage(1); }}
+              />
+              <label className="text-xs text-[#8b949e] whitespace-nowrap">Hasta</label>
+              <input
+                type="date"
+                className="input py-1.5 px-2 text-xs w-36"
+                value={toDate}
+                onChange={e => { setToDate(e.target.value); setPage(1); }}
+              />
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="card p-4">
             <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wide mb-3">
-              Ingresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : 'últimos 90 días'}
+              Ingresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
             </h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
@@ -456,7 +534,9 @@ export default function ContabilidadPage() {
                   {formatCurrency(
                     periodFilter === 'total'
                       ? Number(data.total_cash_in ?? 0)
-                      : Number(data[`${periodFilter}_income_cash` as keyof R] ?? 0)
+                      : periodFilter === 'custom'
+                        ? customIncomeCash
+                        : Number(data[`${periodFilter}_income_cash` as keyof R] ?? 0)
                   )}
                 </span>
               </div>
@@ -466,7 +546,9 @@ export default function ContabilidadPage() {
                   {formatCurrency(
                     periodFilter === 'total'
                       ? Number(data.total_transfer_in ?? 0)
-                      : Number(data[`${periodFilter}_income_transfer` as keyof R] ?? 0)
+                      : periodFilter === 'custom'
+                        ? customIncomeTransfer
+                        : Number(data[`${periodFilter}_income_transfer` as keyof R] ?? 0)
                   )}
                 </span>
               </div>
@@ -476,7 +558,9 @@ export default function ContabilidadPage() {
                   {formatCurrency(
                     periodFilter === 'total'
                       ? Number(data.total_cash_in ?? 0) + Number(data.total_transfer_in ?? 0)
-                      : Number(data[`${periodFilter}_income` as keyof R] ?? 0)
+                      : periodFilter === 'custom'
+                        ? customIncome
+                        : Number(data[`${periodFilter}_income` as keyof R] ?? 0)
                   )}
                 </span>
               </div>
@@ -484,7 +568,7 @@ export default function ContabilidadPage() {
           </div>
           <div className="card p-4">
             <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wide mb-3">
-              Egresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : 'últimos 90 días'}
+              Egresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
             </h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
@@ -493,7 +577,9 @@ export default function ContabilidadPage() {
                   {formatCurrency(
                     periodFilter === 'total'
                       ? Number(data.total_cash_out ?? 0)
-                      : Number(data[`${periodFilter}_expenses_cash` as keyof R] ?? 0)
+                      : periodFilter === 'custom'
+                        ? customExpensesCash
+                        : Number(data[`${periodFilter}_expenses_cash` as keyof R] ?? 0)
                   )}
                 </span>
               </div>
@@ -503,7 +589,9 @@ export default function ContabilidadPage() {
                   {formatCurrency(
                     periodFilter === 'total'
                       ? Number(data.total_transfer_out ?? 0)
-                      : Number(data[`${periodFilter}_expenses_transfer` as keyof R] ?? 0)
+                      : periodFilter === 'custom'
+                        ? customExpensesTransfer
+                        : Number(data[`${periodFilter}_expenses_transfer` as keyof R] ?? 0)
                   )}
                 </span>
               </div>
@@ -513,7 +601,9 @@ export default function ContabilidadPage() {
                   {formatCurrency(
                     periodFilter === 'total'
                       ? Number(data.total_cash_out ?? 0) + Number(data.total_transfer_out ?? 0)
-                      : Number(data[`${periodFilter}_expenses` as keyof R] ?? 0)
+                      : periodFilter === 'custom'
+                        ? customExpenses
+                        : Number(data[`${periodFilter}_expenses` as keyof R] ?? 0)
                   )}
                 </span>
               </div>
