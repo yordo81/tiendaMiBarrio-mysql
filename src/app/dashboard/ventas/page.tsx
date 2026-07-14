@@ -176,18 +176,18 @@ export default function VentasPage() {
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex items-center gap-3 flex-1 w-full sm:w-auto flex-wrap">
           <div className="relative flex-1 min-w-[160px] max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]"/>
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/>
             <input className="input pl-9" placeholder="Buscar ventas..." value={search} onChange={e=>setSearch(e.target.value)}/>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs text-[#8b949e] whitespace-nowrap">Desde</label>
+            <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">Desde</label>
             <input
               type="date"
               className="input py-1.5 px-2 text-xs w-36"
               value={fromDate}
               onChange={e => { setFromDate(e.target.value); setPage(1); }}
             />
-            <label className="text-xs text-[#8b949e] whitespace-nowrap">Hasta</label>
+            <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">Hasta</label>
             <input
               type="date"
               className="input py-1.5 px-2 text-xs w-36"
@@ -204,15 +204,15 @@ export default function VentasPage() {
         :paginatedSales.length===0?<EmptyState icon={ShoppingCart} title="Sin ventas" description="Registra tu primera venta" action={<button onClick={()=>setShowNew(true)} className="btn-primary">Nueva venta</button>}/>:(
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-[#21262d]">{['Fecha','Cliente','Total','Tipo','Estado',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{h}</th>)}</tr></thead>
+              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Cliente','Total','Tipo','Estado',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
               <tbody>{paginatedSales.map(s=>(
-                <tr key={String(s.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
-                  <td className="px-4 py-3 text-[#8b949e] text-xs">{s.date?formatDateTime(String(s.date)):'—'}</td>
-                  <td className="px-4 py-3 text-[#e6edf3]">{s.customer_name?String(s.customer_name):<span className="text-[#6e7681] italic">Sin cliente</span>}</td>
-                  <td className="px-4 py-3 text-[#e6edf3] font-semibold">{formatCurrency(Number(s.total))}</td>
-                  <td className="px-4 py-3 text-[#8b949e]">{s.status==='pending'?'Crédito':'Contado'}</td>
+                <tr key={String(s.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
+                  <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{s.date?formatDateTime(String(s.date)):'—'}</td>
+                  <td className="px-4 py-3 text-[var(--text-primary)]">{s.customer_name?String(s.customer_name):<span className="text-[var(--text-tertiary)] italic">Sin cliente</span>}</td>
+                  <td className="px-4 py-3 text-[var(--text-primary)] font-semibold">{formatCurrency(Number(s.total))}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{s.status==='pending'?'Crédito':'Contado'}</td>
                   <td className="px-4 py-3"><span className={statusClass[String(s.status)]??'badge-info'}>{statusLabel[String(s.status)]??String(s.status)}</span></td>
-                  <td className="px-4 py-3"><button onClick={()=>openDetail(s)} className="p-1.5 rounded-lg text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Eye className="w-3.5 h-3.5"/></button></td>
+                  <td className="px-4 py-3"><button onClick={()=>openDetail(s)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Eye className="w-3.5 h-3.5"/></button></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -226,54 +226,54 @@ export default function VentasPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           <div className="space-y-3">
             <div><label className="label">Buscar producto</label>
-              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]"/><input className="input pl-9" placeholder="Nombre..." value={productSearch} onChange={e=>setProductSearch(e.target.value)}/></div>
+              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Nombre..." value={productSearch} onChange={e=>setProductSearch(e.target.value)}/></div>
             </div>
             {productSearch&&(
-              <div className="border border-[#30363d] rounded-xl overflow-hidden bg-[#0d1117]">
-                {filteredProducts.length===0?<p className="text-center text-[#6e7681] py-4 text-sm">Sin resultados</p>
+              <div className="border border-[var(--border-secondary)] rounded-xl overflow-hidden bg-[var(--bg-primary)]">
+                {filteredProducts.length===0?<p className="text-center text-[var(--text-tertiary)] py-4 text-sm">Sin resultados</p>
                 :filteredProducts.map(p=>(
-                  <button key={String(p.id)} onClick={()=>addToCart(p)} title={getAvailableStock(p) <= 0 ? 'Producto agotado' : undefined} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-[#161b22] text-left border-b border-[#21262d] last:border-0 transition-colors', getAvailableStock(p) <= 0 && 'opacity-40 cursor-not-allowed')}>
+                  <button key={String(p.id)} onClick={()=>addToCart(p)} title={getAvailableStock(p) <= 0 ? 'Producto agotado' : undefined} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-[var(--bg-secondary)] text-left border-b border-[var(--border-primary)] last:border-0 transition-colors', getAvailableStock(p) <= 0 && 'opacity-40 cursor-not-allowed')}>
                     <div>
-                      <p className={cn('text-sm', getAvailableStock(p) <= 0 ? 'text-[#6e7681] line-through' : 'text-[#e6edf3]')}>{String(p.name)}</p>
+                      <p className={cn('text-sm', getAvailableStock(p) <= 0 ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]')}>{String(p.name)}</p>
                       {(() => {
                         const avail = getAvailableStock(p);
                         const min = Number(p.min_stock ?? 0);
                         const low = avail > 0 && avail <= min;
                         const out = avail <= 0;
-                        const cls = out ? 'text-red-400' : low ? 'text-yellow-400' : 'text-[#6e7681]';
+                        const cls = out ? 'text-red-400' : low ? 'text-yellow-400' : 'text-[var(--text-tertiary)]';
                         return <p className={`text-xs ${cls}`}>{out ? `Sin stock — Producto agotado` : `Stock: ${formatNumber(avail,1)}`}</p>;
                       })()}
                     </div>
-                    <span className={cn('font-semibold text-sm', getAvailableStock(p) <= 0 ? 'text-[#6e7681] line-through' : 'text-brand-400')}>{formatCurrency(Number(p.sale_price))}</span>
+                    <span className={cn('font-semibold text-sm', getAvailableStock(p) <= 0 ? 'text-[var(--text-tertiary)] line-through' : 'text-brand-400')}>{formatCurrency(Number(p.sale_price))}</span>
                   </button>
                 ))}
               </div>
             )}
             {cart.length>0&&(
               <div className="space-y-2">
-                <p className="text-xs font-medium text-[#8b949e] uppercase tracking-wide">Carrito</p>
+                <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Carrito</p>
                 {cart.map(item=>(
-                  <div key={String(item.product.id)} className="flex flex-col xs:flex-row items-stretch xs:items-center gap-2 bg-[#0d1117] rounded-xl px-3 py-2.5 border border-[#21262d]">
+                  <div key={String(item.product.id)} className="flex flex-col xs:flex-row items-stretch xs:items-center gap-2 bg-[var(--bg-primary)] rounded-xl px-3 py-2.5 border border-[var(--border-primary)]">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[#e6edf3] truncate">{String(item.product.name)}</p>
+                      <p className="text-sm text-[var(--text-primary)] truncate">{String(item.product.name)}</p>
                       {(() => {
                         const avail = getAvailableStock(item.product);
                         const exceeds = item.quantity > avail;
                         return exceeds
                           ? <p className="text-xs text-red-400 mt-0.5">{`Stock disponible: ${formatNumber(avail,1)} — excede!`}</p>
-                          : <p className="text-xs text-[#6e7681]">{`Stock: ${formatNumber(avail,1)}`}</p>;
+                          : <p className="text-xs text-[var(--text-tertiary)]">{`Stock: ${formatNumber(avail,1)}`}</p>;
                       })()}
                     </div>
                     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap justify-end">
-                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:Math.max(0.01,i.quantity-1)}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] flex items-center justify-center text-xs">−</button>
+                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:Math.max(0.01,i.quantity-1)}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[var(--bg-muted)] text-[var(--text-primary)] hover:bg-[#30363d] flex items-center justify-center text-xs">−</button>
                       <input type="number" min="0" step="1" value={item.quantity} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:parseFloat(e.target.value)||0.01}:i))} className="w-16 sm:w-14 input text-center text-xs py-1.5 sm:py-1"/>
-                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:i.quantity+1}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] flex items-center justify-center text-xs">+</button>
+                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:i.quantity+1}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[var(--bg-muted)] text-[var(--text-primary)] hover:bg-[#30363d] flex items-center justify-center text-xs">+</button>
                       <input type="number" min="0" step="1" value={item.unit_price} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,unit_price:parseFloat(e.target.value)||0}:i))} className="w-full sm:w-20 input text-right text-xs py-1.5 sm:py-1"/>
-                      <button onClick={()=>setCart(prev=>prev.filter(i=>i.product.id!==item.product.id))} className="text-[#6e7681] hover:text-red-400 p-1"><X className="w-4 h-4"/></button>
+                      <button onClick={()=>setCart(prev=>prev.filter(i=>i.product.id!==item.product.id))} className="text-[var(--text-tertiary)] hover:text-red-400 p-1"><X className="w-4 h-4"/></button>
                     </div>
                   </div>
                 ))}
-                <div className="flex justify-end pt-1"><span className="text-lg font-semibold text-[#e6edf3]">Total: {formatCurrency(cartTotal)}</span></div>
+                <div className="flex justify-end pt-1"><span className="text-lg font-semibold text-[var(--text-primary)]">Total: {formatCurrency(cartTotal)}</span></div>
               </div>
             )}
           </div>
@@ -294,12 +294,12 @@ export default function VentasPage() {
               <div className="grid grid-cols-2 gap-2">
                 {(['cash','transfer','mixed','credit'] as PayMethod[]).map(m=>{
                   const labels: Record<PayMethod,string> = {cash:'Efectivo',transfer:'Transferencia',mixed:'Mixto',credit:'Crédito'};
-                  return(<button key={m} onClick={()=>setPayMethod(m)} className={cn('px-3 py-2 rounded-lg text-sm border transition-colors',payMethod===m?'bg-brand-600 border-brand-600 text-white':'border-[#30363d] text-[#8b949e] hover:border-[#6e7681] hover:text-[#e6edf3]')}>{labels[m]}</button>);
+                  return(<button key={m} onClick={()=>setPayMethod(m)} className={cn('px-3 py-2 rounded-lg text-sm border transition-colors',payMethod===m?'bg-brand-600 border-brand-600 text-white':'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:border-[#6e7681] hover:text-[var(--text-primary)]')}>{labels[m]}</button>);
                 })}
               </div>
             </div>
             {payMethod==='mixed'&&(
-              <div className="grid grid-cols-2 gap-3 p-3 bg-[#0d1117] rounded-xl border border-[#21262d]">
+              <div className="grid grid-cols-2 gap-3 p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)]">
                 <div><label className="label">Efectivo</label><input type="number" min="0" step="1" className="input" value={amountCash||''} onChange={e=>setAmountCash(parseFloat(e.target.value)||0)}/></div>
                 <div><label className="label">Transferencia</label><input type="number" min="0" step="1" className="input" value={amountTransfer||''} onChange={e=>setAmountTransfer(parseFloat(e.target.value)||0)}/></div>
                 {(amountCash+amountTransfer)!==cartTotal&&cartTotal>0 ? <p className="col-span-2 text-xs text-yellow-400">⚠ La suma no coincide con el total</p> : null}
@@ -322,23 +322,23 @@ export default function VentasPage() {
         {selectedSale&&(
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-[#0d1117] rounded-xl p-3"><p className="text-xs text-[#6e7681] mb-1">Fecha</p><p className="text-[#e6edf3]">{selectedSale.date?formatDateTime(String(selectedSale.date)):'—'}</p></div>
-              <div className="bg-[#0d1117] rounded-xl p-3"><p className="text-xs text-[#6e7681] mb-1">Estado</p><span className={statusClass[String(selectedSale.status)]??'badge-info'}>{statusLabel[String(selectedSale.status)]??String(selectedSale.status)}</span></div>
-              <div className="bg-[#0d1117] rounded-xl p-3"><p className="text-xs text-[#6e7681] mb-1">Cliente</p><p className="text-[#e6edf3]">{String(selectedSale.customer_name??'Sin cliente')}</p></div>
-              <div className="bg-[#0d1117] rounded-xl p-3"><p className="text-xs text-[#6e7681] mb-1">Total</p><p className="text-[#e6edf3] font-semibold">{formatCurrency(Number(selectedSale.total))}</p></div>
+              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Fecha</p><p className="text-[var(--text-primary)]">{selectedSale.date?formatDateTime(String(selectedSale.date)):'—'}</p></div>
+              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Estado</p><span className={statusClass[String(selectedSale.status)]??'badge-info'}>{statusLabel[String(selectedSale.status)]??String(selectedSale.status)}</span></div>
+              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Cliente</p><p className="text-[var(--text-primary)]">{String(selectedSale.customer_name??'Sin cliente')}</p></div>
+              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Total</p><p className="text-[var(--text-primary)] font-semibold">{formatCurrency(Number(selectedSale.total))}</p></div>
             </div>
             {(selectedSale.items as AnyRecord[]|undefined)?.length&&(
               <div>
-                <p className="text-xs font-medium text-[#8b949e] uppercase tracking-wide mb-2">Productos</p>
-                <div className="rounded-xl border border-[#21262d] overflow-hidden">
+                <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">Productos</p>
+                <div className="rounded-xl border border-[var(--border-primary)] overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead><tr className="border-b border-[#21262d] bg-[#0d1117]">{['Producto','Cant.','Precio','Subtotal'].map(h=><th key={h} className="px-3 py-2 text-left text-xs font-medium text-[#6e7681]">{h}</th>)}</tr></thead>
+                    <thead><tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">{['Producto','Cant.','Precio','Subtotal'].map(h=><th key={h} className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)]">{h}</th>)}</tr></thead>
                     <tbody>{(selectedSale.items as AnyRecord[]).map(item=>(
-                      <tr key={String(item.id)} className="border-b border-[#21262d] last:border-0">
-                        <td className="px-3 py-2 text-[#e6edf3]">{String(item.product_name??'—')}</td>
-                        <td className="px-3 py-2 text-[#8b949e]">{formatNumber(Number(item.quantity),2)}</td>
-                        <td className="px-3 py-2 text-[#8b949e]">{formatCurrency(Number(item.unit_price))}</td>
-                        <td className="px-3 py-2 text-[#e6edf3] font-medium">{formatCurrency(Number(item.quantity)*Number(item.unit_price))}</td>
+                      <tr key={String(item.id)} className="border-b border-[var(--border-primary)] last:border-0">
+                        <td className="px-3 py-2 text-[var(--text-primary)]">{String(item.product_name??'—')}</td>
+                        <td className="px-3 py-2 text-[var(--text-secondary)]">{formatNumber(Number(item.quantity),2)}</td>
+                        <td className="px-3 py-2 text-[var(--text-secondary)]">{formatCurrency(Number(item.unit_price))}</td>
+                        <td className="px-3 py-2 text-[var(--text-primary)] font-medium">{formatCurrency(Number(item.quantity)*Number(item.unit_price))}</td>
                       </tr>
                     ))}</tbody>
                   </table>
@@ -347,23 +347,23 @@ export default function VentasPage() {
             )}
             {/* Payment method info */}
             {(selectedSale.payments as AnyRecord[]|undefined)?.map(pay=>(
-              <div key={String(pay.id)} className="flex justify-between items-center text-sm p-3 bg-[#0d1117] rounded-xl border border-[#21262d]">
-                <span className="text-[#8b949e] capitalize">{({cash:'Efectivo',transfer:'Transferencia',mixed:'Mixto',credit:'Crédito'} as Record<string,string>)[String(pay.method)]??String(pay.method)}</span>
-                <span className="text-[#e6edf3] font-medium">{pay.method==='mixed'?`Ef: ${formatCurrency(Number(pay.amount_cash))} / Tr: ${formatCurrency(Number(pay.amount_transfer))}`:formatCurrency(Number(pay.amount_cash)+Number(pay.amount_transfer))}</span>
+              <div key={String(pay.id)} className="flex justify-between items-center text-sm p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)]">
+                <span className="text-[var(--text-secondary)] capitalize">{({cash:'Efectivo',transfer:'Transferencia',mixed:'Mixto',credit:'Crédito'} as Record<string,string>)[String(pay.method)]??String(pay.method)}</span>
+                <span className="text-[var(--text-primary)] font-medium">{pay.method==='mixed'?`Ef: ${formatCurrency(Number(pay.amount_cash))} / Tr: ${formatCurrency(Number(pay.amount_transfer))}`:formatCurrency(Number(pay.amount_cash)+Number(pay.amount_transfer))}</span>
               </div>
             ))}
             {/* Abonos vinculados */}
             {(selectedSale as any).customer_payments?.length > 0 && (
               <div>
-                <p className="text-xs font-medium text-[#8b949e] uppercase tracking-wide mb-2">Abonos recibidos</p>
+                <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">Abonos recibidos</p>
                 <div className="space-y-2">
                   {(selectedSale as any).customer_payments.map((cp: AnyRecord) => (
                     <div key={String(cp.id)} className="flex justify-between items-center text-sm p-3 bg-green-500/5 rounded-xl border border-green-500/20">
                       <div>
                         <span className="text-green-400 font-medium">{formatCurrency(Number(cp.amount))}</span>
-                        <span className="text-xs text-[#6e7681] ml-2">{cp.date ? formatDateTime(String(cp.date)) : '—'} · {String(cp.method)}</span>
+                        <span className="text-xs text-[var(--text-tertiary)] ml-2">{cp.date ? formatDateTime(String(cp.date)) : '—'} · {String(cp.method)}</span>
                       </div>
-                      {cp.notes ? <span className="text-xs text-[#8b949e]">{String(cp.notes)}</span> : null}
+                      {cp.notes ? <span className="text-xs text-[var(--text-secondary)]">{String(cp.notes)}</span> : null}
                     </div>
                   ))}
                 </div>
@@ -404,12 +404,12 @@ export default function VentasPage() {
       <Modal open={showPaySale} onClose={() => setShowPaySale(false)} title={`Registrar pago — ${String(selectedSale?.customer_name ?? '')}`} size="sm">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 bg-[#0d1117] rounded-xl border border-[#21262d] text-sm">
-              <p className="text-xs text-[#6e7681]">Total venta</p>
-              <p className="text-[#e6edf3] font-semibold">{formatCurrency(Number(selectedSale?.total ?? 0))}</p>
+            <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] text-sm">
+              <p className="text-xs text-[var(--text-tertiary)]">Total venta</p>
+              <p className="text-[var(--text-primary)] font-semibold">{formatCurrency(Number(selectedSale?.total ?? 0))}</p>
             </div>
-            <div className="p-3 bg-[#0d1117] rounded-xl border border-[#21262d] text-sm">
-              <p className="text-xs text-[#6e7681]">Pagado</p>
+            <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] text-sm">
+              <p className="text-xs text-[var(--text-tertiary)]">Pagado</p>
               <p className="text-green-400 font-semibold">{formatCurrency(Number((selectedSale as any)?.total_paid ?? 0))}</p>
             </div>
           </div>

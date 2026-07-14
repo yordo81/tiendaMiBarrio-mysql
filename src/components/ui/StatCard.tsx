@@ -21,7 +21,7 @@ const variants = {
 
 export default function StatCard({ title, value, subtitle, icon: Icon, trend, variant = 'default' }: StatCardProps) {
   return (
-    <div className="card p-5 hover:border-[#30363d] transition-colors">
+    <div className="card p-5 hover:border-[var(--border-secondary)] transition-colors">
       <div className="flex items-start justify-between mb-3">
         <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center border', variants[variant])}>
           <Icon className="w-4 h-4" />
@@ -35,9 +35,9 @@ export default function StatCard({ title, value, subtitle, icon: Icon, trend, va
           </span>
         )}
       </div>
-      <p className="text-2xl font-semibold text-[#e6edf3] mb-0.5">{value}</p>
-      <p className="text-sm text-[#8b949e]">{title}</p>
-      {subtitle && <p className="text-xs text-[#6e7681] mt-1">{subtitle}</p>}
+      <p className="text-2xl font-semibold mb-0.5" style={{ color: 'var(--text-primary)' }}>{value}</p>
+      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{title}</p>
+      {subtitle && <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>{subtitle}</p>}
     </div>
   );
 }

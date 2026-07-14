@@ -63,10 +63,10 @@ export default function InfoTooltip({ children, content, side = 'top', className
   };
 
   const arrowStyles: Record<string, string> = {
-    top: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-full border-l-[5px] border-r-[5px] border-t-[5px] border-l-transparent border-r-transparent border-t-[#1c2128]',
-    bottom: 'top-0 left-1/2 -translate-x-1/2 -translate-y-full border-l-[5px] border-r-[5px] border-b-[5px] border-l-transparent border-r-transparent border-b-[#1c2128]',
-    left: 'top-1/2 right-0 -translate-y-1/2 translate-x-full border-t-[5px] border-b-[5px] border-l-[5px] border-t-transparent border-b-transparent border-l-[#1c2128]',
-    right: 'top-1/2 left-0 -translate-y-1/2 -translate-x-full border-t-[5px] border-b-[5px] border-r-[5px] border-t-transparent border-b-transparent border-r-[#1c2128]',
+    top: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-full border-l-[5px] border-r-[5px] border-t-[5px] border-l-transparent border-r-transparent border-t-[var(--bg-tertiary)]',
+    bottom: 'top-0 left-1/2 -translate-x-1/2 -translate-y-full border-l-[5px] border-r-[5px] border-b-[5px] border-l-transparent border-r-transparent border-b-[var(--bg-tertiary)]',
+    left: 'top-1/2 right-0 -translate-y-1/2 translate-x-full border-t-[5px] border-b-[5px] border-l-[5px] border-t-transparent border-b-transparent border-l-[var(--bg-tertiary)]',
+    right: 'top-1/2 left-0 -translate-y-1/2 -translate-x-full border-t-[5px] border-b-[5px] border-r-[5px] border-t-transparent border-b-transparent border-r-[var(--bg-tertiary)]',
   };
 
   return (
@@ -79,21 +79,23 @@ export default function InfoTooltip({ children, content, side = 'top', className
       onBlur={handleMouseLeave}
     >
       {children}
-      <svg
-        className={cn('ml-1 shrink-0 text-[#6e7681] hover:text-[#8b949e] transition-colors cursor-help', iconClassName ?? 'w-3.5 h-3.5')}
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Z" />
-        <path d="M7.25 11.5v-4a.75.75 0 0 1 1.5 0v4a.75.75 0 0 1-1.5 0ZM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" />
-      </svg>
+      {!children && (
+        <svg
+          className={cn('shrink-0 transition-colors cursor-help', iconClassName ?? 'w-3.5 h-3.5')}
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Z" />
+          <path d="M7.25 11.5v-4a.75.75 0 0 1 1.5 0v4a.75.75 0 0 1-1.5 0ZM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" />
+        </svg>
+      )}
       {show && (
         <span
           className="fixed z-50 pointer-events-none"
           style={{ top: coords.top, left: coords.left, transform: transformMap[side] }}
         >
-          <span className="block bg-[#1c2128] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-[#e6edf3] shadow-xl whitespace-normal max-w-[260px] leading-relaxed font-normal">
+          <span className="block rounded-lg px-3 py-2 text-xs shadow-xl whitespace-normal max-w-[260px] leading-relaxed font-normal" style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-secondary)', color: 'var(--text-primary)' }}>
             {content}
           </span>
           <span className={cn('absolute w-0 h-0', arrowStyles[side])} />

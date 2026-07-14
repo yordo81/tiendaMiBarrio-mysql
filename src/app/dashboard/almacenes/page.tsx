@@ -131,9 +131,9 @@ export default function AlmacenesPage() {
   return (
     <div className="space-y-5">
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-[#21262d] pb-0">
+      <div className="flex gap-1 border-b border-[var(--border-primary)] pb-0">
         {([['almacenes','Almacenes / Puntos de venta',Warehouse],['transferencias','Traslados',ArrowRightLeft]] as const).map(([key,label,Icon])=>(
-          <button key={key} onClick={()=>setTab(key as 'almacenes'|'transferencias')} className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',tab===key?'border-brand-500 text-brand-400':'border-transparent text-[#8b949e] hover:text-[#e6edf3]')}>
+          <button key={key} onClick={()=>setTab(key as 'almacenes'|'transferencias')} className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',tab===key?'border-brand-500 text-brand-400':'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]')}>
             <Icon className="w-4 h-4"/>{label}
           </button>
         ))}
@@ -143,7 +143,7 @@ export default function AlmacenesPage() {
         
         <>
               <div className="flex items-center justify-between flex-wrap gap-3">
-            <p className="text-sm text-[#8b949e]">{locations.length} ubicación(es)</p>
+            <p className="text-sm text-[var(--text-secondary)]">{locations.length} ubicación(es)</p>
             <div className="flex gap-2 flex-wrap">
               <button onClick={()=>setShowMov(true)} className="btn-secondary flex items-center gap-2 text-sm"><PackagePlus className="w-4 h-4"/>Entrada / Salida / Ajuste</button>
               <button onClick={()=>setShowTransfer(true)} className="btn-secondary flex items-center gap-2 text-sm"><ArrowRightLeft className="w-4 h-4"/>Trasladar stock</button>
@@ -161,26 +161,26 @@ export default function AlmacenesPage() {
                 return (
                   <div key={String(s.location_id)} className="card p-4 flex flex-col gap-2 border-l-4 border-l-brand-500">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-[#e6edf3] truncate">{String(s.location_name)}</p>
+                      <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{String(s.location_name)}</p>
                       <span className={s.location_type === 'store' ? 'badge-success' : 'badge-info'}>
                         {s.location_type === 'warehouse' ? 'Almacén' : 'Punto de venta'}
                       </span>
                     </div>
                     <div className="grid grid-cols-3 gap-3 mt-1">
-                      <div className="flex flex-col items-center p-2 rounded-lg bg-[#0d1117] border border-[#21262d]">
+                      <div className="flex flex-col items-center p-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)]">
                         <Layers className="w-4 h-4 text-blue-400 mb-1" />
-                        <p className="text-lg font-bold text-[#e6edf3]">{count}</p>
-                        <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">Productos</p>
+                        <p className="text-lg font-bold text-[var(--text-primary)]">{count}</p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide">Productos</p>
                       </div>
-                      <div className="flex flex-col items-center p-2 rounded-lg bg-[#0d1117] border border-[#21262d]">
+                      <div className="flex flex-col items-center p-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)]">
                         <Package className="w-4 h-4 text-green-400 mb-1" />
-                        <p className="text-lg font-bold text-[#e6edf3]">{qty.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                        <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">Cantidad</p>
+                        <p className="text-lg font-bold text-[var(--text-primary)]">{qty.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide">Cantidad</p>
                       </div>
-                      <div className="flex flex-col items-center p-2 rounded-lg bg-[#0d1117] border border-[#21262d]">
+                      <div className="flex flex-col items-center p-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)]">
                         <DollarSign className="w-4 h-4 text-yellow-400 mb-1" />
-                        <p className="text-lg font-bold text-[#e6edf3]">{'$' + val.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                        <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">Valor</p>
+                        <p className="text-lg font-bold text-[var(--text-primary)]">{'$' + val.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide">Valor</p>
                       </div>
                     </div>
                   </div>
@@ -195,14 +195,14 @@ export default function AlmacenesPage() {
               {locations.map(loc=>(
                 <div key={String(loc.id)} className="card p-5 flex flex-col gap-3">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0"><p className="font-semibold text-[#e6edf3] truncate">{String(loc.name)}</p>{loc.address?<p className="text-xs text-[#6e7681] mt-0.5">{String(loc.address)}</p>:null}</div>
+                    <div className="min-w-0"><p className="font-semibold text-[var(--text-primary)] truncate">{String(loc.name)}</p>{loc.address?<p className="text-xs text-[var(--text-tertiary)] mt-0.5">{String(loc.address)}</p>:null}</div>
                     <span className={typeColor[String(loc.type)]??'badge-info'}>{typeLabel[String(loc.type)]??String(loc.type)}</span>
                   </div>
-                  {loc.notes?<p className="text-xs text-[#8b949e]">{String(loc.notes)}</p>:null}
-                  <div className="flex items-center gap-2 pt-1 border-t border-[#21262d]">
+                  {loc.notes?<p className="text-xs text-[var(--text-secondary)]">{String(loc.notes)}</p>:null}
+                  <div className="flex items-center gap-2 pt-1 border-t border-[var(--border-primary)]">
                     <button onClick={()=>openDetail(loc)} className="btn-secondary text-xs flex items-center gap-1.5 flex-1 justify-center"><BarChart3 className="w-3.5 h-3.5"/>Ver stock</button>
-                    <button onClick={()=>{setEditLoc(loc);setLocForm({name:String(loc.name),type:String(loc.type),address:String(loc.address??''),notes:String(loc.notes??'')});setShowLocModal(true);}} className="p-2 rounded-lg text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
-                    <button onClick={()=>setDelTarget(loc)} className="p-2 rounded-lg text-[#6e7681] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                    <button onClick={()=>{setEditLoc(loc);setLocForm({name:String(loc.name),type:String(loc.type),address:String(loc.address??''),notes:String(loc.notes??'')});setShowLocModal(true);}} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
+                    <button onClick={()=>setDelTarget(loc)} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
                   </div>
                 </div>
               ))}
@@ -214,7 +214,7 @@ export default function AlmacenesPage() {
       {tab==='transferencias'&&(
         <>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-[#8b949e]">Historial de traslados</p>
+            <p className="text-sm text-[var(--text-secondary)]">Historial de traslados</p>
             <button onClick={()=>setShowTransfer(true)} className="btn-primary flex items-center gap-2"><ArrowRightLeft className="w-4 h-4"/>Nuevo traslado</button>
           </div>
           <div className="card overflow-hidden">
@@ -222,15 +222,15 @@ export default function AlmacenesPage() {
             :transfers.length===0?<EmptyState icon={ArrowRightLeft} title="Sin traslados" description="Registra el primer traslado" action={<button onClick={()=>setShowTransfer(true)} className="btn-primary">Nuevo traslado</button>}/>:(<>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[#21262d]">{['Fecha','Origen','Destino','Producto','Cantidad','Usuario'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                  <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Origen','Destino','Producto','Cantidad','Usuario'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
                   <tbody>{paginatedTransfers.map(t=>(
-                    <tr key={String(t.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
-                      <td className="px-4 py-3 text-[#8b949e] text-xs whitespace-nowrap">{t.created_at?formatDateTime(String(t.created_at)):'—'}</td>
-                      <td className="px-4 py-3 text-[#e6edf3]">{String(t.from_location_name??'—')}</td>
-                      <td className="px-4 py-3 text-[#e6edf3]">{String(t.to_location_name??'—')}</td>
-                      <td className="px-4 py-3 text-[#e6edf3]">{String(t.product_name??'—')}</td>
+                    <tr key={String(t.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-nowrap">{t.created_at?formatDateTime(String(t.created_at)):'—'}</td>
+                      <td className="px-4 py-3 text-[var(--text-primary)]">{String(t.from_location_name??'—')}</td>
+                      <td className="px-4 py-3 text-[var(--text-primary)]">{String(t.to_location_name??'—')}</td>
+                      <td className="px-4 py-3 text-[var(--text-primary)]">{String(t.product_name??'—')}</td>
                       <td className="px-4 py-3 text-brand-400 font-medium">{formatNumber(Number(t.quantity),2)} {String(t.unit??'')}</td>
-                      <td className="px-4 py-3 text-[#8b949e] text-xs">{String(t.user_name??'—')}</td>
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{String(t.user_name??'—')}</td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -244,21 +244,21 @@ export default function AlmacenesPage() {
       {/* Detail Modal */}
       <Modal open={showDetail} onClose={()=>setShowDetail(false)} title={`${String(selLoc?.name??'')} — ${typeLabel[String(selLoc?.type??'warehouse')]}`} size="xl">
         <div className="space-y-4">
-          <div className="flex gap-1 border-b border-[#21262d]">
+          <div className="flex gap-1 border-b border-[var(--border-primary)]">
             {([['stock','Stock actual',BarChart3],['movimientos','Movimientos',List]] as const).map(([key,label,Icon])=>(
-              <button key={key} onClick={()=>setDetailTab(key as 'stock'|'movimientos')} className={cn('flex items-center gap-2 px-4 py-2 text-sm border-b-2 -mb-px transition-colors',detailTab===key?'border-brand-500 text-brand-400':'border-transparent text-[#8b949e] hover:text-[#e6edf3]')}>
+              <button key={key} onClick={()=>setDetailTab(key as 'stock'|'movimientos')} className={cn('flex items-center gap-2 px-4 py-2 text-sm border-b-2 -mb-px transition-colors',detailTab===key?'border-brand-500 text-brand-400':'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]')}>
                 <Icon className="w-3.5 h-3.5"/>{label}
               </button>
             ))}
             <div className="flex-1"/>
-            <button onClick={()=>selLoc&&loadDetail(String(selLoc.id))} className="p-2 text-[#6e7681] hover:text-[#e6edf3] transition-colors mb-px" title="Actualizar"><RefreshCw className="w-3.5 h-3.5"/></button>
+            <button onClick={()=>selLoc&&loadDetail(String(selLoc.id))} className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors mb-px" title="Actualizar"><RefreshCw className="w-3.5 h-3.5"/></button>
           </div>
 
           {detailTab==='stock'&&(
             <>
               {/* Search input for stock */}
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
                 <input
                   className="input pl-9"
                   placeholder="Buscar producto por nombre..."
@@ -266,14 +266,14 @@ export default function AlmacenesPage() {
                   onChange={e => { setStockSearch(e.target.value); setStockPage(1); }}
                 />
                 {activeStock.length > 0 && (
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#6e7681]">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[var(--text-tertiary)]">
                     {filteredStock.length} / {activeStock.length}
                   </span>
                 )}
               </div>
 
               {filteredStock.length===0?(
-                <div className="flex flex-col items-center justify-center py-10 text-[#6e7681]">
+                <div className="flex flex-col items-center justify-center py-10 text-[var(--text-tertiary)]">
                   <PackagePlus size={32} className="mb-3 opacity-40"/>
                   <p className="text-sm text-center">
                     {stockSearch
@@ -281,18 +281,18 @@ export default function AlmacenesPage() {
                       : 'Sin stock en este almacén.'}
                   </p>
                   {!stockSearch && (
-                    <p className="text-xs text-center mt-1">Usa <strong className="text-[#e6edf3]">Entrada</strong> para cargar productos aquí.</p>
+                    <p className="text-xs text-center mt-1">Usa <strong className="text-[var(--text-primary)]">Entrada</strong> para cargar productos aquí.</p>
                   )}
                 </div>
               ):(<>
-                <div className="overflow-x-auto rounded-xl border border-[#21262d]">
+                <div className="overflow-x-auto rounded-xl border border-[var(--border-primary)]">
                   <table className="w-full text-sm">
-                    <thead><tr className="border-b border-[#21262d] bg-[#0d1117]">{['Producto','Stock disponible','Unidad'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                    <thead><tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">{['Producto','Stock disponible','Unidad'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
                     <tbody>{paginatedStock.map(s=>(
-                      <tr key={String(s.id)} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
-                        <td className="px-4 py-2.5 text-[#e6edf3] font-medium">{String(s.product_name??'—')}</td>
+                      <tr key={String(s.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[#1c2128]">
+                        <td className="px-4 py-2.5 text-[var(--text-primary)] font-medium">{String(s.product_name??'—')}</td>
                         <td className="px-4 py-2.5"><span className={cn('font-semibold',Number(s.quantity)<=0?'text-red-400':'text-green-400')}>{formatNumber(Number(s.quantity),2)}</span></td>
-                        <td className="px-4 py-2.5 text-[#8b949e]">{String(s.unit??'')}</td>
+                        <td className="px-4 py-2.5 text-[var(--text-secondary)]">{String(s.unit??'')}</td>
                       </tr>
                     ))}</tbody>
                   </table>
@@ -303,18 +303,18 @@ export default function AlmacenesPage() {
           )}
 
           {detailTab==='movimientos'&&(
-            locMoves.length===0?<p className="text-center text-[#6e7681] py-8 text-sm">Sin movimientos</p>:(<>
-              <div className="overflow-x-auto rounded-xl border border-[#21262d]">
+            locMoves.length===0?<p className="text-center text-[var(--text-tertiary)] py-8 text-sm">Sin movimientos</p>:(<>
+              <div className="overflow-x-auto rounded-xl border border-[var(--border-primary)]">
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[#21262d] bg-[#0d1117]">{['Fecha','Tipo','Producto','Cantidad','Notas','Usuario'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                  <thead><tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">{['Fecha','Tipo','Producto','Cantidad','Notas','Usuario'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
                   <tbody>{paginatedMoves.map(m=>(
-                    <tr key={String(m.id)} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
-                      <td className="px-4 py-2.5 text-[#8b949e] text-xs whitespace-nowrap">{m.created_at?formatDateTime(String(m.created_at)):'—'}</td>
-                      <td className="px-4 py-2.5"><span className={cn('text-xs font-medium',movColor[String(m.type??'')]??'text-[#e6edf3]')}>{movLabel[String(m.type??'')]??String(m.type??'')}</span></td>
-                      <td className="px-4 py-2.5 text-[#e6edf3]">{String(m.product_name??'—')}</td>
-                      <td className="px-4 py-2.5 text-[#e6edf3] font-medium">{formatNumber(Number(m.quantity),2)}</td>
-                      <td className="px-4 py-2.5 text-[#8b949e] text-xs">{m.notes?String(m.notes):'—'}</td>
-                      <td className="px-4 py-2.5 text-[#8b949e] text-xs">{String(m.user_name??'—')}</td>
+                    <tr key={String(m.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[#1c2128]">
+                      <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs whitespace-nowrap">{m.created_at?formatDateTime(String(m.created_at)):'—'}</td>
+                      <td className="px-4 py-2.5"><span className={cn('text-xs font-medium',movColor[String(m.type??'')]??'text-[var(--text-primary)]')}>{movLabel[String(m.type??'')]??String(m.type??'')}</span></td>
+                      <td className="px-4 py-2.5 text-[var(--text-primary)]">{String(m.product_name??'—')}</td>
+                      <td className="px-4 py-2.5 text-[var(--text-primary)] font-medium">{formatNumber(Number(m.quantity),2)}</td>
+                      <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{m.notes?String(m.notes):'—'}</td>
+                      <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{String(m.user_name??'—')}</td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -323,7 +323,7 @@ export default function AlmacenesPage() {
             )
           )}
 
-          <div className="flex gap-3 pt-2 border-t border-[#21262d]">
+          <div className="flex gap-3 pt-2 border-t border-[var(--border-primary)]">
             <button onClick={()=>{setMovForm(f=>({...f,location_id:String(selLoc?.id??'')}));setShowMov(true);}} className="btn-secondary flex items-center gap-2 text-sm"><PackagePlus className="w-4 h-4"/>Entrada / Salida / Ajuste</button>
             <button onClick={()=>{setTrForm(f=>({...f,from_location_id:String(selLoc?.id??'')}));setShowTransfer(true);}} className="btn-secondary flex items-center gap-2 text-sm"><ArrowRightLeft className="w-4 h-4"/>Trasladar</button>
           </div>
@@ -333,7 +333,7 @@ export default function AlmacenesPage() {
       {/* Movement Modal */}
       <Modal open={showMov} onClose={()=>setShowMov(false)} title="Entrada / Salida / Ajuste de stock" size="md">
         <div className="space-y-4">
-          <div className="p-3 bg-[#0d1117] rounded-xl border border-[#21262d] text-xs text-[#8b949e] space-y-1">
+          <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] text-xs text-[var(--text-secondary)] space-y-1">
             <p><strong className="text-green-400">Entrada:</strong> Carga productos del inventario general a un almacén. El stock global se reduce.</p>
             <p><strong className="text-red-400">Salida:</strong> Retira productos de un almacén (devolución, merma, etc.).</p>
             <p><strong className="text-yellow-400">Ajuste:</strong> Establece la cantidad exacta (corrección de conteo físico).</p>
@@ -356,14 +356,14 @@ export default function AlmacenesPage() {
           <div><label className="label">Tipo *</label>
             <div className="grid grid-cols-3 gap-2">
               {([['entrada','Entrada','text-green-400'],['salida','Salida','text-red-400'],['ajuste','Ajuste','text-yellow-400']] as const).map(([v,label,color])=>(
-                <button key={v} onClick={()=>setMovForm(f=>({...f,type:v}))} className={cn('px-3 py-2.5 rounded-lg text-sm border font-medium transition-colors',movForm.type===v?`bg-[#21262d] border-[#6e7681] ${color}`:'border-[#30363d] text-[#8b949e] hover:border-[#6e7681]')}>{label}</button>
+                <button key={v} onClick={()=>setMovForm(f=>({...f,type:v}))} className={cn('px-3 py-2.5 rounded-lg text-sm border font-medium transition-colors',movForm.type===v?`bg-[var(--bg-muted)] border-[#6e7681] ${color}`:'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:border-[#6e7681]')}>{label}</button>
               ))}
             </div>
           </div>
           <div><label className="label">{movForm.type==='ajuste'?'Stock exacto *':'Cantidad *'}</label>
             <input type="number" min="1" step="1" className="input" value={movForm.quantity||''} onChange={e=>setMovForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/>
             {movForm.type==='entrada'&&movForm.product_id&&(
-              <p className="text-xs text-[#6e7681] mt-1">Stock disponible en este almacén: <strong className="text-[#e6edf3]">{formatNumber(locStockMap[String(movForm.product_id)]??0,2)}</strong></p>
+              <p className="text-xs text-[var(--text-tertiary)] mt-1">Stock disponible en este almacén: <strong className="text-[var(--text-primary)]">{formatNumber(locStockMap[String(movForm.product_id)]??0,2)}</strong></p>
             )}
           </div>
           <div><label className="label">Notas</label><input className="input" placeholder="Motivo, referencia..." value={movForm.notes} onChange={e=>setMovForm(f=>({...f,notes:e.target.value}))}/></div>
@@ -405,7 +405,7 @@ export default function AlmacenesPage() {
           <div><label className="label">Tipo</label>
             <div className="grid grid-cols-2 gap-2">
               {(['warehouse','store'] as const).map(t=>(
-                <button key={t} onClick={()=>setLocForm(f=>({...f,type:t}))} className={cn('px-3 py-2.5 rounded-lg text-sm border transition-colors',locForm.type===t?'bg-brand-600 border-brand-600 text-white':'border-[#30363d] text-[#8b949e] hover:border-[#6e7681] hover:text-[#e6edf3]')}>
+                <button key={t} onClick={()=>setLocForm(f=>({...f,type:t}))} className={cn('px-3 py-2.5 rounded-lg text-sm border transition-colors',locForm.type===t?'bg-brand-600 border-brand-600 text-white':'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:border-[#6e7681] hover:text-[var(--text-primary)]')}>
                   {t==='warehouse'?'🏭 Almacén':'🏪 Punto de venta'}
                 </button>
               ))}

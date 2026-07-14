@@ -87,11 +87,11 @@ export default function MovimientosPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-display font-semibold text-[#e6edf3] flex items-center gap-2">
+          <h1 className="text-xl font-display font-semibold text-[var(--text-primary)] flex items-center gap-2">
             <MoveHorizontal className="w-5 h-5 text-brand-400" />
             Movimientos de stock
           </h1>
-          <p className="text-sm text-[#8b949e] mt-1">
+          <p className="text-sm text-[var(--text-secondary)] mt-1">
             {filteredMovements.length} movimiento(s) encontrado(s)
             {typeFilter && ` · ${movLabel[typeFilter] ?? typeFilter}`}
           </p>
@@ -117,7 +117,7 @@ export default function MovimientosPage() {
       {showFilters && (
         <div className="card p-4 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-[#e6edf3] flex items-center gap-2">
+            <h3 className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
               <Filter className="w-4 h-4 text-brand-400" />
               Filtros
             </h3>
@@ -131,7 +131,7 @@ export default function MovimientosPage() {
           {/* Type filter — badge-style buttons */}
           <div>
             <label className="label flex items-center gap-1.5">
-              <ArrowRightLeft className="w-3.5 h-3.5 text-[#6e7681]" />
+              <ArrowRightLeft className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
               Tipo de movimiento
             </label>
             <div className="flex flex-wrap gap-2">
@@ -141,7 +141,7 @@ export default function MovimientosPage() {
                   'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
                   !typeFilter
                     ? 'bg-brand-600/20 text-brand-400 border-brand-600/30'
-                    : 'text-[#8b949e] border-[#30363d] hover:text-[#e6edf3] hover:border-[#6e7681]'
+                    : 'text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]'
                 )}
               >
                 Todos
@@ -154,7 +154,7 @@ export default function MovimientosPage() {
                     'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
                     typeFilter === t
                       ? movBg[t]
-                      : 'text-[#8b949e] border-[#30363d] hover:text-[#e6edf3] hover:border-[#6e7681]'
+                      : 'text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]'
                   )}
                 >
                   <span className={cn('w-1.5 h-1.5 rounded-full', movColor[t] ?? 'bg-[#8b949e]')} />
@@ -167,7 +167,7 @@ export default function MovimientosPage() {
             {/* Warehouse filter */}
             <div>
               <label className="label flex items-center gap-1.5">
-                <Warehouse className="w-3.5 h-3.5 text-[#6e7681]" />
+                <Warehouse className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
                 Almacén
               </label>
               <select
@@ -187,7 +187,7 @@ export default function MovimientosPage() {
             {/* Product filter */}
             <div>
               <label className="label flex items-center gap-1.5">
-                <Package className="w-3.5 h-3.5 text-[#6e7681]" />
+                <Package className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
                 Producto
               </label>
               <select
@@ -207,7 +207,7 @@ export default function MovimientosPage() {
             {/* From date */}
             <div>
               <label className="label flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-[#6e7681]" />
+                <Calendar className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
                 Desde
               </label>
               <input
@@ -221,7 +221,7 @@ export default function MovimientosPage() {
             {/* To date */}
             <div>
               <label className="label flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-[#6e7681]" />
+                <Calendar className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
                 Hasta
               </label>
               <input
@@ -250,9 +250,9 @@ export default function MovimientosPage() {
         ) : (            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#21262d] bg-[#0d1117]">
+                <tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">
                   {['Fecha', 'Tipo', 'Almacén', 'Producto', 'Cantidad', 'Notas', 'Usuario'].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6e7681] uppercase tracking-wide">
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
                       {h}
                     </th>
                   ))}
@@ -262,31 +262,31 @@ export default function MovimientosPage() {
                 {paginated.map(m => {
                   const type = String(m.type ?? '');
                   return (
-                    <tr key={String(m.id)} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128] transition-colors">
-                      <td className="px-4 py-3 text-[#8b949e] text-xs whitespace-nowrap">
+                    <tr key={String(m.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)] transition-colors">
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-nowrap">
                         {m.created_at ? formatDateTime(String(m.created_at)) : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border', movBg[type] ?? 'bg-[#21262d] border-[#30363d] text-[#8b949e]')}>
+                        <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border', movBg[type] ?? 'bg-[var(--bg-muted)] border-[var(--border-secondary)] text-[var(--text-secondary)]')}>
                           <span className={cn('w-1.5 h-1.5 rounded-full', movColor[type] ?? 'bg-[#8b949e]')} />
                           {movLabel[type] ?? type}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-[#e6edf3]">
+                      <td className="px-4 py-3 text-[var(--text-primary)]">
                         {String(m.location_name ?? '—')}
                       </td>
-                      <td className="px-4 py-3 text-[#e6edf3] font-medium">
+                      <td className="px-4 py-3 text-[var(--text-primary)] font-medium">
                         {String(m.product_name ?? '—')}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={cn('font-semibold', movColor[type] ?? 'text-[#e6edf3]')}>
+                        <span className={cn('font-semibold', movColor[type] ?? 'text-[var(--text-primary)]')}>
                           {formatNumber(Number(m.quantity), 2)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-[#8b949e] text-xs max-w-[200px] truncate" title={String(m.notes ?? '')}>
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs max-w-[200px] truncate" title={String(m.notes ?? '')}>
                         {m.notes ? String(m.notes) : '—'}
                       </td>
-                      <td className="px-4 py-3 text-[#8b949e] text-xs whitespace-nowrap">
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-nowrap">
                         {String(m.user_name ?? '—')}
                       </td>
                     </tr>
@@ -316,11 +316,11 @@ export default function MovimientosPage() {
                 'border-l-yellow-500': t === 'ajuste',
                 'border-l-orange-500': t === 'gasto',
               })}>
-                <p className="text-xs text-[#6e7681] uppercase tracking-wide">{movLabel[t]}</p>
+                <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide">{movLabel[t]}</p>
                 <p className={cn('text-lg font-semibold mt-0.5', movColor[t])}>
                   {formatNumber(total, 2)}
                 </p>
-                <p className="text-xs text-[#6e7681]">{count} movimiento(s)</p>
+                <p className="text-xs text-[var(--text-tertiary)]">{count} movimiento(s)</p>
               </div>
             );
           })}

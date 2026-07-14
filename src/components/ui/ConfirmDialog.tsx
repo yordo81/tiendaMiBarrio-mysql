@@ -22,7 +22,7 @@ export default function ConfirmDialog({
         <div className="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
           <AlertTriangle className="w-5 h-5 text-red-400" />
         </div>
-        <p className="text-[#8b949e] text-sm leading-relaxed pt-1">{message}</p>
+        <p className="text-sm leading-relaxed pt-1" style={{ color: 'var(--text-secondary)' }}>{message}</p>
       </div>
       <div className="flex gap-2 justify-end">
         <button onClick={onClose} className="btn-secondary">Cancelar</button>

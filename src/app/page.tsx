@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import ThemeToggle from '@/components/ui/ThemeToggle';
 import {
   LayoutDashboard,
   Package,
@@ -213,14 +214,15 @@ export default function HomePage() {
   }, [filteredProducts]);
 
   return (
-    <div className="min-h-screen bg-[#0d1117]">
+    <div className="min-h-screen">
       {/* ──────── NAVBAR ──────── */}
       <header
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
           scrolled
-            ? 'bg-[#0d1117]/90 backdrop-blur-md border-b border-[#21262d] shadow-lg'
+            ? 'backdrop-blur-md border-b shadow-lg'
             : 'bg-transparent'
         }`}
+        style={scrolled ? { backgroundColor: 'color-mix(in srgb, var(--bg-primary) 90%, transparent)', borderColor: 'var(--border-primary)' } : undefined}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 md:h-20">
@@ -229,7 +231,7 @@ export default function HomePage() {
                 <Store className="w-5 h-5 text-white" />
               </div>
               <div>
-                <span className="font-display text-[#e6edf3] text-lg leading-tight block">
+                <span className="font-display text-[var(--text-primary)] text-lg leading-tight block">
                   TiendaMiBarrio
                 </span>
                 <span className="text-[10px] text-brand-400 uppercase tracking-widest font-medium">
@@ -242,19 +244,19 @@ export default function HomePage() {
             <nav className="hidden md:flex items-center gap-1">
               <Link
                 href="/inicio"
-                className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
+                className="px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all duration-150"
               >
                 Inicio
               </Link>
               <Link
                 href="/inicio#features"
-                className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
+                className="px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all duration-150"
               >
                 Características
               </Link>
               <Link
                 href="/inicio#cta"
-                className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
+                className="px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all duration-150"
               >
                 Contacto
               </Link>
@@ -262,10 +264,12 @@ export default function HomePage() {
 
             {/* Actions */}
             <div className="flex items-center gap-2">
+              <ThemeToggle compact />
+
               {/* Cart button */}
               <button
                 onClick={() => setCartOpen(true)}
-                className="relative p-2.5 text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                className="relative p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all"
                 aria-label="Abrir carrito"
               >
                 <ShoppingCart className="w-5 h-5" />
@@ -296,7 +300,7 @@ export default function HomePage() {
 
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                className="md:hidden p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all"
                 aria-label="Abrir menú"
               >
                 {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -306,25 +310,25 @@ export default function HomePage() {
         </div>
 
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-[#21262d] bg-[#0d1117]/95 backdrop-blur-md">
+          <div className="md:hidden border-t border-[var(--border-primary)] bg-[var(--bg-primary)]/95 backdrop-blur-md">
             <div className="px-4 py-4 space-y-1">
               <Link
                 href="/inicio"
-                className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                className="block w-full text-left px-4 py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Inicio
               </Link>
               <Link
                 href="/inicio#features"
-                className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                className="block w-full text-left px-4 py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Características
               </Link>
               <Link
                 href="/inicio#cta"
-                className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                className="block w-full text-left px-4 py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Contacto
@@ -366,10 +370,10 @@ export default function HomePage() {
               <ShoppingCart className="w-4 h-4 text-brand-400" />
               <span className="text-sm font-medium text-brand-400">Catálogo de Productos</span>
             </div>
-            <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl text-[#e6edf3] mb-4">
+            <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl text-[var(--text-primary)] mb-4">
               Explora nuestros productos
             </h1>
-            <p className="text-[#8b949e] max-w-2xl mx-auto mb-8">
+            <p className="text-[var(--text-secondary)] max-w-2xl mx-auto mb-8">
               Haz tu pedido directamente desde aquí. Selecciona los productos
               que necesitas y te contactaremos para coordinar la entrega.
             </p>
@@ -377,9 +381,9 @@ export default function HomePage() {
             {/* ── SEARCH BAR ── */}
             <div className="max-w-2xl mx-auto space-y-3">
               <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6e7681]" />
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-tertiary)]" />
                 <input
-                  className="w-full bg-[#161b22] border border-[#30363d] rounded-2xl py-4 pl-12 pr-10 text-[#e6edf3] placeholder-[#6e7681] text-base focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all"
+                  className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-2xl py-4 pl-12 pr-10 text-[var(--text-primary)] placeholder-[#6e7681] text-base focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all"
                   placeholder="Buscar productos por nombre o descripción..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
@@ -387,7 +391,7 @@ export default function HomePage() {
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#6e7681] hover:text-[#e6edf3] transition-colors"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
                   >
                     <XCircle className="w-5 h-5" />
                   </button>
@@ -396,13 +400,13 @@ export default function HomePage() {
 
               {/* Category filter chips */}
               <div className="flex flex-wrap items-center justify-center gap-2">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-[#6e7681]" />
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
                 <button
                   onClick={() => setSelectedCategory('')}
                   className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
                     !selectedCategory
                       ? 'bg-brand-600/20 border-brand-600/50 text-brand-400'
-                      : 'border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#6e7681]'
+                      : 'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]'
                   }`}
                 >
                   Todas
@@ -414,7 +418,7 @@ export default function HomePage() {
                     className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
                       selectedCategory === cat.id
                         ? 'bg-brand-600/20 border-brand-600/50 text-brand-400'
-                        : 'border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#6e7681]'
+                        : 'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]'
                     }`}
                   >
                     {cat.name}
@@ -424,7 +428,7 @@ export default function HomePage() {
 
               {/* Results count */}
               {!productsLoading && (
-                <p className="text-xs text-[#6e7681]">
+                <p className="text-xs text-[var(--text-tertiary)]">
                   {searchQuery || selectedCategory
                     ? `${totalFilteredProducts} resultado(s)`
                     : `${filteredProducts.reduce((s, c) => s + c.products.length, 0)} producto(s) disponible(s)`}
@@ -445,7 +449,7 @@ export default function HomePage() {
           ) : filteredProducts.length === 0 ? (
             <div className="text-center py-16">
               <Package className="w-16 h-16 text-[#21262d] mx-auto mb-4" />
-              <p className="text-[#6e7681] text-sm">
+              <p className="text-[var(--text-tertiary)] text-sm">
                 {searchQuery
                   ? 'No hay productos que coincidan con tu búsqueda.'
                   : 'No hay productos disponibles actualmente.'}
@@ -469,8 +473,8 @@ export default function HomePage() {
                       <Package className="w-5 h-5 text-brand-400" />
                     </div>
                     <div>
-                      <h3 className="text-xl font-semibold text-[#e6edf3]">{cat.category_name}</h3>
-                      <p className="text-xs text-[#6e7681]">{cat.products.length} producto(s)</p>
+                      <h3 className="text-xl font-semibold text-[var(--text-primary)]">{cat.category_name}</h3>
+                      <p className="text-xs text-[var(--text-tertiary)]">{cat.products.length} producto(s)</p>
                     </div>
                   </div>
 
@@ -513,13 +517,13 @@ export default function HomePage() {
                           </div>
 
                           {/* Product name */}
-                          <h4 className="text-sm font-semibold text-[#e6edf3] mb-1 line-clamp-2 group-hover:text-brand-400 transition-colors">
+                          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-1 line-clamp-2 group-hover:text-brand-400 transition-colors">
                             {product.name}
                           </h4>
 
                           {/* Description */}
                           {product.description && (
-                            <p className="text-xs text-[#6e7681] line-clamp-2 mb-2">
+                            <p className="text-xs text-[var(--text-tertiary)] line-clamp-2 mb-2">
                               {product.description}
                             </p>
                           )}
@@ -532,7 +536,7 @@ export default function HomePage() {
                             <span className="text-lg font-bold text-brand-400">
                               {fmtPrice(product.sale_price)}
                             </span>
-                            <span className="text-[10px] text-[#6e7681]">
+                            <span className="text-[10px] text-[var(--text-tertiary)]">
                               / {product.unit}
                             </span>
                           </div>
@@ -557,7 +561,7 @@ export default function HomePage() {
           {/* Bottom CTA */}
           {!productsLoading && filteredProducts.length > 0 && (
             <div className="mt-16 text-center">
-              <p className="text-sm text-[#8b949e] mb-4">
+              <p className="text-sm text-[var(--text-secondary)] mb-4">
                 ¿No encuentras lo que buscas?{' '}
                 <span className="text-brand-400 font-medium">Contáctanos</span> y
                 te ayudaremos.
@@ -568,7 +572,7 @@ export default function HomePage() {
 
         {/* ── Cart notification toast ── */}
         {cartNotification && (
-          <div className="fixed bottom-4 left-4 right-4 md:bottom-6 md:right-6 md:left-auto z-[90] bg-[#161b22] border border-[#30363d] rounded-xl px-5 py-3 shadow-2xl shadow-brand-600/10 animate-in slide-in-from-bottom-5 md:slide-in-from-right-5 fade-in duration-200">
+          <div className="fixed bottom-4 left-4 right-4 md:bottom-6 md:right-6 md:left-auto z-[90] bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl px-5 py-3 shadow-2xl shadow-brand-600/10 animate-in slide-in-from-bottom-5 md:slide-in-from-right-5 fade-in duration-200">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-green-500/10 rounded-lg flex items-center justify-center">
                 <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -576,8 +580,8 @@ export default function HomePage() {
                 </svg>
               </div>
               <div>
-                <p className="text-sm font-medium text-[#e6edf3]">Agregado al carrito</p>
-                <p className="text-xs text-[#8b949e]">{cartNotification}</p>
+                <p className="text-sm font-medium text-[var(--text-primary)]">Agregado al carrito</p>
+                <p className="text-xs text-[var(--text-secondary)]">{cartNotification}</p>
               </div>
             </div>
           </div>
@@ -587,27 +591,27 @@ export default function HomePage() {
         {cartOpen && (
           <div className="fixed inset-0 z-[100]">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (!reservSaving) setCartOpen(false); }} />
-            <div className="fixed inset-0 md:absolute md:right-0 md:top-0 md:bottom-0 md:left-auto md:max-w-md bg-[#161b22] md:border-l border-[#30363d] shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+            <div className="fixed inset-0 md:absolute md:right-0 md:top-0 md:bottom-0 md:left-auto md:max-w-md bg-[var(--bg-secondary)] md:border-l border-[var(--border-secondary)] shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
               {/* Drag handle (mobile) */}
               <div className="md:hidden flex justify-center pt-2 pb-1 pointer-events-none absolute top-0 left-0 right-0 z-10">
                 <div className="w-10 h-1 bg-[#30363d] rounded-full" />
               </div>
               {/* Header */}
-              <div className="flex items-center justify-between px-5 pt-4 md:pt-4 pb-4 border-b border-[#21262d]">
+              <div className="flex items-center justify-between px-5 pt-4 md:pt-4 pb-4 border-b border-[var(--border-primary)]">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 bg-brand-500/10 rounded-xl flex items-center justify-center">
                     <ShoppingCart className="w-4 h-4 text-brand-400" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-[#e6edf3]">
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">
                       Tu carrito {cartCount > 0 && <span className="text-brand-400">({cartCount})</span>}
                     </h3>
-                    <p className="text-[10px] text-[#6e7681]">{cart.length} producto(s)</p>
+                    <p className="text-[10px] text-[var(--text-tertiary)]">{cart.length} producto(s)</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setCartOpen(false)}
-                  className="p-2.5 md:p-1.5 text-[#6e7681] hover:text-[#e6edf3] rounded-lg hover:bg-[#21262d] transition-colors"
+                  className="p-2.5 md:p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-muted)] transition-colors"
                 >
                   <X className="w-5 h-5 md:w-4 md:h-4" />
                 </button>
@@ -622,8 +626,8 @@ export default function HomePage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
-                    <h4 className="text-lg font-semibold text-[#e6edf3] mb-2">¡Reservación creada!</h4>
-                    <p className="text-sm text-[#8b949e] mb-6">{reservSuccess}</p>
+                    <h4 className="text-lg font-semibold text-[var(--text-primary)] mb-2">¡Reservación creada!</h4>
+                    <p className="text-sm text-[var(--text-secondary)] mb-6">{reservSuccess}</p>
                     <button
                       onClick={() => { clearCart(); setCartOpen(false); }}
                       className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-xl transition-all"
@@ -636,11 +640,11 @@ export default function HomePage() {
                 /* ── Empty cart ── */
                 <div className="flex-1 flex items-center justify-center p-6">
                   <div className="text-center">
-                    <div className="w-16 h-16 bg-[#21262d] rounded-full flex items-center justify-center mx-auto mb-4">
-                      <ShoppingCart className="w-7 h-7 text-[#6e7681]" />
+                    <div className="w-16 h-16 bg-[var(--bg-muted)] rounded-full flex items-center justify-center mx-auto mb-4">
+                      <ShoppingCart className="w-7 h-7 text-[var(--text-tertiary)]" />
                     </div>
-                    <p className="text-sm text-[#8b949e] mb-1">Tu carrito está vacío</p>
-                    <p className="text-xs text-[#6e7681]">Agrega productos desde el catálogo</p>
+                    <p className="text-sm text-[var(--text-secondary)] mb-1">Tu carrito está vacío</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">Agrega productos desde el catálogo</p>
                     <button
                       onClick={() => setCartOpen(false)}
                       className="mt-5 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-xl transition-all"
@@ -654,15 +658,15 @@ export default function HomePage() {
                 <div className="flex-1 overflow-y-auto">
                   <div className="p-5 space-y-3">
                     {cart.map(item => (
-                      <div key={item.product.id} className="bg-[#0d1117] rounded-xl border border-[#21262d] p-4">
+                      <div key={item.product.id} className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] p-4">
                         <div className="flex items-start gap-3">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-[#e6edf3] truncate">{item.product.name}</p>
-                            <p className="text-xs text-[#8b949e]">{fmtPrice(item.product.sale_price)} / {item.product.unit}</p>
+                            <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{item.product.name}</p>
+                            <p className="text-xs text-[var(--text-secondary)]">{fmtPrice(item.product.sale_price)} / {item.product.unit}</p>
                           </div>
                           <button
                             onClick={() => removeFromCart(item.product.id)}
-                            className="p-1 text-[#6e7681] hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-colors flex-shrink-0"
+                            className="p-1 text-[var(--text-tertiary)] hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-colors flex-shrink-0"
                             aria-label="Eliminar producto"
                           >
                             <X className="w-4 h-4" />
@@ -673,17 +677,17 @@ export default function HomePage() {
                             <button
                               onClick={() => updateCartQuantity(item.product.id, item.quantity - 1)}
                               disabled={item.quantity <= 1}
-                              className="w-11 h-11 md:w-8 md:h-8 bg-[#21262d] hover:bg-[#2d333b] active:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                              className="w-11 h-11 md:w-8 md:h-8 bg-[var(--bg-muted)] hover:bg-[var(--bg-hover)] active:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[var(--text-primary)] transition-colors"
                             >
                               <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
                               </svg>
                             </button>
-                            <span className="w-12 text-center text-base md:text-sm font-semibold text-[#e6edf3]">{item.quantity}</span>
+                            <span className="w-12 text-center text-base md:text-sm font-semibold text-[var(--text-primary)]">{item.quantity}</span>
                             <button
                               onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
                               disabled={item.quantity >= item.product.stock}
-                              className="w-11 h-11 md:w-8 md:h-8 bg-[#21262d] hover:bg-[#2d333b] active:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                              className="w-11 h-11 md:w-8 md:h-8 bg-[var(--bg-muted)] hover:bg-[var(--bg-hover)] active:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[var(--text-primary)] transition-colors"
                             >
                               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -704,9 +708,9 @@ export default function HomePage() {
                   </div>
 
                   {/* Total */}
-                  <div className="px-5 py-3 border-t border-[#21262d] bg-[#0d1117]/50">
+                  <div className="px-5 py-3 border-t border-[var(--border-primary)] bg-[var(--bg-primary)]/50">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#8b949e]">Total estimado</span>
+                      <span className="text-sm text-[var(--text-secondary)]">Total estimado</span>
                       <span className="text-xl font-bold text-brand-400">{fmtPrice(cartTotal)}</span>
                     </div>
                   </div>
@@ -716,7 +720,7 @@ export default function HomePage() {
                     <div>
                       <label className="label">Tu nombre *</label>
                       <div className="relative">
-                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
                         <input
                           className="input pl-10"
                           placeholder="Ej: Juan Pérez"
@@ -737,7 +741,7 @@ export default function HomePage() {
                             <PhoneOff className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400" />
                           )
                         ) : (
-                          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+                          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
                         )}
                         <input
                           className={`input pl-10 ${
@@ -823,7 +827,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Mobile bottom cart bar ── */}
-      {cart.length > 0 && (            <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#161b22]/95 backdrop-blur-md border-t border-[#30363d] shadow-2xl shadow-black/50 md:hidden pb-[env(safe-area-inset-bottom,0px)]">
+      {cart.length > 0 && (            <div className="fixed bottom-0 left-0 right-0 z-40 bg-[var(--bg-secondary)]/95 backdrop-blur-md border-t border-[var(--border-secondary)] shadow-2xl shadow-black/50 md:hidden pb-[env(safe-area-inset-bottom,0px)]">
           <div className="flex items-center justify-between px-4 py-3">
             <button
               onClick={() => setCartOpen(true)}
@@ -836,7 +840,7 @@ export default function HomePage() {
                 </span>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xs text-[#6e7681]">{cart.length} producto(s)</p>
+                <p className="text-xs text-[var(--text-tertiary)]">{cart.length} producto(s)</p>
                 <p className="text-sm font-bold text-brand-400">{fmtPrice(cartTotal)}</p>
               </div>
             </button>
@@ -851,7 +855,7 @@ export default function HomePage() {
       )}
 
       {/* ──────── FOOTER ──────── */}
-      <footer className="border-t border-[#21262d] bg-[#161b22]/30">
+      <footer className="border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 pb-24 md:pb-12">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             <div className="col-span-2 md:col-span-1">
@@ -859,55 +863,55 @@ export default function HomePage() {
                 <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
                   <Store className="w-4 h-4 text-white" />
                 </div>
-                <span className="font-display text-[#e6edf3] text-base">
+                <span className="font-display text-[var(--text-primary)] text-base">
                   TiendaMiBarrio
                 </span>
               </Link>
-              <p className="text-xs text-[#6e7681] leading-relaxed max-w-xs">
+              <p className="text-xs text-[var(--text-tertiary)] leading-relaxed max-w-xs">
                 Sistema de gestión para tiendas de barrio. Controla tu negocio
                 de manera simple y eficiente.
               </p>
             </div>
             <div>
-              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">Módulos</h4>
+              <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-4">Módulos</h4>
               <ul className="space-y-2.5">
                 {['Inventario', 'Ventas', 'Compras', 'Clientes', 'Reservaciones'].map((item) => (
                   <li key={item}>
-                    <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">{item}</span>
+                    <span className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-default">{item}</span>
                   </li>
                 ))}
               </ul>
             </div>
             <div>
-              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">Empresa</h4>
+              <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-4">Empresa</h4>
               <ul className="space-y-2.5">
                 {['Acerca de', 'Características', 'Precios', 'FAQ'].map((item) => (
                   <li key={item}>
-                    <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">{item}</span>
+                    <span className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-default">{item}</span>
                   </li>
                 ))}
               </ul>
             </div>
             <div>
-              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">Soporte</h4>
+              <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-4">Soporte</h4>
               <ul className="space-y-2.5">
                 {['Documentación', 'Reportar Error', 'Sugerencias', 'Contacto'].map((item) => (
                   <li key={item}>
-                    <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">{item}</span>
+                    <span className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-default">{item}</span>
                   </li>
                 ))}
               </ul>
             </div>
           </div>
 
-          <div className="border-t border-[#21262d] mt-10 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p className="text-xs text-[#6e7681]">
+          <div className="border-t border-[var(--border-primary)] mt-10 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p className="text-xs text-[var(--text-tertiary)]">
               © {new Date().getFullYear()} TiendaMiBarrio. Todos los derechos reservados.
             </p>
-            <div className="flex items-center gap-4 text-xs text-[#6e7681]">
-              <span className="hover:text-[#e6edf3] transition-colors cursor-default">Términos</span>
-              <span className="hover:text-[#e6edf3] transition-colors cursor-default">Privacidad</span>
-              <span className="hover:text-[#e6edf3] transition-colors cursor-default">Licencia</span>
+            <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">
+              <span className="hover:text-[var(--text-primary)] transition-colors cursor-default">Términos</span>
+              <span className="hover:text-[var(--text-primary)] transition-colors cursor-default">Privacidad</span>
+              <span className="hover:text-[var(--text-primary)] transition-colors cursor-default">Licencia</span>
             </div>
           </div>
         </div>

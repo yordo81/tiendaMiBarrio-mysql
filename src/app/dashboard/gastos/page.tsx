@@ -78,11 +78,11 @@ export default function GastosPage() {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-4">
-        <div className="card p-4"><p className="text-xs text-[#6e7681] mb-1">Gastos este mes</p><p className="text-2xl font-semibold text-red-400">{formatCurrency(totalMonth)}</p></div>
-        <div className="card p-4"><p className="text-xs text-[#6e7681] mb-1">Total registros</p><p className="text-2xl font-semibold text-[#e6edf3]">{expenses.length}</p></div>
+        <div className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">Gastos este mes</p><p className="text-2xl font-semibold text-red-400">{formatCurrency(totalMonth)}</p></div>
+        <div className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">Total registros</p><p className="text-2xl font-semibold text-[var(--text-primary)]">{expenses.length}</p></div>
       </div>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]"/><input className="input pl-9" placeholder="Buscar gastos..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
+        <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Buscar gastos..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
         <div className="flex gap-2 items-center">
           <input type="date" className="input text-sm max-w-[140px]" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} title="Desde" />
           <input type="date" className="input text-sm max-w-[140px]" value={dateTo} onChange={e=>setDateTo(e.target.value)} title="Hasta" />
@@ -97,21 +97,21 @@ export default function GastosPage() {
         :paginated.length===0?<EmptyState icon={TrendingDown} title="Sin gastos" description="Registra el primer gasto" action={<button onClick={()=>setShowModal(true)} className="btn-primary">Registrar</button>}/>:(
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-[#21262d]">{['Fecha','Categoría','Descripción','Producto','Método','Monto',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{h}</th>)}</tr></thead>
+              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Categoría','Descripción','Producto','Método','Monto',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
               <tbody>{paginated.map(e=>{
                 const pm = String(e.payment_method??'');
                 const pmLabel = pm==='cash'?'Efectivo':pm==='transfer'?'Transferencia':pm==='mixed'?'Mixto':'';
                 const pmColor = pm==='cash'?'text-green-400 bg-green-500/10 border-green-500/20':pm==='transfer'?'text-blue-400 bg-blue-500/10 border-blue-500/20':pm==='mixed'?'text-purple-400 bg-purple-500/10 border-purple-500/20':'';
                 return (
-                <tr key={String(e.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
-                  <td className="px-4 py-3 text-[#8b949e] text-xs">{e.date?formatDate(String(e.date)):'—'}</td>
-                  <td className="px-4 py-3 text-[#8b949e]">{String(e.category_name??'—')}</td>
-                  <td className="px-4 py-3 text-[#e6edf3]">{String(e.description??'—')}</td>
-                  <td className="px-4 py-3 text-[#8b949e] text-xs">{e.product_name?`${String(e.product_name)} x${Number(e.product_quantity??0)}`:'—'}</td>
-                  <td className="px-4 py-3">{pmLabel ? <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border', pmColor)}>{pmLabel}</span> : <span className="text-[#6e7681] text-xs">—</span>}</td>
+                <tr key={String(e.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
+                  <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{e.date?formatDate(String(e.date)):'—'}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{String(e.category_name??'—')}</td>
+                  <td className="px-4 py-3 text-[var(--text-primary)]">{String(e.description??'—')}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{e.product_name?`${String(e.product_name)} x${Number(e.product_quantity??0)}`:'—'}</td>
+                  <td className="px-4 py-3">{pmLabel ? <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border', pmColor)}>{pmLabel}</span> : <span className="text-[var(--text-tertiary)] text-xs">—</span>}</td>
                   <td className="px-4 py-3 text-red-400 font-medium">{formatCurrency(Number(e.amount??0))}</td>
                   <td className="px-4 py-3">{canDelete && (
-                    <button onClick={()=>setDeleteTarget(e)} className="p-1.5 rounded-lg text-[#6e7681] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                    <button onClick={()=>setDeleteTarget(e)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
                   )}</td>
                 </tr>
               )})}</tbody>
@@ -132,8 +132,8 @@ export default function GastosPage() {
             </select>
           </div>
           <div><label className="label">Descripción *</label><input className="input" placeholder="Ej: Compra para uso interno..." value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></div>
-          <div className="p-3 bg-[#0d1117] rounded-xl border border-[#21262d] space-y-3">
-            <p className="text-xs font-medium text-[#8b949e] uppercase tracking-wide">Producto del inventario (opcional)</p>
+          <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] space-y-3">
+            <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Producto del inventario (opcional)</p>
             <div><label className="label">Producto</label>
               <select className="input" value={form.product_id} onChange={e=>setForm(f=>({...f,product_id:e.target.value,product_quantity:0,amount:0}))}>
                 <option value="">No aplica</option>
@@ -160,7 +160,7 @@ export default function GastosPage() {
                     className={cn('flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-colors',
                       form.payment_method === m
                         ? 'border-brand-500 bg-brand-600/20 text-brand-400'
-                        : 'border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#6e7681]'
+                        : 'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]'
                     )}>
                     {labels[m]}
                   </button>

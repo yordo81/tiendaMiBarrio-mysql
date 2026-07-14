@@ -143,19 +143,19 @@ export default function ReservacionesPage() {
       {/* Stats cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="card p-4">
-          <p className="text-xs text-[#6e7681] mb-1">Total</p>
-          <p className="text-2xl font-semibold text-[#e6edf3]">{counts.total}</p>
+          <p className="text-xs text-[var(--text-tertiary)] mb-1">Total</p>
+          <p className="text-2xl font-semibold text-[var(--text-primary)]">{counts.total}</p>
         </div>
         <div className="card p-4">
-          <p className="text-xs text-[#6e7681] mb-1">Pendientes</p>
+          <p className="text-xs text-[var(--text-tertiary)] mb-1">Pendientes</p>
           <p className="text-2xl font-semibold text-yellow-400">{counts.pending}</p>
         </div>
         <div className="card p-4">
-          <p className="text-xs text-[#6e7681] mb-1">Confirmadas</p>
+          <p className="text-xs text-[var(--text-tertiary)] mb-1">Confirmadas</p>
           <p className="text-2xl font-semibold text-green-400">{counts.confirmed}</p>
         </div>
         <div className="card p-4">
-          <p className="text-xs text-[#6e7681] mb-1">Canceladas</p>
+          <p className="text-xs text-[var(--text-tertiary)] mb-1">Canceladas</p>
           <p className="text-2xl font-semibold text-red-400">{counts.cancelled}</p>
         </div>
       </div>
@@ -164,7 +164,7 @@ export default function ReservacionesPage() {
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex gap-2 flex-1">
           <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
             <input
               className="input pl-9"
               placeholder="Buscar cliente, producto o teléfono..."
@@ -179,7 +179,7 @@ export default function ReservacionesPage() {
             <option value="cancelled">Canceladas</option>
           </select>
         </div>
-        <p className="text-sm text-[#8b949e]">{filtered.length} reservación(es)</p>
+        <p className="text-sm text-[var(--text-secondary)]">{filtered.length} reservación(es)</p>
       </div>
 
       {/* Table */}
@@ -198,9 +198,9 @@ export default function ReservacionesPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#21262d]">
+                <tr className="border-b border-[var(--border-primary)]">
                   {['Fecha', 'Producto', 'Cliente', 'Teléfono', 'Cant.', 'Estado', 'Notas', ''].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -208,35 +208,35 @@ export default function ReservacionesPage() {
                 {paginated.map((r) => {
                   const st = statusLabels[r.status] ?? { label: r.status, color: 'badge-info' };
                   return (
-                    <tr key={r.id} className="border-b border-[#21262d] last:border-0 table-row-hover">
-                      <td className="px-4 py-3 text-[#8b949e] text-xs whitespace-nowrap">
+                    <tr key={r.id} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-nowrap">
                         {r.created_at ? formatDateTime(r.created_at) : '—'}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <Package className="w-3.5 h-3.5 text-brand-400 flex-shrink-0" />
-                          <span className="text-[#e6edf3] font-medium">{r.product_name ?? '—'}</span>
+                          <span className="text-[var(--text-primary)] font-medium">{r.product_name ?? '—'}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-[#e6edf3]">{r.customer_name}</td>
-                      <td className="px-4 py-3 text-[#8b949e] text-xs">{r.customer_phone ?? '—'}</td>
+                      <td className="px-4 py-3 text-[var(--text-primary)]">{r.customer_name}</td>
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{r.customer_phone ?? '—'}</td>
                       <td className="px-4 py-3">
                         {editingId === r.id ? (
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => setEditQuantity(Math.max(1, editQuantity - 1))}
                               disabled={editQuantity <= 1 || savingQty}
-                              className="w-7 h-7 bg-[#21262d] hover:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                              className="w-7 h-7 bg-[var(--bg-muted)] hover:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[var(--text-primary)] transition-colors"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
                               </svg>
                             </button>
-                            <span className="w-10 text-center text-sm font-semibold text-[#e6edf3]">{editQuantity}</span>
+                            <span className="w-10 text-center text-sm font-semibold text-[var(--text-primary)]">{editQuantity}</span>
                             <button
                               onClick={() => setEditQuantity(editQuantity + 1)}
                               disabled={savingQty}
-                              className="w-7 h-7 bg-[#21262d] hover:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[#e6edf3] transition-colors"
+                              className="w-7 h-7 bg-[var(--bg-muted)] hover:bg-[#2d333b] disabled:opacity-30 rounded-lg flex items-center justify-center text-[var(--text-primary)] transition-colors"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -263,11 +263,11 @@ export default function ReservacionesPage() {
                           </div>
                         ) : (
                           <div className="flex items-center gap-2">
-                            <span className="text-[#e6edf3] font-medium">{Number(r.quantity)}</span>
+                            <span className="text-[var(--text-primary)] font-medium">{Number(r.quantity)}</span>
                             {r.status === 'pending' && (
                               <button
                                 onClick={() => startEdit(r)}
-                                className="p-0.5 rounded text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"
+                                className="p-0.5 rounded text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"
                                 title="Editar cantidad"
                               >
                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -317,11 +317,11 @@ export default function ReservacionesPage() {
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5 group">
-                            <span className="text-[#6e7681] truncate block max-w-[100px]">{r.notes || '—'}</span>
+                            <span className="text-[var(--text-tertiary)] truncate block max-w-[100px]">{r.notes || '—'}</span>
                             {r.status === 'pending' && (
                               <button
                                 onClick={() => startEditNotes(r)}
-                                className="p-0.5 rounded text-[#6e7681] opacity-0 group-hover:opacity-100 hover:text-brand-400 hover:bg-brand-500/10 transition-all flex-shrink-0"
+                                className="p-0.5 rounded text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 hover:text-brand-400 hover:bg-brand-500/10 transition-all flex-shrink-0"
                                 title="Editar notas"
                               >
                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -337,14 +337,14 @@ export default function ReservacionesPage() {
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => updateStatus(r.id, 'confirmed')}
-                              className="p-1.5 rounded-lg text-[#6e7681] hover:text-green-400 hover:bg-green-500/10 transition-colors"
+                              className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-green-400 hover:bg-green-500/10 transition-colors"
                               title="Confirmar"
                             >
                               <Check className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => updateStatus(r.id, 'cancelled')}
-                              className="p-1.5 rounded-lg text-[#6e7681] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                              className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
                               title="Cancelar"
                             >
                               <X className="w-3.5 h-3.5" />

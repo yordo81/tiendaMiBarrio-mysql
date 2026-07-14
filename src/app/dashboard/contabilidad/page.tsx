@@ -205,15 +205,15 @@ export default function ContabilidadPage() {
     // Find the current day's data entry from dailyEvolution
     const dayEntry = dailyEvolution.find((d: R) => String(d.date) === label);
     return (
-      <div className="bg-[#1c2128] border border-[#30363d] rounded-xl px-3 py-2.5 text-xs shadow-xl">
-        <p className="text-[#8b949e] mb-1.5 font-medium border-b border-[#30363d] pb-1">{label}</p>
+      <div className="bg-[#1c2128] border border-[var(--border-secondary)] rounded-xl px-3 py-2.5 text-xs shadow-xl">
+        <p className="text-[var(--text-secondary)] mb-1.5 font-medium border-b border-[var(--border-secondary)] pb-1">{label}</p>
         {payload.map((p, i) => (
           <p key={i} className="font-semibold mb-1" style={{ color: p.color }}>
             {chartLabelMap[p.name] ?? p.name}: {formatCurrency(p.value)}
           </p>
         ))}
         {dayEntry && (
-          <div className="border-t border-[#30363d] pt-1.5 mt-1.5 space-y-0.5 text-[10px] text-[#6e7681]">
+          <div className="border-t border-[var(--border-secondary)] pt-1.5 mt-1.5 space-y-0.5 text-[10px] text-[var(--text-tertiary)]">
             <p>Ingresos: +{formatCurrency(Number(dayEntry.cash_in) + Number(dayEntry.transfer_in))}</p>
             <p>Egresos: -{formatCurrency(Number(dayEntry.cash_out) + Number(dayEntry.transfer_out))}</p>
             {(Number(dayEntry.register_cash) !== 0 || Number(dayEntry.register_transfer) !== 0) && (
@@ -230,11 +230,11 @@ export default function ContabilidadPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-[#e6edf3] flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">
             <DollarSign className="w-5 h-5 text-brand-400" />
             Contabilidad
           </h1>
-          <p className="text-xs text-[#6e7681] mt-0.5">Libro de caja — efectivo y transferencias</p>
+          <p className="text-xs text-[var(--text-tertiary)] mt-0.5">Libro de caja — efectivo y transferencias</p>
         </div>
         <div className="flex gap-2">
           {!hasInitialBalance && (
@@ -260,7 +260,7 @@ export default function ContabilidadPage() {
           <Wallet className="w-5 h-5 text-yellow-400 flex-shrink-0" />
           <div>
             <p className="text-sm text-yellow-300 font-medium">Sin saldo inicial</p>
-            <p className="text-xs text-[#8b949e]">Los balances reflejan solo movimientos registrados. Agrega un saldo inicial para mayor precisión.</p>
+            <p className="text-xs text-[var(--text-secondary)]">Los balances reflejan solo movimientos registrados. Agrega un saldo inicial para mayor precisión.</p>
           </div>
         </div>
       )}
@@ -273,7 +273,7 @@ export default function ContabilidadPage() {
             <p className="text-sm text-orange-300 font-medium">
               {formatCurrency(unclassifiedExpenses)} en gastos sin clasificar
             </p>
-            <p className="text-xs text-[#8b949e]">
+            <p className="text-xs text-[var(--text-secondary)]">
               Estos gastos no tienen método de pago asignado y no se reflejan en los balances. Edítalos desde la sección Gastos.
             </p>
           </div>
@@ -288,20 +288,20 @@ export default function ContabilidadPage() {
                 <Banknote className="w-5 h-5 text-green-400" />
               </div>
               <div className="flex items-center gap-1.5">
-                <p className="text-xs text-[#6e7681] uppercase tracking-wide font-medium">Efectivo</p>
+                <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Efectivo</p>
                 <InfoTooltip content="Saldo total calculado desde el primer registro. Incluye: saldo inicial, aportes de capital, ventas, abonos de clientes, gastos y compras de inventario." side="top">
-                  <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+                  <Info className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] cursor-help" />
                 </InfoTooltip>
               </div>
             </div>
             <p className="text-2xl font-bold text-green-400">${formatCurrency(cashBalance).replace('$', '')}</p>
-            <div className="flex items-center gap-2 mt-2 text-xs text-[#6e7681]">
+            <div className="flex items-center gap-2 mt-2 text-xs text-[var(--text-tertiary)]">
               <span className={cn('flex items-center gap-1', todayNetCash >= 0 ? 'text-green-400' : 'text-red-400')}>
                 {todayNetCash >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
                 Hoy: {formatCurrency(Math.abs(todayNetCash))}
               </span>
               <InfoTooltip content="Ingresos menos egresos del día de hoy en efectivo (ventas + abonos de clientes - gastos)." side="bottom">
-                <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+                <Info className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] cursor-help" />
               </InfoTooltip>
             </div>
           </div>
@@ -313,20 +313,20 @@ export default function ContabilidadPage() {
                 <TrendingUp className="w-5 h-5 text-blue-400" />
               </div>
               <div className="flex items-center gap-1.5">
-                <p className="text-xs text-[#6e7681] uppercase tracking-wide font-medium">Transferencia</p>
+                <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Transferencia</p>
                 <InfoTooltip content="Saldo total calculado desde el primer registro. Incluye: saldo inicial, aportes de capital, ventas, abonos de clientes, gastos y compras de inventario." side="top">
-                  <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+                  <Info className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] cursor-help" />
                 </InfoTooltip>
               </div>
             </div>
             <p className="text-2xl font-bold text-blue-400">${formatCurrency(transferBalance).replace('$', '')}</p>
-            <div className="flex items-center gap-2 mt-2 text-xs text-[#6e7681]">
+            <div className="flex items-center gap-2 mt-2 text-xs text-[var(--text-tertiary)]">
               <span className={cn('flex items-center gap-1', todayNetTransfer >= 0 ? 'text-blue-400' : 'text-red-400')}>
                 {todayNetTransfer >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
                 Hoy: {formatCurrency(Math.abs(todayNetTransfer))}
               </span>
               <InfoTooltip content="Ingresos menos egresos del día de hoy por transferencia (ventas + abonos de clientes - gastos)." side="bottom">
-                <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+                <Info className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] cursor-help" />
               </InfoTooltip>
             </div>
           </div>
@@ -338,14 +338,14 @@ export default function ContabilidadPage() {
                 <DollarSign className="w-5 h-5 text-brand-400" />
               </div>
               <div className="flex items-center gap-1.5">
-                <p className="text-xs text-[#6e7681] uppercase tracking-wide font-medium">Total disponible</p>
+                <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Total disponible</p>
                 <InfoTooltip content="Suma del efectivo y la transferencia disponibles. Incluye todos los movimientos desde el inicio de la contabilidad." side="top">
-                  <Info className="w-3 h-3 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+                  <Info className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] cursor-help" />
                 </InfoTooltip>
               </div>
             </div>
             <p className="text-2xl font-bold text-brand-400">${formatCurrency(totalBalance).replace('$', '')}</p>
-            <p className="text-xs text-[#6e7681] mt-2">
+            <p className="text-xs text-[var(--text-tertiary)] mt-2">
               {formatCurrency(cashBalance)} efectivo + {formatCurrency(transferBalance)} transferencia
             </p>
           </div>
@@ -353,7 +353,7 @@ export default function ContabilidadPage() {
 
       {/* Capital & Inventory Investments */}
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-[#e6edf3] mb-4 flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
           <TrendingDown className="w-4 h-4 text-orange-400" />
           Inversiones en inventario
         </h3>
@@ -363,14 +363,14 @@ export default function ContabilidadPage() {
               <TrendingDown className="w-3 h-3" /> Compras totales (reinversión)
             </p>
             <p className="text-lg font-semibold text-orange-400">{formatCurrency(totalPurchases)}</p>
-            <p className="text-[10px] text-[#6e7681] mt-1">Dinero reinvertido en mercancía</p>
+            <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Dinero reinvertido en mercancía</p>
           </div>
           <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-xl p-4">
             <p className="text-xs text-emerald-400 font-medium flex items-center gap-1.5 mb-1">
               <ArrowUpRight className="w-3 h-3" /> Aportes de capital
             </p>
             <p className="text-lg font-semibold text-emerald-400">{formatCurrency(totalCapitalInjected)}</p>
-            <p className="text-[10px] text-[#6e7681] mt-1">
+            <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
               {capitalInjectedCash > 0 ? `Ef: ${formatCurrency(capitalInjectedCash)}` : ''}
               {capitalInjectedCash > 0 && capitalInjectedTransfer > 0 ? ' · ' : ''}
               {capitalInjectedTransfer > 0 ? `Tr: ${formatCurrency(capitalInjectedTransfer)}` : ''}
@@ -383,9 +383,9 @@ export default function ContabilidadPage() {
       {/* Today's Flow */}
       <div className="card p-5">
         <div className="flex items-center gap-2 mb-4">
-          <h3 className="text-sm font-semibold text-[#e6edf3]">Flujo del día</h3>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Flujo del día</h3>
           <InfoTooltip content="Ingresos y egresos registrados hoy. Incluye ventas, abonos de clientes y gastos. Los pagos mixtos se dividen 50% efectivo / 50% transferencia." side="top">
-            <Info className="w-3.5 h-3.5 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+            <Info className="w-3.5 h-3.5 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] cursor-help" />
           </InfoTooltip>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -421,11 +421,11 @@ export default function ContabilidadPage() {
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-[#e6edf3]">
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">
                 {periodFilter === 'custom' ? `Evolución del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}` : 'Evolución últimos 30 días'}
               </h3>
               <InfoTooltip content="Saldo acumulado día a día durante el periodo seleccionado. El valor final del gráfico coincide exactamente con los saldos mostrados en las tarjetas. Incluye: saldo inicial, aportes, ventas, abonos de clientes, gastos y compras de inventario." side="top">
-                <Info className="w-3.5 h-3.5 text-[#6e7681] hover:text-[#8b949e] cursor-help" />
+                <Info className="w-3.5 h-3.5 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] cursor-help" />
               </InfoTooltip>
             </div>
           </div>
@@ -485,7 +485,7 @@ export default function ContabilidadPage() {
       {/* Period Filter */}
       <div className="card p-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 mb-4">
-          <span className="text-xs text-[#8b949e] uppercase tracking-wide font-semibold">Filtrar por periodo</span>
+          <span className="text-xs text-[var(--text-secondary)] uppercase tracking-wide font-semibold">Filtrar por periodo</span>
           <div className="flex flex-wrap gap-1">
             {(['total', 'week', 'month', '90days', 'custom'] as const).map(p => (
               <button
@@ -495,7 +495,7 @@ export default function ContabilidadPage() {
                   'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
                   periodFilter === p
                     ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
-                    : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#1c2128] border border-transparent'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#1c2128] border border-transparent'
                 )}
               >
                 {p === 'total' ? 'Todo' : p === 'week' ? 'Semana' : p === 'month' ? 'Último mes' : p === '90days' ? '90 días' : 'Personalizado'}
@@ -504,14 +504,14 @@ export default function ContabilidadPage() {
           </div>
           {periodFilter === 'custom' && (
             <div className="flex items-center gap-2 sm:ml-auto">
-              <label className="text-xs text-[#8b949e] whitespace-nowrap">Desde</label>
+              <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">Desde</label>
               <input
                 type="date"
                 className="input py-1.5 px-2 text-xs w-36"
                 value={fromDate}
                 onChange={e => { setFromDate(e.target.value); setPage(1); }}
               />
-              <label className="text-xs text-[#8b949e] whitespace-nowrap">Hasta</label>
+              <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">Hasta</label>
               <input
                 type="date"
                 className="input py-1.5 px-2 text-xs w-36"
@@ -524,12 +524,12 @@ export default function ContabilidadPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="card p-4">
-            <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wide mb-3">
+            <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-3">
               Ingresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
             </h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-[#8b949e]">En efectivo</span>
+                <span className="text-[var(--text-secondary)]">En efectivo</span>
                 <span className="text-green-400 font-medium">
                   {formatCurrency(
                     periodFilter === 'total'
@@ -541,7 +541,7 @@ export default function ContabilidadPage() {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#8b949e]">Por transferencia</span>
+                <span className="text-[var(--text-secondary)]">Por transferencia</span>
                 <span className="text-blue-400 font-medium">
                   {formatCurrency(
                     periodFilter === 'total'
@@ -552,9 +552,9 @@ export default function ContabilidadPage() {
                   )}
                 </span>
               </div>
-              <div className="border-t border-[#21262d] pt-2 flex justify-between font-semibold">
-                <span className="text-[#e6edf3]">Total ingresado</span>
-                <span className="text-[#e6edf3]">
+              <div className="border-t border-[var(--border-primary)] pt-2 flex justify-between font-semibold">
+                <span className="text-[var(--text-primary)]">Total ingresado</span>
+                <span className="text-[var(--text-primary)]">
                   {formatCurrency(
                     periodFilter === 'total'
                       ? Number(data.total_cash_in ?? 0) + Number(data.total_transfer_in ?? 0)
@@ -567,12 +567,12 @@ export default function ContabilidadPage() {
             </div>
           </div>
           <div className="card p-4">
-            <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wide mb-3">
+            <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-3">
               Egresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
             </h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-[#8b949e]">En efectivo</span>
+                <span className="text-[var(--text-secondary)]">En efectivo</span>
                 <span className="text-red-400 font-medium">
                   {formatCurrency(
                     periodFilter === 'total'
@@ -584,7 +584,7 @@ export default function ContabilidadPage() {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#8b949e]">Por transferencia</span>
+                <span className="text-[var(--text-secondary)]">Por transferencia</span>
                 <span className="text-red-400 font-medium">
                   {formatCurrency(
                     periodFilter === 'total'
@@ -595,9 +595,9 @@ export default function ContabilidadPage() {
                   )}
                 </span>
               </div>
-              <div className="border-t border-[#21262d] pt-2 flex justify-between font-semibold">
-                <span className="text-[#e6edf3]">Total egresado</span>
-                <span className="text-[#e6edf3]">
+              <div className="border-t border-[var(--border-primary)] pt-2 flex justify-between font-semibold">
+                <span className="text-[var(--text-primary)]">Total egresado</span>
+                <span className="text-[var(--text-primary)]">
                   {formatCurrency(
                     periodFilter === 'total'
                       ? Number(data.total_cash_out ?? 0) + Number(data.total_transfer_out ?? 0)
@@ -614,13 +614,13 @@ export default function ContabilidadPage() {
 
       {/* Recent Movements */}
       <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-[#21262d] space-y-3">
+        <div className="px-5 py-4 border-b border-[var(--border-primary)] space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#e6edf3]">Movimientos recientes</h3>
-            <span className="text-xs text-[#6e7681]">{filteredMovements.length} de {movements.length} registro(s)</span>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">Movimientos recientes</h3>
+            <span className="text-xs text-[var(--text-tertiary)]">{filteredMovements.length} de {movements.length} registro(s)</span>
           </div>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
             <input
               className="input pl-9 text-sm"
               placeholder="Buscar por tipo, descripción o método de pago..."
@@ -666,27 +666,27 @@ export default function ContabilidadPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-[#e6edf3] font-medium truncate">{type}</span>
+                        <span className="text-sm text-[var(--text-primary)] font-medium truncate">{type}</span>
                         {methodLabel && (
                           <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border', methodColor)}>
                             {methodLabel}
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-[#6e7681] truncate mt-0.5">
+                      <p className="text-xs text-[var(--text-tertiary)] truncate mt-0.5">
                         {description}
                         {(cashAmt > 0 || transferAmt > 0) && method === 'mixed' && (
-                          <span className="text-[#8b949e]">
+                          <span className="text-[var(--text-secondary)]">
                             {' · '}Ef: {formatCurrency(cashAmt)} / Tr: {formatCurrency(transferAmt)}
                           </span>
                         )}
                       </p>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className={cn('text-sm font-semibold', isInflow ? 'text-green-400' : isOutflow ? 'text-red-400' : 'text-[#e6edf3]')}>
+                      <p className={cn('text-sm font-semibold', isInflow ? 'text-green-400' : isOutflow ? 'text-red-400' : 'text-[var(--text-primary)]')}>
                         {isInflow ? '+' : isOutflow ? '-' : ''}{formatCurrency(totalAmount)}
                       </p>
-                      <p className="text-[10px] text-[#6e7681] mt-0.5">
+                      <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
                         {m.date ? formatDateTime(String(m.date)) : '—'}
                       </p>
                     </div>
@@ -708,7 +708,7 @@ export default function ContabilidadPage() {
       {/* Modal: Saldo Inicial */}
       <Modal open={showInitialModal} onClose={() => setShowInitialModal(false)} title="Registrar saldo inicial">
         <div className="space-y-4">
-          <p className="text-sm text-[#8b949e]">Establece el dinero disponible en caja y banco al inicio de la contabilidad.</p>
+          <p className="text-sm text-[var(--text-secondary)]">Establece el dinero disponible en caja y banco al inicio de la contabilidad.</p>
           <div>
             <label className="label">Efectivo disponible</label>
             <input type="number" min="0" step="1" className="input"
@@ -740,7 +740,7 @@ export default function ContabilidadPage() {
       {/* Modal: Aporte de Capital */}
       <Modal open={showCapitalModal} onClose={() => setShowCapitalModal(false)} title="Registrar aporte de capital">
         <div className="space-y-4">
-          <p className="text-sm text-[#8b949e]">
+          <p className="text-sm text-[var(--text-secondary)]">
             Registra un aporte de capital del dueño al negocio. Esto incrementará el saldo disponible.
           </p>
           <div>
@@ -774,7 +774,7 @@ export default function ContabilidadPage() {
       {/* Modal: Ajuste */}
       <Modal open={showAdjustModal} onClose={() => setShowAdjustModal(false)} title="Ajuste de caja">
         <div className="space-y-4">
-          <p className="text-sm text-[#8b949e]">
+          <p className="text-sm text-[var(--text-secondary)]">
             Registra un ajuste manual (ej: retiro de efectivo, corrección de saldo, ingreso extraordinario).
             Usa valores positivos para agregar y negativos para restar.
           </p>
@@ -810,33 +810,33 @@ export default function ContabilidadPage() {
       <Modal open={showHistoryModal} onClose={() => setShowHistoryModal(false)} title="Historial de caja">
         <div className="space-y-2 max-h-[400px] overflow-y-auto">
           {entries.length === 0 ? (
-            <p className="text-sm text-[#6e7681] text-center py-8">Sin registros de caja</p>
+            <p className="text-sm text-[var(--text-tertiary)] text-center py-8">Sin registros de caja</p>
           ) : (
             entries.map(e => (
-              <div key={String(e.id)} className="bg-[#161b22] rounded-xl p-4 border border-[#21262d]">
+              <div key={String(e.id)} className="bg-[#161b22] rounded-xl p-4 border border-[var(--border-primary)]">
                 <div className="flex items-center justify-between mb-2">
                   <span className={cn('badge', String(e.type) === 'initial' ? 'badge-info' : String(e.type) === 'capital' ? 'badge-success' : 'badge-warning')}>
                     {String(e.type) === 'initial' ? 'Saldo inicial' : String(e.type) === 'capital' ? 'Aporte capital' : 'Ajuste'}
                   </span>
-                  <span className="text-xs text-[#6e7681]">
+                  <span className="text-xs text-[var(--text-tertiary)]">
                     {e.created_at ? formatDateTime(String(e.created_at)) : '—'}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <span className="text-[#6e7681] text-xs">Efectivo</span>
+                    <span className="text-[var(--text-tertiary)] text-xs">Efectivo</span>
                     <p className={cn('font-medium', Number(e.cash_amount) >= 0 ? 'text-green-400' : 'text-red-400')}>
                       {Number(e.cash_amount) >= 0 ? '+' : ''}{formatCurrency(Number(e.cash_amount))}
                     </p>
                   </div>
                   <div>
-                    <span className="text-[#6e7681] text-xs">Transferencia</span>
+                    <span className="text-[var(--text-tertiary)] text-xs">Transferencia</span>
                     <p className={cn('font-medium', Number(e.transfer_amount) >= 0 ? 'text-blue-400' : 'text-red-400')}>
                       {Number(e.transfer_amount) >= 0 ? '+' : ''}{formatCurrency(Number(e.transfer_amount))}
                     </p>
                   </div>
                 </div>
-                {e.notes ? <p className="text-xs text-[#8b949e] mt-2">{String(e.notes)}</p> : null}
+                {e.notes ? <p className="text-xs text-[var(--text-secondary)] mt-2">{String(e.notes)}</p> : null}
               </div>
             ))
           )}

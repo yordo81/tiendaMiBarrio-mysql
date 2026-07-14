@@ -78,10 +78,11 @@ export function Toaster() {
           )}
         >
           <span className="mt-0.5 shrink-0">{icons[t.type as ToastType]}</span>
-          <p className="text-sm text-[#e6edf3] flex-1 leading-snug">{t.message}</p>
+          <p className="text-sm flex-1 leading-snug" style={{ color: 'var(--text-primary)' }}>{t.message}</p>
           <button
             onClick={() => toast.dismiss(t.id)}
-            className="shrink-0 text-[#6e7681] hover:text-[#e6edf3] transition-colors"
+            className="shrink-0 transition-colors hover:opacity-80"
+            style={{ color: 'var(--text-tertiary)' }}
           >
             <X size={14} />
           </button>

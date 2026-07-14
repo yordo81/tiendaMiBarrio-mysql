@@ -28,8 +28,8 @@ const PERIODS: { key: Period; label: string }[] = [
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-[#1c2128] border border-[#30363d] rounded-xl px-3 py-2 text-xs shadow-xl">
-      <p className="text-[#8b949e] mb-1">{label}</p>
+    <div className="bg-[#1c2128] border border-[var(--border-secondary)] rounded-xl px-3 py-2 text-xs shadow-xl">
+      <p className="text-[var(--text-secondary)] mb-1">{label}</p>
       <p className="text-brand-400 font-semibold">{formatCurrency(payload[0].value)}</p>
     </div>
   );
@@ -86,23 +86,23 @@ export default function DashboardPage() {
       {/* System date/time indicator */}
       {now && (
         <div className="flex items-center justify-between gap-3 px-1">
-          <div className="flex items-center gap-2 text-sm text-[#8b949e]">
+          <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
             <Clock className="w-4 h-4 text-brand-400" />
             <span className="capitalize">{fmtInTz(now, tz, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
-            <span className="text-[#6e7681]">·</span>
-            <span className="font-mono font-medium text-[#e6edf3]">{fmtInTz(now, tz, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
-            <span className="text-[10px] bg-[#21262d] px-1.5 py-0.5 rounded text-[#6e7681] font-mono">
+            <span className="text-[var(--text-tertiary)]">·</span>
+            <span className="font-mono font-medium text-[var(--text-primary)]">{fmtInTz(now, tz, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
+            <span className="text-[10px] bg-[var(--bg-muted)] px-1.5 py-0.5 rounded text-[var(--text-tertiary)] font-mono">
               {tz.split('/').pop()}
             </span>
           </div>
-          {loading && <div className="w-32 h-4 bg-[#21262d] rounded animate-pulse" />}
+          {loading && <div className="w-32 h-4 bg-[var(--bg-muted)] rounded animate-pulse" />}
         </div>
       )}
 
       {/* Period filter buttons */}
       <div className="flex items-center gap-2">
-        <Calendar className="w-4 h-4 text-[#6e7681]" />
-        <div className="flex gap-1 bg-[#161b22] rounded-lg p-0.5 border border-[#21262d]">
+        <Calendar className="w-4 h-4 text-[var(--text-tertiary)]" />
+        <div className="flex gap-1 bg-[var(--bg-secondary)] rounded-lg p-0.5 border border-[var(--border-primary)]">
           {PERIODS.map(({ key, label }) => (
             <button
               key={key}
@@ -111,7 +111,7 @@ export default function DashboardPage() {
                 'px-3 py-1.5 text-xs font-medium rounded-md transition-all',
                 period === key
                   ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30 shadow-sm'
-                  : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] border border-transparent'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-muted)] border border-transparent'
               )}
             >
               {label}
@@ -130,8 +130,8 @@ export default function DashboardPage() {
             <Plus className="w-5 h-5 text-brand-400" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-[#e6edf3] group-hover:text-brand-400 transition-colors">Nueva venta</p>
-            <p className="text-xs text-[#6e7681]">Registrar venta</p>
+            <p className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-brand-400 transition-colors">Nueva venta</p>
+            <p className="text-xs text-[var(--text-tertiary)]">Registrar venta</p>
           </div>
         </Link>
         <Link
@@ -142,8 +142,8 @@ export default function DashboardPage() {
             <ShoppingBag className="w-5 h-5 text-emerald-400" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-[#e6edf3] group-hover:text-emerald-400 transition-colors">Registrar compra</p>
-            <p className="text-xs text-[#6e7681]">Nuevo pedido</p>
+            <p className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-emerald-400 transition-colors">Registrar compra</p>
+            <p className="text-xs text-[var(--text-tertiary)]">Nuevo pedido</p>
           </div>
         </Link>
         <Link
@@ -154,8 +154,8 @@ export default function DashboardPage() {
             <Package className="w-5 h-5 text-blue-400" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-[#e6edf3] group-hover:text-blue-400 transition-colors">Ver productos</p>
-            <p className="text-xs text-[#6e7681]">Inventario</p>
+            <p className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-blue-400 transition-colors">Ver productos</p>
+            <p className="text-xs text-[var(--text-tertiary)]">Inventario</p>
           </div>
         </Link>
         <Link
@@ -166,8 +166,8 @@ export default function DashboardPage() {
             <Users className="w-5 h-5 text-purple-400" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-[#e6edf3] group-hover:text-purple-400 transition-colors">Ver clientes</p>
-            <p className="text-xs text-[#6e7681]">Cartera</p>
+            <p className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-purple-400 transition-colors">Ver clientes</p>
+            <p className="text-xs text-[var(--text-tertiary)]">Cartera</p>
           </div>
         </Link>
       </div>
@@ -192,8 +192,8 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="card p-5 lg:col-span-2">
-          <h3 className="text-sm font-semibold text-[#e6edf3] mb-4">Ventas últimos 30 días</h3>
-          {loading ? <div className="h-48 bg-[#21262d] rounded-lg animate-pulse"/> : (
+          <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">Ventas últimos 30 días</h3>
+          {loading ? <div className="h-48 bg-[var(--bg-muted)] rounded-lg animate-pulse"/> : (
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={data?.salesChart ?? []} margin={{ top: 4, right: 4, left: -15, bottom: 0 }}>
                 <defs>
@@ -213,8 +213,8 @@ export default function DashboardPage() {
         </div>
 
         <div className="card p-5">
-          <h3 className="text-sm font-semibold text-[#e6edf3] mb-4">Top productos</h3>
-          {loading ? <div className="space-y-2">{[1,2,3,4,5].map(i=><div key={i} className="h-8 bg-[#21262d] rounded animate-pulse"/>)}</div> : (
+          <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">Top productos</h3>
+          {loading ? <div className="space-y-2">{[1,2,3,4,5].map(i=><div key={i} className="h-8 bg-[var(--bg-muted)] rounded animate-pulse"/>)}</div> : (
             data?.topProducts?.length ? (
               <div className="space-y-3">
                 {data.topProducts.map((p, i) => {
@@ -222,17 +222,17 @@ export default function DashboardPage() {
                   return (
                     <div key={i}>
                       <div className="flex justify-between text-xs mb-1">
-                        <span className="text-[#e6edf3] truncate max-w-[140px]">{p.name}</span>
-                        <span className="text-[#8b949e] ml-2">{formatCurrency(p.total)}</span>
+                        <span className="text-[var(--text-primary)] truncate max-w-[140px]">{p.name}</span>
+                        <span className="text-[var(--text-secondary)] ml-2">{formatCurrency(p.total)}</span>
                       </div>
-                      <div className="h-1.5 bg-[#21262d] rounded-full">
+                      <div className="h-1.5 bg-[var(--bg-muted)] rounded-full">
                         <div className="h-1.5 rounded-full bg-brand-500" style={{ width: `${(p.total / max) * 100}%` }}/>
                       </div>
                     </div>
                   );
                 })}
               </div>
-            ) : <p className="text-sm text-[#6e7681] text-center py-8">Sin ventas aún</p>
+            ) : <p className="text-sm text-[var(--text-tertiary)] text-center py-8">Sin ventas aún</p>
           )}
         </div>
       </div>
@@ -240,7 +240,7 @@ export default function DashboardPage() {
       {/* ── Pending Reservations Widget ── */}
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-[#e6edf3]">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">
             Reservaciones pendientes
             {!reservationsLoading && pendingReservations.length > 0 && (
               <span className="ml-2 text-xs font-normal text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20">
@@ -259,11 +259,11 @@ export default function DashboardPage() {
         {reservationsLoading ? (
           <div className="space-y-3">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-14 bg-[#21262d] rounded-xl animate-pulse" />
+              <div key={i} className="h-14 bg-[var(--bg-muted)] rounded-xl animate-pulse" />
             ))}
           </div>
         ) : pendingReservations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-6 text-[#6e7681]">
+          <div className="flex flex-col items-center justify-center py-6 text-[var(--text-tertiary)]">
             <Check className="w-8 h-8 text-green-400/50 mb-2" />
             <p className="text-sm">No hay reservaciones pendientes</p>
             <p className="text-xs mt-0.5">Los pedidos de clientes aparecerán aquí</p>
@@ -273,18 +273,18 @@ export default function DashboardPage() {
             {pendingReservations.map(r => (
               <div
                 key={r.id}
-                className="flex items-center gap-3 p-3 bg-[#0d1117] rounded-xl border border-[#21262d] hover:border-yellow-500/20 transition-colors"
+                className="flex items-center gap-3 p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] hover:border-yellow-500/20 transition-colors"
               >
                 <div className="w-9 h-9 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center flex-shrink-0">
                   <ShoppingCart className="w-4 h-4 text-yellow-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[#e6edf3] truncate">{r.customer_name}</p>
-                  <p className="text-xs text-[#8b949e] truncate">
+                  <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.customer_name}</p>
+                  <p className="text-xs text-[var(--text-secondary)] truncate">
                     {r.product_name} · {Number(r.quantity)} unidad(es)
                   </p>
                 </div>
-                <span className="text-[10px] text-[#6e7681] whitespace-nowrap">
+                <span className="text-[10px] text-[var(--text-tertiary)] whitespace-nowrap">
                   {r.created_at ? (() => {
                     const diff = Date.now() - new Date(r.created_at).getTime();
                     const hours = Math.floor(diff / 3600000);

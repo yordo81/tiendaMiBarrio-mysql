@@ -39,16 +39,17 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: M
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       {/* Panel */}
       <div className={cn(
-        'relative w-full bg-[#161b22] border border-[#21262d] shadow-2xl z-10',
+        'relative w-full shadow-2xl z-10',
         'rounded-t-2xl md:rounded-2xl',
         sizes[size],
         'max-h-[90vh] flex flex-col'
-      )}>
-        <div className="flex items-center justify-between px-4 py-3 sm:px-5 sm:py-4 border-b border-[#21262d] flex-shrink-0">
-          <h2 className="font-semibold text-[#e6edf3] text-base">{title}</h2>
+      )} style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
+        <div className="flex items-center justify-between px-4 py-3 sm:px-5 sm:py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+          <h2 className="font-semibold text-base" style={{ color: 'var(--text-primary)' }}>{title}</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-[#6e7681] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+            className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
+            style={{ color: 'var(--text-tertiary)' }}
           >
             <X className="w-4 h-4" />
           </button>

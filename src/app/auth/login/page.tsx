@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import ThemeToggle from '@/components/ui/ThemeToggle';
 import type { AppUser } from '@/types';
 
 export default function LoginPage() {
@@ -25,11 +26,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0d1117] px-4">
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-brand-600/10 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-brand-700/10 rounded-full blur-3xl" />
       </div>
+
+      <div className="absolute top-4 right-4 z-10">
+        <ThemeToggle compact />
+      </div>
+
       <div className="relative w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 bg-brand-600 rounded-2xl mb-4 shadow-lg shadow-brand-600/30">
@@ -37,11 +43,11 @@ export default function LoginPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
           </div>
-          <h1 className="font-display text-3xl text-[#e6edf3]">TiendaMiBarrio</h1>
-          <p className="text-[#8b949e] text-sm mt-1">Sistema de gestión · MySQL Edition</p>
+          <h1 className="font-display text-3xl" style={{ color: 'var(--text-primary)' }}>TiendaMiBarrio</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Sistema de gestión · MySQL Edition</p>
         </div>
         <div className="card p-8">
-          <h2 className="text-lg font-semibold text-[#e6edf3] mb-6">Iniciar sesión</h2>
+          <h2 className="text-lg font-semibold mb-6" style={{ color: 'var(--text-primary)' }}>Iniciar sesión</h2>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="label">Correo electrónico</label>
@@ -57,7 +63,7 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-        <p className="text-center text-[#6e7681] text-xs mt-6">TiendaMiBarrio v1.0 · MySQL Edition</p>
+        <p className="text-center text-xs mt-6" style={{ color: 'var(--text-tertiary)' }}>TiendaMiBarrio v1.0 · MySQL Edition</p>
       </div>
     </div>
   );

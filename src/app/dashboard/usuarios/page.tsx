@@ -103,7 +103,7 @@ export default function UsuariosPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <div><h2 className="text-base font-semibold text-[#e6edf3]">Gestión de usuarios</h2><p className="text-xs text-[#6e7681] mt-0.5">{users.length} usuario(s)</p></div>
+        <div><h2 className="text-base font-semibold text-[var(--text-primary)]">Gestión de usuarios</h2><p className="text-xs text-[var(--text-tertiary)] mt-0.5">{users.length} usuario(s)</p></div>
         {me?.role==='owner'&&<button onClick={()=>setShowInvite(true)} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4"/>Nuevo usuario</button>}
       </div>
 
@@ -116,22 +116,22 @@ export default function UsuariosPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-medium text-[#e6edf3]">{String(u.name)}</p>
+                  <p className="text-sm font-medium text-[var(--text-primary)]">{String(u.name)}</p>
                   <span className={roleColors[String(u.role)]??'badge-info'}>{classifyRole(String(u.role))}</span>
                   {!u.active&&<span className="badge-danger text-xs">Inactivo</span>}
-                  {u.id===me?.id&&<span className="text-[10px] text-[#6e7681] bg-[#21262d] px-1.5 py-0.5 rounded">Tú</span>}
+                  {u.id===me?.id&&<span className="text-[10px] text-[var(--text-tertiary)] bg-[var(--bg-muted)] px-1.5 py-0.5 rounded">Tú</span>}
                 </div>
-                <p className="text-xs text-[#6e7681] mt-0.5 truncate">{String(u.email??'')}</p>
+                <p className="text-xs text-[var(--text-tertiary)] mt-0.5 truncate">{String(u.email??'')}</p>
                 {String(u.role)!=='owner'&&(
-                  <p className="text-[11px] text-[#6e7681] mt-1 truncate">
+                  <p className="text-[11px] text-[var(--text-tertiary)] mt-1 truncate">
                     Módulos: {((u.permissions as {module:string;actions:string[]}[]|undefined)??[]).filter(p=>p.actions.length>0).map(p=>p.module).join(', ')||'Sin módulos'}
                   </p>
                 )}
               </div>
               {me?.role==='owner'&&String(u.id)!==me.id&&(
                 <div className="flex items-center gap-2 shrink-0">
-                  {String(u.role)!=='owner'&&<button onClick={()=>openPerms(u)} className="p-2 rounded-lg text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors" title="Editar permisos"><Shield className="w-4 h-4"/></button>}
-                  <button onClick={()=>setToggleTarget(u)} className={cn('p-2 rounded-lg transition-colors',u.active?'text-[#6e7681] hover:text-red-400 hover:bg-red-500/10':'text-[#6e7681] hover:text-green-400 hover:bg-green-500/10')} title={u.active?'Desactivar':'Activar'}>
+                  {String(u.role)!=='owner'&&<button onClick={()=>openPerms(u)} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors" title="Editar permisos"><Shield className="w-4 h-4"/></button>}
+                  <button onClick={()=>setToggleTarget(u)} className={cn('p-2 rounded-lg transition-colors',u.active?'text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10':'text-[var(--text-tertiary)] hover:text-green-400 hover:bg-green-500/10')} title={u.active?'Desactivar':'Activar'}>
                     {u.active?<UserX className="w-4 h-4"/>:<UserCheck className="w-4 h-4"/>}
                   </button>
                 </div>
@@ -151,7 +151,7 @@ export default function UsuariosPage() {
               <option value="seller">Vendedor</option><option value="warehouse">Bodeguero</option><option value="admin">Administrador</option>
             </select>
           </div>
-          <p className="text-xs text-[#6e7681] bg-[#0d1117] rounded-lg p-3 border border-[#21262d]">Los permisos específicos se configuran con el botón 🛡 después de crear el usuario.</p>
+          <p className="text-xs text-[var(--text-tertiary)] bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-primary)]">Los permisos específicos se configuran con el botón 🛡 después de crear el usuario.</p>
           <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowInvite(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleInvite} disabled={saving||!inviteForm.email||!inviteForm.name||!inviteForm.password} className="btn-primary flex-1 disabled:opacity-50">{saving?'Creando...':'Crear usuario'}</button></div>
         </div>
       </Modal>
@@ -163,21 +163,21 @@ export default function UsuariosPage() {
               <label className="label">Rol</label>
               <div className="flex gap-2 flex-wrap">
                 {(['admin','seller','warehouse'] as Role[]).map(r=>(
-                  <button key={r} onClick={()=>{setEditRole(r);applyPreset(r);}} className={cn('px-3 py-1.5 text-xs rounded-lg border transition-colors',editRole===r?'bg-brand-600 border-brand-600 text-white':'border-[#30363d] text-[#8b949e] hover:border-[#6e7681] hover:text-[#e6edf3]')}>{classifyRole(r)}</button>
+                  <button key={r} onClick={()=>{setEditRole(r);applyPreset(r);}} className={cn('px-3 py-1.5 text-xs rounded-lg border transition-colors',editRole===r?'bg-brand-600 border-brand-600 text-white':'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:border-[#6e7681] hover:text-[var(--text-primary)]')}>{classifyRole(r)}</button>
                 ))}
                 <button onClick={()=>applyPreset(editRole)} className="btn-secondary text-xs">Aplicar preset</button>
               </div>
             </div>
-            <div className="rounded-xl border border-[#21262d] overflow-hidden">
+            <div className="rounded-xl border border-[var(--border-primary)] overflow-hidden">
               <table className="w-full text-sm">
-                <thead><tr className="bg-[#0d1117] border-b border-[#21262d]">
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">Módulo</th>
-                  {ALL_ACTIONS.map(a=><th key={a} className="px-3 py-2.5 text-center text-xs font-medium text-[#6e7681] uppercase tracking-wide">{a==='read'?'Ver':a==='create'?'Crear':a==='update'?'Editar':'Borrar'}</th>)}
+                <thead><tr className="bg-[var(--bg-primary)] border-b border-[var(--border-primary)]">
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Módulo</th>
+                  {ALL_ACTIONS.map(a=><th key={a} className="px-3 py-2.5 text-center text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{a==='read'?'Ver':a==='create'?'Crear':a==='update'?'Editar':'Borrar'}</th>)}
                 </tr></thead>
                 <tbody>{ALL_MODULES.map(m=>{
                   const perm = permissions.find(p=>p.module===m.key);
-                  return(<tr key={m.key} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
-                    <td className="px-4 py-3 text-[#e6edf3] font-medium">{m.label}</td>
+                  return(<tr key={m.key} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[#1c2128]">
+                    <td className="px-4 py-3 text-[var(--text-primary)] font-medium">{m.label}</td>
                     {ALL_ACTIONS.map(action=>(
                       <td key={action} className="px-3 py-3 text-center">
                         <input type="checkbox" checked={perm?.actions.includes(action)??false} onChange={()=>toggleAction(m.key,action)} className="w-4 h-4 rounded accent-brand-600 cursor-pointer"/>

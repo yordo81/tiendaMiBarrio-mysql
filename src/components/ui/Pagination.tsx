@@ -49,15 +49,15 @@ export default function Pagination({
   };
 
   return (
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-[#21262d]">
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3" style={{ borderTop: '1px solid var(--border-primary)' }}>
       {/* Info */}
-      <p className="text-xs text-[#6e7681]">
-        Mostrando <span className="font-medium text-[#8b949e]">{totalItems > 0 ? `${from}–${to}` : '0'}</span> de{' '}
-        <span className="font-medium text-[#8b949e]">{totalItems}</span>
+      <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+        Mostrando <span className="font-medium" style={{ color: 'var(--text-secondary)' }}>{totalItems > 0 ? `${from}–${to}` : '0'}</span> de{' '}
+        <span className="font-medium" style={{ color: 'var(--text-secondary)' }}>{totalItems}</span>
       </p>
 
       {/* Page size selector */}
-      <div className="flex items-center gap-2 text-xs text-[#6e7681]">
+      <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-tertiary)' }}>
         <span>Filas por página:</span>
         <div className="flex gap-1">
           {PAGE_SIZE_OPTIONS.map(size => (
@@ -68,8 +68,9 @@ export default function Pagination({
                 'px-2 py-1 rounded-md text-xs font-medium transition-colors',
                 pageSize === size
                   ? 'bg-brand-600/20 text-brand-400 border border-brand-600/30'
-                  : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] border border-transparent'
+                  : 'border border-transparent hover:bg-[var(--bg-muted)]'
               )}
+              style={pageSize !== size ? { color: 'var(--text-secondary)' } : undefined}
             >
               {size}
             </button>
@@ -80,8 +81,9 @@ export default function Pagination({
               'px-2 py-1 rounded-md text-xs font-medium transition-colors',
               pageSize === 0
                 ? 'bg-brand-600/20 text-brand-400 border border-brand-600/30'
-                : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] border border-transparent'
+                : 'border border-transparent hover:bg-[var(--bg-muted)]'
             )}
+            style={pageSize !== 0 ? { color: 'var(--text-secondary)' } : undefined}
           >
             Todos
           </button>
@@ -94,13 +96,14 @@ export default function Pagination({
           <button
             onClick={() => goTo(currentPage - 1)}
             disabled={currentPage <= 1}
-            className="p-1.5 rounded-md text-[#6e7681] hover:text-[#e6edf3] hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="p-1.5 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors hover:bg-[var(--bg-muted)]"
+            style={{ color: 'var(--text-tertiary)' }}
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           {getPages().map((p, i) =>
             p === '...' ? (
-              <span key={`ellipsis-${i}`} className="px-1.5 text-[#6e7681] text-xs">···</span>
+              <span key={`ellipsis-${i}`} className="px-1.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>···</span>
             ) : (
               <button
                 key={p}
@@ -109,8 +112,9 @@ export default function Pagination({
                   'min-w-[28px] h-7 rounded-md text-xs font-medium transition-colors',
                   p === currentPage
                     ? 'bg-brand-600 text-white'
-                    : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d]'
+                    : 'hover:bg-[var(--bg-muted)]'
                 )}
+                style={p !== currentPage ? { color: 'var(--text-secondary)' } : undefined}
               >
                 {p}
               </button>
@@ -119,7 +123,8 @@ export default function Pagination({
           <button
             onClick={() => goTo(currentPage + 1)}
             disabled={currentPage >= totalPages}
-            className="p-1.5 rounded-md text-[#6e7681] hover:text-[#e6edf3] hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="p-1.5 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors hover:bg-[var(--bg-muted)]"
+            style={{ color: 'var(--text-tertiary)' }}
           >
             <ChevronRight className="w-4 h-4" />
           </button>

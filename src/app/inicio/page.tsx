@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import ThemeToggle from '@/components/ui/ThemeToggle';
 import {
   LayoutDashboard,
   Package,
@@ -152,14 +153,15 @@ export default function InicioPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0d1117]">
+    <div className="min-h-screen">
       {/* ──────── NAVBAR ──────── */}
       <header
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
           scrolled
-            ? 'bg-[#0d1117]/90 backdrop-blur-md border-b border-[#21262d] shadow-lg'
+            ? 'backdrop-blur-md border-b shadow-lg'
             : 'bg-transparent'
         }`}
+        style={scrolled ? { backgroundColor: 'color-mix(in srgb, var(--bg-primary) 90%, transparent)', borderColor: 'var(--border-primary)' } : undefined}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 md:h-20">
@@ -169,7 +171,7 @@ export default function InicioPage() {
                 <Store className="w-5 h-5 text-white" />
               </div>
               <div>
-                <span className="font-display text-[#e6edf3] text-lg leading-tight block">
+                <span className="font-display text-[var(--text-primary)] text-lg leading-tight block">
                   TiendaMiBarrio
                 </span>
                 <span className="text-[10px] text-brand-400 uppercase tracking-widest font-medium">
@@ -185,7 +187,7 @@ export default function InicioPage() {
                   <Link
                     key={id}
                     href="/"
-                    className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
+                    className="px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all duration-150"
                   >
                     {label}
                   </Link>
@@ -193,7 +195,7 @@ export default function InicioPage() {
                   <button
                     key={id}
                     onClick={() => scrollTo(id)}
-                    className="px-4 py-2 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all duration-150"
+                    className="px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all duration-150"
                   >
                     {label}
                   </button>
@@ -203,6 +205,7 @@ export default function InicioPage() {
 
             {/* Actions */}
             <div className="flex items-center gap-3">
+              <ThemeToggle compact />
               {user ? (
                 <Link
                   href="/dashboard"
@@ -224,7 +227,7 @@ export default function InicioPage() {
               {/* Mobile menu toggle */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                className="md:hidden p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all"
                 aria-label="Abrir menú"
               >
                 {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -235,14 +238,14 @@ export default function InicioPage() {
 
         {/* Mobile menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-[#21262d] bg-[#0d1117]/95 backdrop-blur-md">
+          <div className="md:hidden border-t border-[var(--border-primary)] bg-[var(--bg-primary)]/95 backdrop-blur-md">
             <div className="px-4 py-4 space-y-1">
               {navLinks.map(({ id, label, isExternal }) =>
                 isExternal ? (
                   <Link
                     key={id}
                     href="/"
-                    className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                    className="block w-full text-left px-4 py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all"
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     {label}
@@ -251,7 +254,7 @@ export default function InicioPage() {
                   <button
                     key={id}
                     onClick={() => scrollTo(id)}
-                    className="block w-full text-left px-4 py-3 text-sm text-[#8b949e] hover:text-[#e6edf3] rounded-lg hover:bg-[#1c2128] transition-all"
+                    className="block w-full text-left px-4 py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-all"
                   >
                     {label}
                   </button>
@@ -306,13 +309,13 @@ export default function InicioPage() {
               </div>
 
               {/* Heading */}
-              <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl text-[#e6edf3] leading-tight">
+              <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl text-[var(--text-primary)] leading-tight">
                 Gestiona tu{' '}
                 <span className="text-brand-400">tienda de barrio</span>{' '}
                 con facilidad
               </h1>
 
-              <p className="text-lg text-[#8b949e] max-w-lg leading-relaxed">
+              <p className="text-lg text-[var(--text-secondary)] max-w-lg leading-relaxed">
                 Controla inventario, ventas, gastos y clientes desde un solo
                 lugar. Una solución simple, moderna y poderosa para tu negocio.
               </p>
@@ -338,7 +341,7 @@ export default function InicioPage() {
                 )}
                 <button
                   onClick={() => scrollTo('features')}
-                  className="inline-flex items-center gap-2 px-8 py-3.5 bg-[#21262d] hover:bg-[#2d333b] text-[#e6edf3] font-semibold rounded-xl border border-[#30363d] transition-all duration-200 hover:-translate-y-0.5"
+                  className="inline-flex items-center gap-2 px-8 py-3.5 bg-[var(--bg-muted)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] font-semibold rounded-xl border border-[var(--border-secondary)] transition-all duration-200 hover:-translate-y-0.5"
                 >
                   Conocer más
                   <ChevronRight className="w-4 h-4" />
@@ -348,18 +351,18 @@ export default function InicioPage() {
               {/* Trust stats bar */}
               <div className="flex items-center gap-8 pt-4">
                 <div>
-                  <p className="text-2xl font-bold text-[#e6edf3]">100%</p>
-                  <p className="text-xs text-[#6e7681]">Offline-first</p>
+                  <p className="text-2xl font-bold text-[var(--text-primary)]">100%</p>
+                  <p className="text-xs text-[var(--text-tertiary)]">Offline-first</p>
                 </div>
-                <div className="w-px h-10 bg-[#21262d]" />
+                <div className="w-px h-10 bg-[var(--bg-muted)]" />
                 <div>
-                  <p className="text-2xl font-bold text-[#e6edf3]">Open Source</p>
-                  <p className="text-xs text-[#6e7681]">Código abierto</p>
+                  <p className="text-2xl font-bold text-[var(--text-primary)]">Open Source</p>
+                  <p className="text-xs text-[var(--text-tertiary)]">Código abierto</p>
                 </div>
-                <div className="w-px h-10 bg-[#21262d]" />
+                <div className="w-px h-10 bg-[var(--bg-muted)]" />
                 <div>
-                  <p className="text-2xl font-bold text-[#e6edf3]">MySQL</p>
-                  <p className="text-xs text-[#6e7681]">Base de datos</p>
+                  <p className="text-2xl font-bold text-[var(--text-primary)]">MySQL</p>
+                  <p className="text-xs text-[var(--text-tertiary)]">Base de datos</p>
                 </div>
               </div>
             </div>
@@ -376,7 +379,7 @@ export default function InicioPage() {
                         <div className="w-8 h-8 bg-brand-600/30 rounded-lg flex items-center justify-center">
                           <ShoppingCart className="w-4 h-4 text-brand-400" />
                         </div>
-                        <span className="text-sm font-semibold text-[#e6edf3]">
+                        <span className="text-sm font-semibold text-[var(--text-primary)]">
                           Dashboard
                         </span>
                       </div>
@@ -396,10 +399,10 @@ export default function InicioPage() {
                       ].map((stat, i) => (
                         <div
                           key={i}
-                          className="bg-[#0d1117] rounded-lg p-3 border border-[#21262d]"
+                          className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-primary)]"
                         >
-                          <p className="text-[10px] text-[#6e7681]">{stat.label}</p>
-                          <p className="text-lg font-bold text-[#e6edf3] mt-0.5">
+                          <p className="text-[10px] text-[var(--text-tertiary)]">{stat.label}</p>
+                          <p className="text-lg font-bold text-[var(--text-primary)] mt-0.5">
                             {stat.value}
                           </p>
                         </div>
@@ -407,8 +410,8 @@ export default function InicioPage() {
                     </div>
 
                     {/* Mock chart bars */}
-                    <div className="bg-[#0d1117] rounded-lg p-4 border border-[#21262d]">
-                      <p className="text-xs text-[#6e7681] mb-3">
+                    <div className="bg-[var(--bg-primary)] rounded-lg p-4 border border-[var(--border-primary)]">
+                      <p className="text-xs text-[var(--text-tertiary)] mb-3">
                         Ventas últimos 7 días
                       </p>
                       <div className="flex items-end gap-2 h-24">
@@ -428,7 +431,7 @@ export default function InicioPage() {
                                 style={{ height: `${h}%` }}
                               />
                             </div>
-                            <span className="text-[10px] text-[#6e7681]">{day}</span>
+                            <span className="text-[10px] text-[var(--text-tertiary)]">{day}</span>
                           </div>
                         ))}
                       </div>
@@ -443,7 +446,7 @@ export default function InicioPage() {
                       ].map((item, i) => (
                         <div
                           key={i}
-                          className="flex items-center gap-2.5 text-xs text-[#8b949e]"
+                          className="flex items-center gap-2.5 text-xs text-[var(--text-secondary)]"
                         >
                           <div className="w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0" />
                           {item}
@@ -454,10 +457,10 @@ export default function InicioPage() {
                 </div>
 
                 {/* Floating accent cards */}
-                <div className="absolute -top-6 -right-6 w-24 h-24 bg-[#161b22] border border-[#30363d] rounded-2xl shadow-xl flex items-center justify-center -rotate-6 hover:rotate-0 transition-all duration-300">
+                <div className="absolute -top-6 -right-6 w-24 h-24 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-2xl shadow-xl flex items-center justify-center -rotate-6 hover:rotate-0 transition-all duration-300">
                   <Package className="w-8 h-8 text-brand-400" />
                 </div>
-                <div className="absolute -bottom-6 -left-6 w-20 h-20 bg-[#161b22] border border-[#30363d] rounded-2xl shadow-xl flex items-center justify-center rotate-6 hover:rotate-0 transition-all duration-300">
+                <div className="absolute -bottom-6 -left-6 w-20 h-20 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-2xl shadow-xl flex items-center justify-center rotate-6 hover:rotate-0 transition-all duration-300">
                   <BarChart2 className="w-7 h-7 text-green-400" />
                 </div>
               </div>
@@ -467,7 +470,7 @@ export default function InicioPage() {
 
         {/* Scroll indicator */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 hidden md:block">
-          <div className="w-6 h-10 border-2 border-[#30363d] rounded-full flex justify-center p-1 animate-bounce">
+          <div className="w-6 h-10 border-2 border-[var(--border-secondary)] rounded-full flex justify-center p-1 animate-bounce">
             <div className="w-1.5 h-3 bg-brand-400 rounded-full" />
           </div>
         </div>
@@ -491,10 +494,10 @@ export default function InicioPage() {
                 Conoce el Sistema
               </span>
             </div>
-            <h2 className="font-display text-3xl sm:text-4xl text-[#e6edf3] mb-4">
+            <h2 className="font-display text-3xl sm:text-4xl text-[var(--text-primary)] mb-4">
               Descubre todo lo que puedes hacer
             </h2>
-            <p className="text-[#8b949e] max-w-2xl mx-auto">
+            <p className="text-[var(--text-secondary)] max-w-2xl mx-auto">
               Desliza para conocer cada módulo y cómo puede ayudarte a
               administrar tu negocio.
             </p>
@@ -518,14 +521,14 @@ export default function InicioPage() {
                       <div className="grid md:grid-cols-2 gap-8 md:gap-12 items-center h-full">
                         {/* Left — icon + description */}
                         <div className="space-y-6">
-                          <div className="inline-flex items-center justify-center w-16 h-16 bg-[#161b22] rounded-2xl border border-[#30363d]">
+                          <div className="inline-flex items-center justify-center w-16 h-16 bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border-secondary)]">
                             <Icon className="w-8 h-8 text-brand-400" />
                           </div>
                           <div>
-                            <h3 className="text-2xl md:text-3xl font-display text-[#e6edf3] mb-3">
+                            <h3 className="text-2xl md:text-3xl font-display text-[var(--text-primary)] mb-3">
                               {slide.title}
                             </h3>
-                            <p className="text-sm md:text-base text-[#8b949e] leading-relaxed">
+                            <p className="text-sm md:text-base text-[var(--text-secondary)] leading-relaxed">
                               {slide.description}
                             </p>
                           </div>
@@ -536,7 +539,7 @@ export default function InicioPage() {
                           {slide.features.map((feature, fi) => (
                             <div
                               key={fi}
-                              className="flex items-center gap-3 bg-[#161b22]/60 backdrop-blur-sm rounded-xl px-5 py-3.5 border border-[#21262d] hover:border-[#30363d] transition-colors"
+                              className="flex items-center gap-3 bg-[var(--bg-secondary)]/60 backdrop-blur-sm rounded-xl px-5 py-3.5 border border-[var(--border-primary)] hover:border-[var(--border-secondary)] transition-colors"
                             >
                               <div className="w-6 h-6 rounded-lg bg-brand-500/10 flex items-center justify-center flex-shrink-0">
                                 <svg
@@ -553,7 +556,7 @@ export default function InicioPage() {
                                   />
                                 </svg>
                               </div>
-                              <span className="text-sm font-medium text-[#e6edf3]">
+                              <span className="text-sm font-medium text-[var(--text-primary)]">
                                 {feature}
                               </span>
                             </div>
@@ -569,14 +572,14 @@ export default function InicioPage() {
             {/* Navigation arrows */}
             <button
               onClick={goToPrev}
-              className="absolute left-3 top-1/2 -translate-y-1/2 -translate-x-2 md:translate-x-0 w-10 h-10 md:w-12 md:h-12 bg-[#161b22]/80 hover:bg-[#1c2128] backdrop-blur-md border border-[#30363d] rounded-full flex items-center justify-center text-[#8b949e] hover:text-[#e6edf3] transition-all duration-200 z-10 hover:scale-105 active:scale-95"
+              className="absolute left-3 top-1/2 -translate-y-1/2 -translate-x-2 md:translate-x-0 w-10 h-10 md:w-12 md:h-12 bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] backdrop-blur-md border border-[var(--border-secondary)] rounded-full flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all duration-200 z-10 hover:scale-105 active:scale-95"
               aria-label="Anterior"
             >
               <ChevronLeft className="w-5 h-5 md:w-6 md:h-6" />
             </button>
             <button
               onClick={goToNext}
-              className="absolute right-3 top-1/2 -translate-y-1/2 translate-x-2 md:translate-x-0 w-10 h-10 md:w-12 md:h-12 bg-[#161b22]/80 hover:bg-[#1c2128] backdrop-blur-md border border-[#30363d] rounded-full flex items-center justify-center text-[#8b949e] hover:text-[#e6edf3] transition-all duration-200 z-10 hover:scale-105 active:scale-95"
+              className="absolute right-3 top-1/2 -translate-y-1/2 translate-x-2 md:translate-x-0 w-10 h-10 md:w-12 md:h-12 bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] backdrop-blur-md border border-[var(--border-secondary)] rounded-full flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all duration-200 z-10 hover:scale-105 active:scale-95"
               aria-label="Siguiente"
             >
               <ChevronRight className="w-5 h-5 md:w-6 md:h-6" />
@@ -600,7 +603,7 @@ export default function InicioPage() {
 
             {/* Slide counter */}
             <div className="flex items-center justify-center gap-1 mt-3">
-              <span className="text-xs text-[#6e7681]">
+              <span className="text-xs text-[var(--text-tertiary)]">
                 {currentSlide + 1} / {totalSlides}
               </span>
             </div>
@@ -609,7 +612,7 @@ export default function InicioPage() {
       </section>
 
       {/* ──────── FEATURES STRIP ──────── */}
-      <section className="py-14 border-y border-[#21262d] bg-[#161b22]/40">
+      <section className="py-14 border-y border-[var(--border-primary)] bg-[var(--bg-secondary)]/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 lg:gap-8">
             {[
@@ -638,10 +641,10 @@ export default function InicioPage() {
                 <div className="inline-flex items-center justify-center w-12 h-12 bg-brand-500/10 rounded-xl mb-3 group-hover:bg-brand-500/20 transition-colors">
                   <Icon className="w-6 h-6 text-brand-400" />
                 </div>
-                <h3 className="text-sm font-semibold text-[#e6edf3] mb-1">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">
                   {title}
                 </h3>
-                <p className="text-xs text-[#6e7681]">{desc}</p>
+                <p className="text-xs text-[var(--text-tertiary)]">{desc}</p>
               </div>
             ))}
           </div>
@@ -658,10 +661,10 @@ export default function InicioPage() {
                 Características
               </span>
             </div>
-            <h2 className="font-display text-3xl sm:text-4xl text-[#e6edf3] mb-4">
+            <h2 className="font-display text-3xl sm:text-4xl text-[var(--text-primary)] mb-4">
               Todo lo que necesitas para gestionar tu tienda
             </h2>
-            <p className="text-[#8b949e] max-w-2xl mx-auto">
+            <p className="text-[var(--text-secondary)] max-w-2xl mx-auto">
               Un sistema completo con todas las herramientas necesarias para
               administrar tu negocio de manera eficiente y profesional.
             </p>
@@ -714,12 +717,12 @@ export default function InicioPage() {
                 <div
                   className={`inline-flex items-center justify-center w-12 h-12 rounded-xl mb-4 bg-gradient-to-br ${gradient}`}
                 >
-                  <Icon className="w-6 h-6 text-[#e6edf3]" />
+                  <Icon className="w-6 h-6 text-[var(--text-primary)]" />
                 </div>
-                <h3 className="text-lg font-semibold text-[#e6edf3] mb-2 group-hover:text-brand-400 transition-colors">
+                <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2 group-hover:text-brand-400 transition-colors">
                   {title}
                 </h3>
-                <p className="text-sm text-[#8b949e] leading-relaxed">{desc}</p>
+                <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
@@ -727,17 +730,17 @@ export default function InicioPage() {
       </section>
 
       {/* ──────── MODULES SECTION ──────── */}
-      <section id="modules" className="py-20 lg:py-28 bg-[#161b22]/30">
+      <section id="modules" className="py-20 lg:py-28 bg-[var(--bg-secondary)]/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Section header */}
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-brand-500/10 border border-brand-500/20 rounded-full mb-6">
               <span className="text-sm font-medium text-brand-400">Módulos</span>
             </div>
-            <h2 className="font-display text-3xl sm:text-4xl text-[#e6edf3] mb-4">
+            <h2 className="font-display text-3xl sm:text-4xl text-[var(--text-primary)] mb-4">
               Módulos del Sistema
             </h2>
-            <p className="text-[#8b949e] max-w-2xl mx-auto">
+            <p className="text-[var(--text-secondary)] max-w-2xl mx-auto">
               Cada módulo está diseñado para cubrir un aspecto específico de tu
               negocio, accesible según tu rol.
             </p>
@@ -767,10 +770,10 @@ export default function InicioPage() {
                 <div className="inline-flex items-center justify-center w-12 h-12 bg-brand-500/10 rounded-xl mb-3 group-hover:bg-brand-500/20 transition-colors">
                   <Icon className="w-6 h-6 text-brand-400" />
                 </div>
-                <h3 className="text-sm font-semibold text-[#e6edf3] mb-0.5">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-0.5">
                   {name}
                 </h3>
-                <p className="text-xs text-[#6e7681]">{desc}</p>
+                <p className="text-xs text-[var(--text-tertiary)]">{desc}</p>
               </div>
             ))}
           </div>
@@ -793,10 +796,10 @@ export default function InicioPage() {
                     Comienza ahora
                   </span>
                 </div>
-                <h2 className="font-display text-3xl sm:text-4xl text-[#e6edf3] leading-tight">
+                <h2 className="font-display text-3xl sm:text-4xl text-[var(--text-primary)] leading-tight">
                   ¿Listo para optimizar tu negocio?
                 </h2>
-                <p className="text-[#8b949e] max-w-md leading-relaxed">
+                <p className="text-[var(--text-secondary)] max-w-md leading-relaxed">
                   Únete a otros dueños de negocio que ya están usando
                   TiendaMiBarrio para gestionar sus tiendas de manera eficiente
                   y profesional.
@@ -822,7 +825,7 @@ export default function InicioPage() {
                   {!user && (
                     <Link
                       href="/auth/login"
-                      className="inline-flex items-center gap-2 px-6 py-3 bg-[#21262d] hover:bg-[#2d333b] text-[#e6edf3] font-semibold rounded-xl border border-[#30363d] transition-all duration-200 hover:-translate-y-0.5"
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-[var(--bg-muted)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] font-semibold rounded-xl border border-[var(--border-secondary)] transition-all duration-200 hover:-translate-y-0.5"
                     >
                       Crear Cuenta
                     </Link>
@@ -841,10 +844,10 @@ export default function InicioPage() {
                   ].map(({ number, label }, i) => (
                     <div
                       key={i}
-                      className="bg-[#0d1117]/60 border border-[#21262d] rounded-xl p-5 text-center backdrop-blur-sm hover:border-brand-500/30 transition-colors"
+                      className="bg-[var(--bg-primary)]/60 border border-[var(--border-primary)] rounded-xl p-5 text-center backdrop-blur-sm hover:border-brand-500/30 transition-colors"
                     >
                       <p className="text-2xl font-bold text-brand-400">{number}</p>
-                      <p className="text-xs text-[#6e7681] mt-1">{label}</p>
+                      <p className="text-xs text-[var(--text-tertiary)] mt-1">{label}</p>
                     </div>
                   ))}
                 </div>
@@ -855,7 +858,7 @@ export default function InicioPage() {
       </section>
 
       {/* ──────── FOOTER ──────── */}
-      <footer className="border-t border-[#21262d] bg-[#161b22]/30">
+      <footer className="border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             {/* Brand column */}
@@ -864,11 +867,11 @@ export default function InicioPage() {
                 <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
                   <Store className="w-4 h-4 text-white" />
                 </div>
-                <span className="font-display text-[#e6edf3] text-base">
+                <span className="font-display text-[var(--text-primary)] text-base">
                   TiendaMiBarrio
                 </span>
               </Link>
-              <p className="text-xs text-[#6e7681] leading-relaxed max-w-xs">
+              <p className="text-xs text-[var(--text-tertiary)] leading-relaxed max-w-xs">
                 Sistema de gestión para tiendas de barrio. Controla tu negocio
                 de manera simple y eficiente.
               </p>
@@ -876,13 +879,13 @@ export default function InicioPage() {
 
             {/* Modules links */}
             <div>
-              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">
+              <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-4">
                 Módulos
               </h4>
               <ul className="space-y-2.5">
                 {['Inventario', 'Ventas', 'Compras', 'Clientes', 'Reservaciones'].map((item) => (
                   <li key={item}>
-                    <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">
+                    <span className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-default">
                       {item}
                     </span>
                   </li>
@@ -892,14 +895,14 @@ export default function InicioPage() {
 
             {/* Company links */}
             <div>
-              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">
+              <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-4">
                 Empresa
               </h4>
               <ul className="space-y-2.5">
                 {['Acerca de', 'Características', 'Precios', 'FAQ'].map(
                   (item) => (
                     <li key={item}>
-                      <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">
+                      <span className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-default">
                         {item}
                       </span>
                     </li>
@@ -910,14 +913,14 @@ export default function InicioPage() {
 
             {/* Support links */}
             <div>
-              <h4 className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-4">
+              <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-4">
                 Soporte
               </h4>
               <ul className="space-y-2.5">
                 {['Documentación', 'Reportar Error', 'Sugerencias', 'Contacto'].map(
                   (item) => (
                     <li key={item}>
-                      <span className="text-sm text-[#6e7681] hover:text-[#e6edf3] transition-colors cursor-default">
+                      <span className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-default">
                         {item}
                       </span>
                     </li>
@@ -928,19 +931,19 @@ export default function InicioPage() {
           </div>
 
           {/* Bottom bar */}
-          <div className="border-t border-[#21262d] mt-10 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p className="text-xs text-[#6e7681]">
+          <div className="border-t border-[var(--border-primary)] mt-10 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p className="text-xs text-[var(--text-tertiary)]">
               © {new Date().getFullYear()} TiendaMiBarrio. Todos los derechos
               reservados.
             </p>
-            <div className="flex items-center gap-4 text-xs text-[#6e7681]">
-              <span className="hover:text-[#e6edf3] transition-colors cursor-default">
+            <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">
+              <span className="hover:text-[var(--text-primary)] transition-colors cursor-default">
                 Términos
               </span>
-              <span className="hover:text-[#e6edf3] transition-colors cursor-default">
+              <span className="hover:text-[var(--text-primary)] transition-colors cursor-default">
                 Privacidad
               </span>
-              <span className="hover:text-[#e6edf3] transition-colors cursor-default">
+              <span className="hover:text-[var(--text-primary)] transition-colors cursor-default">
                 Licencia
               </span>
             </div>

@@ -76,7 +76,7 @@ export default function ComprasPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
           <input className="input pl-9" placeholder="Buscar compras..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -128,24 +128,24 @@ export default function ComprasPage() {
       {!loading && purchases.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="card p-3 sm:p-4">
-            <p className="text-xs text-[#6e7681] uppercase tracking-wide mb-1">Total compras</p>
-            <p className="text-lg sm:text-xl font-semibold text-[#e6edf3]">{purchases.length}</p>
+            <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide mb-1">Total compras</p>
+            <p className="text-lg sm:text-xl font-semibold text-[var(--text-primary)]">{purchases.length}</p>
           </div>
           <div className="card p-3 sm:p-4">
-            <p className="text-xs text-[#6e7681] uppercase tracking-wide mb-1">Costo total</p>
+            <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide mb-1">Costo total</p>
             <p className="text-lg sm:text-xl font-semibold text-brand-400">
               {formatCurrency(purchases.reduce((s, p) => s + Number(p.total_cost ?? 0), 0))}
             </p>
           </div>
           <div className="card p-3 sm:p-4">
-            <p className="text-xs text-[#6e7681] uppercase tracking-wide mb-1">Productos distintos</p>
-            <p className="text-lg sm:text-xl font-semibold text-[#e6edf3]">
+            <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide mb-1">Productos distintos</p>
+            <p className="text-lg sm:text-xl font-semibold text-[var(--text-primary)]">
               {new Set(purchases.map(p => String(p.product_id))).size}
             </p>
           </div>
           <div className="card p-3 sm:p-4">
-            <p className="text-xs text-[#6e7681] uppercase tracking-wide mb-1">Cant. total</p>
-            <p className="text-lg sm:text-xl font-semibold text-[#e6edf3]">
+            <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide mb-1">Cant. total</p>
+            <p className="text-lg sm:text-xl font-semibold text-[var(--text-primary)]">
               {formatNumber(purchases.reduce((s, p) => s + Number(p.quantity ?? 0), 0), 1)}
             </p>
           </div>
@@ -168,34 +168,34 @@ export default function ComprasPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#21262d]">
+                <tr className="border-b border-[var(--border-primary)]">
                   {['Fecha', 'Producto', 'Proveedor', 'Cantidad', 'P. Unitario', 'Total', 'Almacén', 'Usuario'].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {paginated.map(p => (
-                  <tr key={String(p.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
-                    <td className="px-4 py-3 text-[#8b949e] text-xs whitespace-nowrap">
+                  <tr key={String(p.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
+                    <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-nowrap">
                       {p.created_at ? formatDateTime(String(p.created_at)) : '—'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <Package className="w-3.5 h-3.5 text-[#6e7681] flex-shrink-0" />
-                        <span className="text-[#e6edf3] font-medium">{String(p.product_name ?? '—')}</span>
+                        <Package className="w-3.5 h-3.5 text-[var(--text-tertiary)] flex-shrink-0" />
+                        <span className="text-[var(--text-primary)] font-medium">{String(p.product_name ?? '—')}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <Truck className="w-3.5 h-3.5 text-[#6e7681] flex-shrink-0" />
-                        <span className="text-[#8b949e]">{String(p.supplier_name ?? '—')}</span>
+                        <Truck className="w-3.5 h-3.5 text-[var(--text-tertiary)] flex-shrink-0" />
+                        <span className="text-[var(--text-secondary)]">{String(p.supplier_name ?? '—')}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-[#e6edf3] font-medium">
+                    <td className="px-4 py-3 text-[var(--text-primary)] font-medium">
                       {formatNumber(Number(p.quantity), 2)}
                     </td>
-                    <td className="px-4 py-3 text-[#8b949e]">
+                    <td className="px-4 py-3 text-[var(--text-secondary)]">
                       {formatCurrency(Number(p.unit_price))}
                     </td>
                     <td className="px-4 py-3 text-brand-400 font-semibold">
@@ -203,14 +203,14 @@ export default function ComprasPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
-                        <MapPin className="w-3 h-3 text-[#6e7681] flex-shrink-0" />
-                        <span className="text-[#8b949e] text-xs">{String(p.location_name ?? '—')}</span>
+                        <MapPin className="w-3 h-3 text-[var(--text-tertiary)] flex-shrink-0" />
+                        <span className="text-[var(--text-secondary)] text-xs">{String(p.location_name ?? '—')}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
-                        <User className="w-3 h-3 text-[#6e7681] flex-shrink-0" />
-                        <span className="text-[#8b949e] text-xs">{String(p.user_name ?? '—')}</span>
+                        <User className="w-3 h-3 text-[var(--text-tertiary)] flex-shrink-0" />
+                        <span className="text-[var(--text-secondary)] text-xs">{String(p.user_name ?? '—')}</span>
                       </div>
                     </td>
                   </tr>

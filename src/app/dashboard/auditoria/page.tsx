@@ -80,7 +80,7 @@ export default function AuditoriaPage() {
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex gap-2 flex-1">
           <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
             <select className="input pl-9 w-40" value={entityFilter} onChange={e => setEntityFilter(e.target.value)}>
               <option value="">Todos los tipos</option>
               {Object.entries(entityLabels).map(([k, v]) => (
@@ -89,7 +89,7 @@ export default function AuditoriaPage() {
             </select>
           </div>
           <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]" />
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
             <select className="input pl-9 w-40" value={actionFilter} onChange={e => setActionFilter(e.target.value)}>
               <option value="">Todas las acciones</option>
               {Object.entries(actionLabels).map(([k, v]) => (
@@ -98,7 +98,7 @@ export default function AuditoriaPage() {
             </select>
           </div>
         </div>
-        <p className="text-sm text-[#8b949e]">{logs.length} registro(s)</p>
+        <p className="text-sm text-[var(--text-secondary)]">{logs.length} registro(s)</p>
       </div>
 
       <div className="card overflow-hidden">
@@ -110,9 +110,9 @@ export default function AuditoriaPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#21262d]">
+                <tr className="border-b border-[var(--border-primary)]">
                   {['Fecha', 'Usuario', 'Acción', 'Tipo', 'Entidad', 'Detalles'].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{h}</th>
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -131,23 +131,23 @@ export default function AuditoriaPage() {
                     else if (details.total !== undefined) detailsText = `Total: $${Number(details.total).toFixed(2)}`;
                   }
                   return (
-                    <tr key={String(log.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
-                      <td className="px-4 py-3 text-[#8b949e] text-xs whitespace-nowrap">
+                    <tr key={String(log.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-nowrap">
                         {log.created_at ? formatDateTime(String(log.created_at)) : '—'}
                       </td>
-                      <td className="px-4 py-3 text-[#e6edf3] font-medium">{String(log.user_name ?? '—')}</td>
+                      <td className="px-4 py-3 text-[var(--text-primary)] font-medium">{String(log.user_name ?? '—')}</td>
                       <td className="px-4 py-3">
                         <span className={cn('badge', actionColors[String(log.action)] ?? 'badge-info')}>
                           {actionLabels[String(log.action)] ?? String(log.action)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border', entityColors[String(log.entity_type)] ?? 'text-[#8b949e]')}>
+                        <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border', entityColors[String(log.entity_type)] ?? 'text-[var(--text-secondary)]')}>
                           {entityLabels[String(log.entity_type)] ?? String(log.entity_type)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-[#e6edf3]">{String(log.entity_name ?? '—')}</td>
-                      <td className="px-4 py-3 text-[#8b949e] text-xs">{detailsText || '—'}</td>
+                      <td className="px-4 py-3 text-[var(--text-primary)]">{String(log.entity_name ?? '—')}</td>
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{detailsText || '—'}</td>
                     </tr>
                   );
                 })}

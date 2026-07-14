@@ -244,9 +244,9 @@ export default function InventarioPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex gap-1 border-b border-[#21262d] pb-0">
+      <div className="flex gap-1 border-b border-[var(--border-primary)] pb-0">
         {([['productos','Productos',Package],['categorias','Categorías',Tag]] as const).map(([key,label,Icon]) => (
-          <button key={key} onClick={() => setTab(key as Tab)} className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors', tab===key?'border-brand-500 text-brand-400':'border-transparent text-[#8b949e] hover:text-[#e6edf3]')}>
+          <button key={key} onClick={() => setTab(key as Tab)} className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors', tab===key?'border-brand-500 text-brand-400':'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]')}>
             <Icon className="w-4 h-4"/>{label}
           </button>
         ))}
@@ -269,7 +269,7 @@ export default function InventarioPage() {
           )}
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
             <div className="flex gap-2 flex-1 w-full sm:w-auto">
-              <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6e7681]"/><input className="input pl-9" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
+              <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
               <select className="input w-44" value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
                 <option value="">Todas las categorías</option>
                 {categories.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name)}</option>)}
@@ -278,13 +278,13 @@ export default function InventarioPage() {
                 <option value="">Todos los almacenes</option>
                 {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
               </select>
-              <button onClick={()=>setShowZeroStock(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showZeroStock ? 'bg-brand-600/20 border-brand-600/50 text-brand-400' : 'border-[#30363d] text-[#6e7681] hover:text-[#8b949e] hover:border-[#6e7681]')}>
+              <button onClick={()=>setShowZeroStock(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showZeroStock ? 'bg-brand-600/20 border-brand-600/50 text-brand-400' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[#6e7681]')}>
                 <span className="text-sm">{showZeroStock ? '☑' : '☐'}</span> Stock 0
               </button>
               {!showLowStockBanner && lowStock.length > 0 && (
                 <button
                   onClick={restoreLowStockBanner}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border border-[#30363d] text-yellow-400 hover:text-yellow-300 hover:border-yellow-500/40 hover:bg-yellow-500/5 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border border-[var(--border-secondary)] text-yellow-400 hover:text-yellow-300 hover:border-yellow-500/40 hover:bg-yellow-500/5 transition-colors"
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
                   Stock bajo ({lowStock.length})
@@ -303,15 +303,15 @@ export default function InventarioPage() {
             : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[#21262d]">{['img-col','Producto','Categoría','Proveedores','Ubicación','Stock','Precio','Costo','Margen','actions-col'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{['img-col','actions-col'].includes(h)?'':h}</th>)}</tr></thead>
+                  <thead><tr className="border-b border-[var(--border-primary)]">{['img-col','Producto','Categoría','Proveedores','Ubicación','Stock','Precio','Costo','Margen','actions-col'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{['img-col','actions-col'].includes(h)?'':h}</th>)}</tr></thead>
                   <tbody>
                     {paginated.map(p => {
                       const lowS = Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0;
                       const margin = calcMargin(Number(p.sale_price), Number(p.cost));
                       return (
-                        <tr key={String(p.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
+                        <tr key={String(p.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
                           <td className="px-4 py-3 w-12">
-                            <div className="w-10 h-10 bg-[#0d1117] rounded-lg border border-[#21262d] overflow-hidden flex items-center justify-center flex-shrink-0">
+                            <div className="w-10 h-10 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-primary)] overflow-hidden flex items-center justify-center flex-shrink-0">
                               {String(p.image_url??'') ? (
                                 <img
                                   src={String(p.image_url)}
@@ -324,19 +324,19 @@ export default function InventarioPage() {
                               )}
                             </div>
                           </td>
-                          <td className="px-4 py-3"><div className="font-medium text-[#e6edf3]">{String(p.name)}</div>{Boolean(p.description) ? <div className="text-xs text-[#6e7681] truncate max-w-[140px]">{String(p.description)}</div> : null}</td>
-                          <td className="px-4 py-3 text-[#8b949e]">{String(p.category_name??'—')}</td>
-                          <td className="px-4 py-3 text-[#8b949e] text-xs max-w-[120px] truncate">{(p.supplier_names as string[]|undefined)?.join(', ')||'—'}</td>
-                          <td className="px-4 py-3 text-[#8b949e] text-xs">{String(p.location_name??'—')}</td>
-                          <td className="px-4 py-3"><span className={cn('font-medium',lowS?'text-red-400':'text-[#e6edf3]')}>{formatNumber(Number(p.stock),1)} {String(p.unit)}</span>{lowS ? <span className="ml-1.5 badge-danger text-[10px]">Bajo</span> : null}</td>
-                          <td className="px-4 py-3 text-[#e6edf3]">{formatCurrency(Number(p.sale_price))}</td>
-                          <td className="px-4 py-3 text-[#8b949e]">{formatCurrency(Number(p.cost))}</td>
+                          <td className="px-4 py-3"><div className="font-medium text-[var(--text-primary)]">{String(p.name)}</div>{Boolean(p.description) ? <div className="text-xs text-[var(--text-tertiary)] truncate max-w-[140px]">{String(p.description)}</div> : null}</td>
+                          <td className="px-4 py-3 text-[var(--text-secondary)]">{String(p.category_name??'—')}</td>
+                          <td className="px-4 py-3 text-[var(--text-secondary)] text-xs max-w-[120px] truncate">{(p.supplier_names as string[]|undefined)?.join(', ')||'—'}</td>
+                          <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{String(p.location_name??'—')}</td>
+                          <td className="px-4 py-3"><span className={cn('font-medium',lowS?'text-red-400':'text-[var(--text-primary)]')}>{formatNumber(Number(p.stock),1)} {String(p.unit)}</span>{lowS ? <span className="ml-1.5 badge-danger text-[10px]">Bajo</span> : null}</td>
+                          <td className="px-4 py-3 text-[var(--text-primary)]">{formatCurrency(Number(p.sale_price))}</td>
+                          <td className="px-4 py-3 text-[var(--text-secondary)]">{formatCurrency(Number(p.cost))}</td>
                           <td className="px-4 py-3"><span className={cn('font-medium',margin>=20?'text-green-400':margin>=10?'text-yellow-400':'text-red-400')}>{margin.toFixed(1)}%</span></td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1">
-                              <button onClick={()=>openHistory(p)} className="p-1.5 rounded-lg text-[#6e7681] hover:text-blue-400 hover:bg-blue-500/10 transition-colors"><History className="w-3.5 h-3.5"/></button>
-                              <button onClick={()=>openEdit(p)} className="p-1.5 rounded-lg text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
-                              {(user?.role === 'owner' || user?.role === 'admin') && <button onClick={()=>setDeleteTarget(p)} className="p-1.5 rounded-lg text-[#6e7681] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>}
+                              <button onClick={()=>openHistory(p)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors"><History className="w-3.5 h-3.5"/></button>
+                              <button onClick={()=>openEdit(p)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
+                              {(user?.role === 'owner' || user?.role === 'admin') && <button onClick={()=>setDeleteTarget(p)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>}
                             </div>
                           </td>
                         </tr>
@@ -354,23 +354,23 @@ export default function InventarioPage() {
       {tab === 'categorias' && (
         <>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-[#8b949e]">{categories.length} categoría(s)</p>
+            <p className="text-sm text-[var(--text-secondary)]">{categories.length} categoría(s)</p>
             <button onClick={()=>{setEditCat(null);setCatForm({name:'',parent_id:''});setShowCatModal(true);}} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4"/>Nueva categoría</button>
           </div>
           <div className="card overflow-hidden">
             {categories.length===0?<EmptyState icon={Tag} title="Sin categorías" description="Crea categorías para organizar productos" action={<button onClick={()=>setShowCatModal(true)} className="btn-primary">Crear categoría</button>}/>:(
               <table className="w-full text-sm">
-                <thead><tr className="border-b border-[#21262d]">{['Nombre','Cat. padre','Productos',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#8b949e] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                <thead><tr className="border-b border-[var(--border-primary)]">{['Nombre','Cat. padre','Productos',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
                 <tbody>{categories.map(c=>{
                   const parent = categories.find(x=>x.id===c.parent_id);
                   const count = products.filter(p=>p.category_id===c.id).length;
-                  return(<tr key={String(c.id)} className="border-b border-[#21262d] last:border-0 table-row-hover">
-                    <td className="px-4 py-3 font-medium text-[#e6edf3]">{String(c.name)}</td>
-                    <td className="px-4 py-3 text-[#8b949e]">{parent?String(parent.name):'—'}</td>
-                    <td className="px-4 py-3 text-[#8b949e]">{count}</td>
+                  return(<tr key={String(c.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
+                    <td className="px-4 py-3 font-medium text-[var(--text-primary)]">{String(c.name)}</td>
+                    <td className="px-4 py-3 text-[var(--text-secondary)]">{parent?String(parent.name):'—'}</td>
+                    <td className="px-4 py-3 text-[var(--text-secondary)]">{count}</td>
                     <td className="px-4 py-3"><div className="flex gap-1">
-                      <button onClick={()=>{setEditCat(c);setCatForm({name:String(c.name),parent_id:String(c.parent_id??'')});setShowCatModal(true);}} className="p-1.5 rounded-lg text-[#6e7681] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
-                      <button onClick={()=>setDeleteCat(c)} className="p-1.5 rounded-lg text-[#6e7681] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                      <button onClick={()=>{setEditCat(c);setCatForm({name:String(c.name),parent_id:String(c.parent_id??'')});setShowCatModal(true);}} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
+                      <button onClick={()=>setDeleteCat(c)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
                     </div></td>
                   </tr>);
                 })}</tbody>
@@ -412,7 +412,7 @@ export default function InventarioPage() {
               className={`relative flex items-start gap-4 p-4 rounded-xl border-2 border-dashed transition-all duration-200 cursor-pointer ${
                 isDragOver
                   ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-500/10'
-                  : 'border-[#30363d] bg-[#0d1117]/50 hover:border-[#6e7681] hover:bg-[#0d1117]/80'
+                  : 'border-[var(--border-secondary)] bg-[var(--bg-primary)]/50 hover:border-[#6e7681] hover:bg-[var(--bg-primary)]/80'
               }`}
               onClick={() => fileInputRef.current?.click()}
             >
@@ -435,7 +435,7 @@ export default function InventarioPage() {
               />
 
               {/* Preview */}
-              <div className="w-24 h-24 bg-[#0d1117] rounded-xl border border-[#30363d] overflow-hidden flex items-center justify-center flex-shrink-0 transition-all duration-200">
+              <div className="w-24 h-24 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-secondary)] overflow-hidden flex items-center justify-center flex-shrink-0 transition-all duration-200">
                 {imagePreview ? (
                   <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
                 ) : (
@@ -447,11 +447,11 @@ export default function InventarioPage() {
               <div className="flex-1 space-y-2 min-w-0">
                 {imagePreview ? (
                   <>
-                    <p className="text-sm text-[#e6edf3] font-medium">Imagen seleccionada</p>
+                    <p className="text-sm text-[var(--text-primary)] font-medium">Imagen seleccionada</p>
                     <div className="flex gap-2">
                       <button
                         onClick={e => { e.stopPropagation(); fileInputRef.current?.click(); }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#21262d] hover:bg-[#2d333b] text-xs text-[#e6edf3] rounded-lg border border-[#30363d] transition-all hover:border-[#6e7681]"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-muted)] hover:bg-[#2d333b] text-xs text-[var(--text-primary)] rounded-lg border border-[var(--border-secondary)] transition-all hover:border-[#6e7681]"
                       >
                         <Upload className="w-3.5 h-3.5" />
                         Cambiar
@@ -467,11 +467,11 @@ export default function InventarioPage() {
                   </>
                 ) : (
                   <>
-                    <div className="flex items-center gap-2 text-sm text-[#8b949e]">
-                      <Upload className="w-4 h-4 text-[#6e7681]" />
+                    <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                      <Upload className="w-4 h-4 text-[var(--text-tertiary)]" />
                       <span>Arrastra una imagen aquí o <span className="text-brand-400 font-medium underline underline-offset-2">selecciona un archivo</span></span>
                     </div>
-                    <p className="text-[10px] text-[#6e7681]">JPEG, PNG, WebP o GIF. Máximo 10MB.</p>
+                    <p className="text-[10px] text-[var(--text-tertiary)]">JPEG, PNG, WebP o GIF. Máximo 10MB.</p>
                   </>
                 )}
               </div>
@@ -500,7 +500,7 @@ export default function InventarioPage() {
             <label className="label">Stock {editProduct?'actual':'inicial'}</label>
             <input type="number" min="0" step="1" className="input" value={Number(form.stock??0)} onChange={e=>setForm(f=>({...f,stock:parseFloat(e.target.value)||0}))}/>
             {!editProduct && Number(form.stock??0) > 0 && (
-              <div className="mt-3 bg-[#0d1117] rounded-xl border border-[#21262d] p-3">
+              <div className="mt-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] p-3">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <div className="relative">
                     <input
@@ -509,11 +509,11 @@ export default function InventarioPage() {
                       checked={form.is_capital === true}
                       onChange={e => setForm(f => ({ ...f, is_capital: e.target.checked }))}
                     />
-                    <div className="w-10 h-6 bg-[#21262d] rounded-full peer-checked:bg-brand-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4" />
+                    <div className="w-10 h-6 bg-[var(--bg-muted)] rounded-full peer-checked:bg-brand-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4" />
                   </div>
                   <div>
-                    <p className="text-sm text-[#e6edf3] font-medium">¿Es aporte de capital nuevo?</p>
-                    <p className="text-xs text-[#6e7681]">
+                    <p className="text-sm text-[var(--text-primary)] font-medium">¿Es aporte de capital nuevo?</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">
                       {form.is_capital
                         ? 'Se registrará como ingreso de nuevo capital del dueño (incrementa el saldo disponible)'
                         : 'Se registrará como reinversión de ganancias (egreso de caja por compra de inventario)'}
@@ -529,17 +529,17 @@ export default function InventarioPage() {
                 {locations.length === 0 && <option value="">Cargando...</option>}
                 {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
               </select>
-              <p className="text-[10px] text-[#6e7681] mt-1">El stock inicial se registrará en este almacén</p>
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">El stock inicial se registrará en este almacén</p>
             </div>
           )}
           <div><label className="label">Stock mínimo</label><input type="number" min="0" step="1" className="input" value={Number(form.min_stock??0)} onChange={e=>setForm(f=>({...f,min_stock:parseFloat(e.target.value)||0}))}/></div>
           <div className="sm:col-span-2">
             <label className="label">Proveedores</label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 bg-[#0d1117] rounded-lg border border-[#30363d]">
-              {suppliers.length===0?<p className="text-xs text-[#6e7681] col-span-3 py-2">No hay proveedores</p>:suppliers.map(s=>{
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-secondary)]">
+              {suppliers.length===0?<p className="text-xs text-[var(--text-tertiary)] col-span-3 py-2">No hay proveedores</p>:suppliers.map(s=>{
                 const sids = (form.supplier_ids as string[]|undefined)??[];
                 const checked = sids.includes(String(s.id));
-                return(<label key={String(s.id)} className={cn('flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors',checked?'bg-brand-600/20 text-brand-400':'hover:bg-[#161b22] text-[#8b949e]')}>
+                return(<label key={String(s.id)} className={cn('flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors',checked?'bg-brand-600/20 text-brand-400':'hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)]')}>
                   <input type="checkbox" className="accent-brand-600" checked={checked} onChange={e=>setForm(f=>({...f,supplier_ids:e.target.checked?[...sids,String(s.id)]:sids.filter(id=>id!==String(s.id))}))}/>
                   {String(s.name)}
                 </label>);
@@ -548,9 +548,9 @@ export default function InventarioPage() {
           </div>
         </div>
         {Number(form.sale_price??0)>0&&Number(form.cost??0)>0&&(
-          <div className="mt-4 bg-[#0d1117] rounded-lg px-4 py-2.5 text-sm flex gap-4">
-            <span className="text-[#8b949e]">Margen: <span className="text-green-400 font-semibold">{calcMargin(Number(form.sale_price),Number(form.cost)).toFixed(1)}%</span></span>
-            <span className="text-[#8b949e]">Ganancia: <span className="text-green-400 font-semibold">{formatCurrency(Number(form.sale_price)-Number(form.cost))}</span></span>
+          <div className="mt-4 bg-[var(--bg-primary)] rounded-lg px-4 py-2.5 text-sm flex gap-4">
+            <span className="text-[var(--text-secondary)]">Margen: <span className="text-green-400 font-semibold">{calcMargin(Number(form.sale_price),Number(form.cost)).toFixed(1)}%</span></span>
+            <span className="text-[var(--text-secondary)]">Ganancia: <span className="text-green-400 font-semibold">{formatCurrency(Number(form.sale_price)-Number(form.cost))}</span></span>
           </div>
         )}
         <div className="flex flex-col xs:flex-row gap-2 justify-end mt-5">
@@ -565,17 +565,17 @@ export default function InventarioPage() {
           <button onClick={() => openPurchase(String(historyProduct?.id))} className="btn-secondary flex items-center gap-2"><ShoppingBag className="w-4 h-4"/>Registrar compra</button>
           <button onClick={openMove} className="btn-primary flex items-center gap-2"><ArrowRightLeft className="w-4 h-4"/>Registrar movimiento</button>
         </div>
-        {movements.length===0?<p className="text-center text-[#6e7681] py-8 text-sm">Sin movimientos</p>:(
-          <div className="overflow-x-auto rounded-xl border border-[#21262d]">
+        {movements.length===0?<p className="text-center text-[var(--text-tertiary)] py-8 text-sm">Sin movimientos</p>:(
+          <div className="overflow-x-auto rounded-xl border border-[var(--border-primary)]">
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-[#21262d] bg-[#0d1117]">{['Fecha','Tipo','Cantidad','Razón','Usuario'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[#6e7681] uppercase tracking-wide">{h}</th>)}</tr></thead>
+              <thead><tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">{['Fecha','Tipo','Cantidad','Razón','Usuario'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
               <tbody>{movements.map(m=>(
-                <tr key={String(m.id)} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
-                  <td className="px-4 py-2.5 text-[#8b949e] text-xs">{m.date?formatDateTime(String(m.date)):'—'}</td>
-                  <td className="px-4 py-2.5"><span className={cn('font-medium text-xs',movTypeColor[String(m.type)]??'text-[#e6edf3]')}>{movTypeLabel[String(m.type)]??String(m.type)}</span></td>
-                  <td className="px-4 py-2.5 text-[#e6edf3] font-medium">{formatNumber(Number(m.quantity),2)}</td>
-                  <td className="px-4 py-2.5 text-[#8b949e]">{String(m.reason??'—')}</td>
-                  <td className="px-4 py-2.5 text-[#8b949e] text-xs">{String(m.user_name??'—')}</td>
+                <tr key={String(m.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                  <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{m.date?formatDateTime(String(m.date)):'—'}</td>
+                  <td className="px-4 py-2.5"><span className={cn('font-medium text-xs',movTypeColor[String(m.type)]??'text-[var(--text-primary)]')}>{movTypeLabel[String(m.type)]??String(m.type)}</span></td>
+                  <td className="px-4 py-2.5 text-[var(--text-primary)] font-medium">{formatNumber(Number(m.quantity),2)}</td>
+                  <td className="px-4 py-2.5 text-[var(--text-secondary)]">{String(m.reason??'—')}</td>
+                  <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{String(m.user_name??'—')}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -619,7 +619,7 @@ export default function InventarioPage() {
           <div><label className="label">Notas</label><input className="input" placeholder="Ej: Factura #123, lote..." value={purchaseForm.notes} onChange={e => setPurchaseForm(f => ({ ...f, notes: e.target.value }))} /></div>
 
           {/* Tipo de inversión */}
-          <div className="bg-[#0d1117] rounded-xl border border-[#21262d] p-3">
+          <div className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] p-3">
             <label className="flex items-center gap-3 cursor-pointer">
               <div className="relative">
                 <input
@@ -628,11 +628,11 @@ export default function InventarioPage() {
                   checked={purchaseForm.is_capital}
                   onChange={e => setPurchaseForm(f => ({ ...f, is_capital: e.target.checked }))}
                 />
-                <div className="w-10 h-6 bg-[#21262d] rounded-full peer-checked:bg-brand-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4" />
+                <div className="w-10 h-6 bg-[var(--bg-muted)] rounded-full peer-checked:bg-brand-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4" />
               </div>
               <div>
-                <p className="text-sm text-[#e6edf3] font-medium">¿Es aporte de capital nuevo?</p>
-                <p className="text-xs text-[#6e7681]">
+                <p className="text-sm text-[var(--text-primary)] font-medium">¿Es aporte de capital nuevo?</p>
+                <p className="text-xs text-[var(--text-tertiary)]">
                   {purchaseForm.is_capital
                     ? 'Se registrará como ingreso de nuevo capital del dueño (incrementa el saldo disponible)'
                     : 'Se registrará como reinversión de ganancias (egreso de caja por compra de inventario)'}
@@ -651,16 +651,16 @@ export default function InventarioPage() {
             const newCost = ((currentStock * currentCost) + (purchaseForm.quantity * purchaseForm.price)) / newStock;
             const totalCost = purchaseForm.quantity * purchaseForm.price;
             return (
-              <div className="bg-[#0d1117] rounded-xl border border-[#21262d] p-3 text-sm space-y-1.5">
-                <p className="text-xs font-medium text-[#8b949e] uppercase tracking-wide">Resumen de la compra</p>
+              <div className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] p-3 text-sm space-y-1.5">
+                <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Resumen de la compra</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  <p className="text-[#6e7681]">Stock actual (global):</p><p className="text-[#e6edf3] text-right">{formatNumber(currentStock, 1)}</p>
-                  {purchaseForm.location_id && <p className="text-[#6e7681]">Stock en este almacén:</p>}
+                  <p className="text-[var(--text-tertiary)]">Stock actual (global):</p><p className="text-[var(--text-primary)] text-right">{formatNumber(currentStock, 1)}</p>
+                  {purchaseForm.location_id && <p className="text-[var(--text-tertiary)]">Stock en este almacén:</p>}
                   {purchaseForm.location_id && <p className="text-brand-400 text-right font-medium">{formatNumber(purchaseLocStockMap[String(prod.id)]??0, 1)}</p>}
-                  <p className="text-[#6e7681]">Stock después:</p><p className="text-green-400 text-right font-medium">{formatNumber(newStock, 1)}</p>
-                  <p className="text-[#6e7681]">Costo actual:</p><p className="text-[#e6edf3] text-right">{formatCurrency(currentCost)}</p>
-                  <p className="text-[#6e7681]">Nuevo costo promedio:</p><p className="text-brand-400 text-right font-semibold">{formatCurrency(Math.round(newCost * 100) / 100)}</p>
-                  <p className="text-[#6e7681]">Total compra:</p><p className="text-[#e6edf3] text-right font-medium">{formatCurrency(totalCost)}</p>
+                  <p className="text-[var(--text-tertiary)]">Stock después:</p><p className="text-green-400 text-right font-medium">{formatNumber(newStock, 1)}</p>
+                  <p className="text-[var(--text-tertiary)]">Costo actual:</p><p className="text-[var(--text-primary)] text-right">{formatCurrency(currentCost)}</p>
+                  <p className="text-[var(--text-tertiary)]">Nuevo costo promedio:</p><p className="text-brand-400 text-right font-semibold">{formatCurrency(Math.round(newCost * 100) / 100)}</p>
+                  <p className="text-[var(--text-tertiary)]">Total compra:</p><p className="text-[var(--text-primary)] text-right font-medium">{formatCurrency(totalCost)}</p>
                 </div>
               </div>
             );
@@ -679,9 +679,9 @@ export default function InventarioPage() {
       <Modal open={showMoveModal} onClose={()=>setShowMoveModal(false)} title="Registrar movimiento" size="sm">
         <div className="space-y-4">
           {historyProduct && (
-            <div className="p-3 bg-[#0d1117] rounded-xl border border-[#21262d] text-sm">
-              <p className="font-medium text-[#e6edf3]">{String(historyProduct.name)}</p>
-              <p className="text-xs text-[#6e7681] mt-0.5">Stock global: <strong className="text-[#e6edf3]">{formatNumber(Number(historyProduct.stock??0),2)}</strong></p>
+            <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] text-sm">
+              <p className="font-medium text-[var(--text-primary)]">{String(historyProduct.name)}</p>
+              <p className="text-xs text-[var(--text-tertiary)] mt-0.5">Stock global: <strong className="text-[var(--text-primary)]">{formatNumber(Number(historyProduct.stock??0),2)}</strong></p>
             </div>
           )}
           <div><label className="label">Tipo</label>
@@ -698,8 +698,8 @@ export default function InventarioPage() {
               })}
             </select>
             {moveForm.location_id && moveLocStock !== null && (
-              <p className="text-xs text-[#6e7681] mt-1">
-                Stock en este almacén: <strong className={cn(moveLocStock <= 0 ? 'text-red-400' : 'text-[#e6edf3]')}>{formatNumber(moveLocStock, 2)}</strong>
+              <p className="text-xs text-[var(--text-tertiary)] mt-1">
+                Stock en este almacén: <strong className={cn(moveLocStock <= 0 ? 'text-red-400' : 'text-[var(--text-primary)]')}>{formatNumber(moveLocStock, 2)}</strong>
               </p>
             )}
           </div>

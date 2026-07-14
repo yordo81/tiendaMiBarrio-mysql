@@ -3,7 +3,7 @@ import MobileNav from '@/components/layout/MobileNav';
 import Topbar from '@/components/layout/Topbar';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#0d1117]">
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <Sidebar/>
       <div className="md:ml-60 flex flex-col min-h-screen">
         <Topbar/>
