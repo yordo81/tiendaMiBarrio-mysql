@@ -4,9 +4,11 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { tz } from '@date-fns/tz';
 import { es } from 'date-fns/locale';
 
+// ── Funciones utilitarias compartidas ──────────────────────────
+
 export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
-// Currency — configurable, defaults to DOP
+// Formato de moneda — configurable, por defecto DOP (pesos dominicanos)
 export function formatCurrency(n: number, currency = 'DOP') {
   return `$${new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2 }).format(n)}`;
 }

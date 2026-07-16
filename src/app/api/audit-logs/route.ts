@@ -4,15 +4,20 @@ import { requireAuth } from '@/lib/auth/session';
 import { query } from '@/lib/db/mysql';
 import { handle, ok, forbidden } from '@/lib/api-helpers';
 
+// ── API de Auditoría ───────────────────────────────────────────────
+// GET: Listar logs de auditoría con filtros por tipo de entidad y acción
+// Solo accesible para dueños y administradores
+
 export const GET = handle(async (req) => {
   const sessionUser = await requireAuth();
+  // Solo administradores y dueños pueden ver la auditoría
   if (sessionUser.role !== 'owner' && sessionUser.role !== 'admin') {
     return forbidden('No autorizado — solo administradores');
   }
 
   const { searchParams } = new URL(req.url);
-  const entityType = searchParams.get('entity_type');
-  const action = searchParams.get('action');
+  const entityType = searchParams.get('entity_type');  // expense | product | sale | customer | supplier | stock_movement
+  const action = searchParams.get('action');           // delete | cancel | adjust
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '100'), 500);
 
   let sql = 'SELECT * FROM audit_logs';

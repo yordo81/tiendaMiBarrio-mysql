@@ -4,6 +4,11 @@ import { query, execute } from '@/lib/db/mysql';
 import { handle, ok } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
+// ── API de Productos ───────────────────────────────────────────────
+// GET: Listar productos con filtros (stock bajo, por almacén)
+// POST: Crear nuevo producto con stock inicial y registro contable
+
+// ── GET: Listar productos ──
 export const GET = handle(async (request: Request) => {
   await requireAuth();
   const { searchParams } = new URL(request.url);
@@ -12,7 +17,7 @@ export const GET = handle(async (request: Request) => {
 
   const params: unknown[] = [];
 
-  // When filtering by location, get the per-location stock via subquery (appears first in SQL)
+  // Al filtrar por almacén, obtener el stock de ese almacén mediante subconsulta
   const locationStockSelect = locationId
     ? '(SELECT quantity FROM location_stock WHERE product_id = p.id AND location_id = ?) AS location_stock,'
     : '';
@@ -43,11 +48,11 @@ export const GET = handle(async (request: Request) => {
   const locMap = new Map<string, string>();
 
   if (locationId) {
-    // When filtering by location, just get the selected location name (cleaner & avoids SQL injection risk)
+    // Al filtrar por almacén, solo obtener el nombre del almacén seleccionado
     const locRows = await query<{name: string}>('SELECT name FROM locations WHERE id = ?', [locationId]);
     if (locRows.length > 0) locationNameForFilter = String(locRows[0].name);
   } else {
-    // Build location map for all products (shows which location has stock)
+    // Construir mapa de ubicaciones para cada producto (muestra dónde hay stock)
     try {
       const locRows = await query<{product_id: string; location_name: string}>(
         `SELECT ls.product_id, l.name AS location_name
@@ -64,9 +69,9 @@ export const GET = handle(async (request: Request) => {
 
   const rows = await query(sql, params);
   return ok(rows.map((r: Record<string, unknown>) => {
-    // Destructure to avoid leaking the internal location_stock field
+    // Separar el campo location_stock para no filtrarlo al cliente
     const { location_stock, ...rest } = r;
-    // Use per-location stock when filtering by location, otherwise use global stock
+    // Usar stock del almacén si se filtró por uno, sino usar stock global
     const stockValue = location_stock !== undefined ? Number(location_stock) : Number(rest.stock);
     return {
       ...rest,
@@ -79,13 +84,15 @@ export const GET = handle(async (request: Request) => {
   }));
 });
 
+// ── POST: Crear nuevo producto ──
 export const POST = handle(async (request: Request) => {
   const sessionUser = await requireAuth();
   const body = await request.json();
   const id = randomUUID();
   const ts = new Date().toISOString().slice(0,19).replace('T',' ');
-  const isCapital = body.is_capital === true;
+  const isCapital = body.is_capital === true;  // true = aporte de capital, false = reinversión
 
+  // Insertar producto
   await execute(
     `INSERT INTO products (id,name,description,category_id,sale_price,cost,stock,min_stock,unit,image_url,active,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)`,
@@ -94,6 +101,7 @@ export const POST = handle(async (request: Request) => {
      Number(body.min_stock??0), body.unit??'unidad', body.image_url ?? null, ts, ts]
   );
 
+  // Asignar proveedores
   if (Array.isArray(body.supplier_ids)) {
     for (let i = 0; i < body.supplier_ids.length; i++) {
       await execute(
@@ -103,6 +111,7 @@ export const POST = handle(async (request: Request) => {
     }
   }
 
+  // Registrar stock inicial en ubicaciones y contabilidad
   const initialStock = Number(body.stock ?? 0);
   if (initialStock > 0) {
     let targetLocationId = body.location_id;
@@ -130,6 +139,7 @@ export const POST = handle(async (request: Request) => {
     const totalCost = Math.round(initialStock * Number(body.cost ?? 0) * 100) / 100;
     if (totalCost > 0) {
       if (isCapital) {
+        // Aporte de capital: ingresa dinero a la caja
         await execute(
           `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
            VALUES (?, 'capital', ?, 0, ?, ?, ?, ?)`,
@@ -137,6 +147,7 @@ export const POST = handle(async (request: Request) => {
            `Aporte de capital para stock inicial: ${initialStock} × ${body.name}`, ts, sessionUser.id, ts]
         );
       } else {
+        // Reinversión: egreso de caja por compra de inventario
         await execute(
           `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
            VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?)`,

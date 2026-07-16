@@ -4,6 +4,11 @@ import { pool, query, transaction, execute } from '@/lib/db/mysql';
 import { handle, ok, err, notFound } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
+// ── API de Compras a Proveedores ───────────────────────────────────
+// GET: Listar compras con filtros por producto, proveedor y fechas
+// POST: Registrar una nueva compra con actualización de stock, costos y contabilidad
+
+// ── GET: Listar compras ──
 export const GET = handle(async (req: Request) => {
   await requireAuth();
   const { searchParams } = new URL(req.url);
@@ -37,6 +42,7 @@ export const GET = handle(async (req: Request) => {
   return ok(await query(sql, params));
 });
 
+// ── POST: Registrar nueva compra ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
   const { product_id, supplier_id, quantity, price, location_id, notes, is_capital } = await req.json();
@@ -47,6 +53,7 @@ export const POST = handle(async (req: Request) => {
 
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
+  // Verificar que el producto existe y está activo
   const [preCheck] = await pool.execute(
     'SELECT stock, cost FROM products WHERE id=? AND active=1', [product_id]
   ) as unknown as [{ stock: number; cost: number }[], unknown];
@@ -54,7 +61,9 @@ export const POST = handle(async (req: Request) => {
     return notFound('Producto no encontrado o inactivo');
   }
 
+  // Ejecutar toda la operación en una transacción
   const result = await transaction(async (conn) => {
+    // Obtener datos actuales del producto (con bloqueo de fila)
     const product = await conn.execute(
       'SELECT stock, cost FROM products WHERE id=? AND active=1',
       [product_id]
@@ -66,31 +75,37 @@ export const POST = handle(async (req: Request) => {
     const purchaseQty = Number(quantity);
     const purchasePrice = Number(price);
 
+    // Calcular nuevo stock y costo promedio ponderado
     const newStock = currentStock + purchaseQty;
     const newCost = ((currentStock * currentCost) + (purchaseQty * purchasePrice)) / newStock;
 
+    // Actualizar producto
     await conn.execute(
       'UPDATE products SET stock=stock+?, cost=?, updated_at=? WHERE id=?',
       [purchaseQty, Math.round(newCost * 100) / 100, ts, product_id]
     );
 
+    // Registrar movimiento de stock de entrada
     const smId = randomUUID();
     await conn.execute(
       "INSERT INTO stock_movements (id,product_id,type,quantity,reason,reference_id,user_id,date,created_at) VALUES (?,?,'in',?,?,?,?,?,?)",
       [smId, product_id, purchaseQty, notes ? `Compra: ${notes}` : 'Compra', null, sessionUser.id, ts, ts]
     );
 
+    // Registrar precio de compra histórico
     const ppId = randomUUID();
     await conn.execute(
       'INSERT INTO purchase_prices (id,product_id,supplier_id,price,date,notes,created_at) VALUES (?,?,?,?,?,?,?)',
       [ppId, product_id, supplier_id, purchasePrice, ts, notes ?? null, ts]
     );
 
+    // Vincular producto con proveedor si no existe
     await conn.execute(
       'INSERT IGNORE INTO product_suppliers (id,product_id,supplier_id,is_preferred) VALUES (?,?,?,0)',
       [randomUUID(), product_id, supplier_id]
     );
 
+    // Determinar almacén destino
     let targetLocationId = location_id;
     if (!targetLocationId) {
       const locs = await conn.execute(
@@ -109,6 +124,7 @@ export const POST = handle(async (req: Request) => {
     const productName = prodRes[0][0]?.name ?? 'Producto';
     const supplierName = suppRes[0][0]?.name ?? 'Proveedor';
 
+    // Insertar registro en historial de compras
     const purchaseId = randomUUID();
     const totalCost = Math.round(purchaseQty * purchasePrice * 100) / 100;
     await conn.execute(
@@ -133,6 +149,7 @@ export const POST = handle(async (req: Request) => {
       );
     }
 
+    // Actualizar stock del almacén
     if (targetLocationId) {
       await conn.execute(
         'INSERT INTO location_stock (id,location_id,product_id,quantity,updated_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+?,updated_at=?',

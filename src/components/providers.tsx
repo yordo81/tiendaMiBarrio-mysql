@@ -5,32 +5,37 @@ import { Toaster, toast } from '@/components/ui/toaster';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { UNAUTHORIZED_EVENT, type UnauthorizedEventDetail } from '@/lib/api-client';
 
+// ── Providers globales de la aplicación ────────────────────────────
+// Configura React Query y el manejador de sesión expirada
+
 export function Providers({ children }: { children: React.ReactNode }) {
+  // Cliente de React Query con configuración base
   const [qc] = useState(() => new QueryClient({ defaultOptions: { queries: { staleTime: 60000, retry: 1 } } }));
 
-  // Listen for unauthorized events dispatched by apiFetch
-  // Instead of forcing a redirect, show a notification so the user
-  // can choose to re-login at their own pace.
-  // Debounce to avoid showing multiple toasts when parallel API calls all fail with 401.
+  // Escucha eventos de 401 (sesión expirada) disparados por apiFetch
+  // En lugar de forzar un redirect al login, muestra una notificación
+  // para que el usuario decida cuándo volver a iniciar sesión.
+  // Incluye debounce para evitar múltiples toasts cuando varias
+  // llamadas API paralelas fallan con 401 al mismo tiempo.
   useEffect(() => {
     let authCleared = false;
 
     function handleUnauthorized(e: Event) {
       const detail = (e as CustomEvent<UnauthorizedEventDetail>).detail;
 
-      // Only show the toast and clear auth once per session-expiry wave
+      // Solo mostrar toast y limpiar auth una vez por oleada de expiración
       if (!authCleared) {
         authCleared = true;
         toast.warning(detail?.message ?? 'Sesión expirada. Inicia sesión de nuevo para realizar cambios.');
 
-        // Clear persisted auth state so the UI reflects the real auth status
-        // without forcing a page redirect
+        // Limpiar estado de autenticación persistido para que la UI refleje
+        // el estado real sin forzar un redirect de página
         try {
           useAuthStore.getState().setUser(null);
           localStorage.removeItem('tienda-auth');
-        } catch { /* ignore */ }
+        } catch { /* ignorar errores de storage */ }
 
-        // Re-arm after a few seconds so a later session expiry is also reported
+        // Re-armar después de unos segundos para reportar expiraciones posteriores
         setTimeout(() => { authCleared = false; }, 5000);
       }
     }

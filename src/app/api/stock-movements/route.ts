@@ -77,7 +77,7 @@ export const POST = handle(async (req: Request) => {
     }
   }
 
-  // ── Auditoría ──
+  // ── Registrar en auditoría si fue un ajuste ──
   if (type === 'adjust') {
     const product = await queryOne<{ name: string }>('SELECT name FROM products WHERE id=?', [product_id]);
     await logAudit({

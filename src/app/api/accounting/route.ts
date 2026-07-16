@@ -3,6 +3,10 @@ import { requireAuth } from '@/lib/auth/session';
 import { query } from '@/lib/db/mysql';
 import { handle, ok } from '@/lib/api-helpers';
 
+// ── API de Contabilidad / Libro de Caja ──────────────────────────
+// Calcula saldos, ingresos, egresos y evolución diaria de efectivo
+// y transferencias. Soporta filtro por periodo personalizado.
+
 function fmtDateInTz(date: Date, timezone: string): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: timezone,
@@ -15,11 +19,11 @@ function fmtDateInTz(date: Date, timezone: string): string {
 export const GET = handle(async (req) => {
   await requireAuth();
   const { searchParams } = new URL(req.url);
-  const from = searchParams.get('from');
-  const to = searchParams.get('to');
+  const from = searchParams.get('from');  // Fecha inicio para filtro personalizado
+  const to = searchParams.get('to');      // Fecha fin para filtro personalizado
   const hasCustomRange = !!(from && to);
 
-  // ── 1. Cash inflows from sales payments ──
+  // ── 1. Ingresos de efectivo desde pagos de ventas ──
   const cashFromSales = await query<{ total: number }>(
     `SELECT COALESCE(SUM(p.amount_cash), 0) AS total
      FROM payments p
@@ -27,7 +31,7 @@ export const GET = handle(async (req) => {
      WHERE s.status != 'cancelled'`
   );
 
-  // ── 2. Transfer inflows from sales payments ──
+  // ── 2. Ingresos por transferencia desde pagos de ventas ──
   const transferFromSales = await query<{ total: number }>(
     `SELECT COALESCE(SUM(p.amount_transfer), 0) AS total
      FROM payments p
@@ -35,63 +39,63 @@ export const GET = handle(async (req) => {
      WHERE s.status != 'cancelled'`
   );
 
-  // ── 3. Cash from customer payments ──
+  // ── 3. Efectivo desde abonos de clientes ──
   const cashFromCustomers = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM customer_payments
      WHERE method = 'cash'`
   );
 
-  // ── 4. Transfer from customer payments ──
+  // ── 4. Transferencia desde abonos de clientes ──
   const transferFromCustomers = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM customer_payments
      WHERE method = 'transfer'`
   );
 
-  // ── 5. Mixed customer payments (split 50/50 as approximation) ──
+  // ── 5. Abonos mixtos de clientes (se dividen 50/50 como aproximación) ──
   const mixedFromCustomers = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM customer_payments
      WHERE method = 'mixed'`
   );
 
-  // ── 6. Cash outflows from expenses ──
+  // ── 6. Egresos en efectivo desde gastos ──
   const cashExpenses = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM expenses
      WHERE payment_method = 'cash'`
   );
 
-  // ── 7. Transfer outflows from expenses ──
+  // ── 7. Egresos por transferencia desde gastos ──
   const transferExpenses = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM expenses
      WHERE payment_method = 'transfer'`
   );
 
-  // ── 8. Mixed expenses ──
+  // ── 8. Gastos mixtos ──
   const mixedExpenses = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM expenses
      WHERE payment_method = 'mixed'`
   );
 
-  // ── 9. Unclassified expenses (no payment_method set) ──
+  // ── 9. Gastos sin clasificar (sin método de pago asignado) ──
   const unclassifiedExpenses = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM expenses
      WHERE payment_method IS NULL`
   );
 
-  // ── 9b. Purchase outflows (inventory reinvestment) ──
+  // ── 9b. Egresos por compras (reinversión en inventario) ──
   const purchaseOutflows = await query<{ total: number }>(
     `SELECT COALESCE(SUM(cash_amount + transfer_amount), 0) AS total
      FROM cash_register
      WHERE type = 'purchase'`
   );
 
-  // ── 9c. Capital injections (new capital from owner) ──
+  // ── 9c. Aportes de capital del dueño ──
   const capitalInjections = await query<{ total_cash: number; total_transfer: number }>(
     `SELECT
        COALESCE(SUM(cash_amount), 0) AS total_cash,
@@ -100,7 +104,7 @@ export const GET = handle(async (req) => {
      WHERE type = 'capital'`
   );
 
-  // ── Period-filtered inflows (sales payments) ──
+  // ── Ingresos por periodo (pagos de ventas) ──
   const periodSalesInflows = await query<{ cash: number; transfer: number; period: string }>(`
     SELECT
       'week' AS period,
@@ -131,7 +135,7 @@ export const GET = handle(async (req) => {
     WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
   `);
 
-  // ── Period-filtered inflows (customer payments) ──
+  // ── Ingresos por periodo (abonos de clientes) ──
   const periodCustomerInflows = await query<{ cash: number; transfer: number; mixed: number; period: string }>(`
     SELECT
       'week' AS period,
@@ -162,7 +166,7 @@ export const GET = handle(async (req) => {
     WHERE date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
   `);
 
-  // ── Period-filtered outflows (expenses) ──
+  // ── Egresos por periodo (gastos) ──
   const periodExpenses = await query<{ cash: number; transfer: number; mixed: number; unclassified: number; period: string }>(`
     SELECT
       'week' AS period,
@@ -196,7 +200,7 @@ export const GET = handle(async (req) => {
     WHERE date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
   `);
 
-  // ── 10. Cash register entries (initial + adjustments only, not purchases/capital) ──
+  // ── 10. Movimientos de caja (solo saldo inicial y ajustes, no compras/capital) ──
   const registerEntries = await query<{ cash_total: number; transfer_total: number }>(
     `SELECT
        COALESCE(SUM(cash_amount), 0) AS cash_total,
@@ -205,7 +209,7 @@ export const GET = handle(async (req) => {
      WHERE type IN ('initial', 'adjustment')`
   );
 
-  // ── Calculate totals ──
+  // ── Calcular totales ──
   const totalCashIn = Number(cashFromSales[0]?.total ?? 0)
     + Number(cashFromCustomers[0]?.total ?? 0)
     + (Number(mixedFromCustomers[0]?.total ?? 0) / 2);
@@ -226,17 +230,17 @@ export const GET = handle(async (req) => {
   const registerTransfer = Number(registerEntries[0]?.transfer_total ?? 0)
     + Number(capitalInjections[0]?.total_transfer ?? 0);
 
-  // Purchases stored as negative in cash_register; Math.abs converts to positive outflow below
+  // Las compras se almacenan como negativas en cash_register; Math.abs las convierte en egresos positivos
 
   const cashBalance = registerCash + totalCashIn - totalCashOut;
   const transferBalance = registerTransfer + totalTransferIn - totalTransferOut;
 
   const timezone = process.env.TIMEZONE ?? 'America/Havana';
 
-  // ── Today's movements ──
+  // ── Movimientos del día de hoy ──
   const todayStr = fmtDateInTz(new Date(), timezone);
 
-  // ── Today's inflows: sales payments ──
+  // ── Ingresos de hoy: pagos de ventas ──
   const todayCashIn = await query<{ total: number }>(
     `SELECT COALESCE(SUM(p.amount_cash), 0) AS total
      FROM payments p JOIN sales s ON s.id = p.sale_id
@@ -250,7 +254,7 @@ export const GET = handle(async (req) => {
     [todayStr]
   );
 
-  // ── Today's inflows: customer payments ──
+  // ── Ingresos de hoy: abonos de clientes ──
   const todayCashFromCust = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM customer_payments
@@ -270,7 +274,7 @@ export const GET = handle(async (req) => {
     [todayStr]
   );
 
-  // ── Today's outflows: expenses ──
+  // ── Egresos de hoy: gastos ──
   const todayCashExpenses = await query<{ total: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM expenses
@@ -290,7 +294,7 @@ export const GET = handle(async (req) => {
     [todayStr]
   );
 
-  // ── Recent movements ──
+  // ── Movimientos recientes (últimos 50 registros) ──
   const recentMovements = await query<{
     id: string;
     date: string;
@@ -358,13 +362,13 @@ export const GET = handle(async (req) => {
     LIMIT 50
   `, hasCustomRange ? [from!, to! + ' 23:59:59', from!, to! + ' 23:59:59', from!, to! + ' 23:59:59', from!, to! + ' 23:59:59'] : []);
 
-  // ── Daily evolution ──
+  // ── Evolución diaria ──
   const evoDays = hasCustomRange
     ? Math.max(1, Math.min(90, Math.ceil((new Date(to!).getTime() - new Date(from!).getTime()) / (1000 * 60 * 60 * 24)) + 1))
     : 30;
   const evoStartDate = hasCustomRange ? from! : `DATE_SUB(NOW(), INTERVAL ${evoDays} DAY)`;
 
-  // 1. Daily inflows: sales payments + customer payments
+  // 1. Ingresos diarios: pagos de ventas + abonos de clientes
   const dailyInflows = await query<{ date: string; cash: number; transfer: number }>(`
     SELECT
       DATE(date) AS date,
@@ -396,7 +400,7 @@ export const GET = handle(async (req) => {
     ORDER BY DATE(date)
   `, hasCustomRange ? [from!, to! + ' 23:59:59', from!, to! + ' 23:59:59'] : []);
 
-  // 2. Daily outflows: expenses
+  // 2. Egresos diarios: gastos
   const dailyOutflows = await query<{ date: string; cash: number; transfer: number }>(`
     SELECT
       DATE(e.date) AS date,
@@ -408,7 +412,7 @@ export const GET = handle(async (req) => {
     ORDER BY DATE(e.date)
   `, hasCustomRange ? [from!, to! + ' 23:59:59'] : []);
 
-  // 3. Cash register entries within date range (distributed by date)
+  // 3. Movimientos de caja dentro del rango (distribuidos por fecha)
   const registerByDate = await query<{ date: string; cash: number; transfer: number }>(`
     SELECT
       DATE(date) AS date,
@@ -420,7 +424,7 @@ export const GET = handle(async (req) => {
     ORDER BY DATE(date)
   `, hasCustomRange ? [from!, to! + ' 23:59:59'] : []);
 
-  // 4. Register balance BEFORE the date window (starting point)
+  // 4. Saldo de caja ANTES de la ventana de fechas (punto de partida)
   const registerBeforeWindow = await query<{ cash: number; transfer: number }>(`
     SELECT
       COALESCE(SUM(cash_amount), 0) AS cash,
@@ -429,7 +433,7 @@ export const GET = handle(async (req) => {
     ${hasCustomRange ? 'WHERE date < ?' : 'WHERE date < DATE_SUB(NOW(), INTERVAL ' + evoDays + ' DAY)'}
   `, hasCustomRange ? [from!] : []);
 
-  // ── Compute totals from daily data to align chart with balance cards ──
+  // ── Calcular totales desde datos diarios para alinear gráfico con cards ──
   const registerWithinDaysCash = registerByDate.reduce((s, r) => s + Number(r.cash), 0);
   const registerWithinDaysTransfer = registerByDate.reduce((s, r) => s + Number(r.transfer), 0);
   const cashInDaysTotal = dailyInflows.reduce((s, r) => s + Number(r.cash), 0);
@@ -437,9 +441,9 @@ export const GET = handle(async (req) => {
   const cashOutDaysTotal = dailyOutflows.reduce((s, r) => s + Number(r.cash), 0);
   const transferOutDaysTotal = dailyOutflows.reduce((s, r) => s + Number(r.transfer), 0);
 
-  // Offset needed so the chart's last day equals the balance cards
-  // This accounts for any operational flows (sales, expenses, customer payments)
-  // that occurred before the date window and aren't in the register entries.
+  // Offset necesario para que el último día del gráfico coincida con las cards de balance.
+  // Esto ajusta por flujos operacionales (ventas, gastos, abonos) que ocurrieron
+  // antes de la ventana de fechas y no están en los registros de caja.
   const chartUnadjustedCash = Number(registerBeforeWindow[0]?.cash ?? 0)
     + registerWithinDaysCash + cashInDaysTotal - cashOutDaysTotal;
   const chartUnadjustedTransfer = Number(registerBeforeWindow[0]?.transfer ?? 0)
@@ -450,7 +454,7 @@ export const GET = handle(async (req) => {
   // Build daily evolution with running balances
   const dateMap = new Map<string, { date: string; cash_in: number; transfer_in: number; cash_out: number; transfer_out: number; register_cash: number; register_transfer: number; net_cash: number; net_transfer: number }>();
 
-  // Generate date range
+  // Generar rango de fechas para la evolución diaria
   if (hasCustomRange) {
     const start = new Date(from!);
     const end = new Date(to!);
@@ -498,9 +502,9 @@ export const GET = handle(async (req) => {
     }
   });
 
-  // Calculate running net balance for each day
-  // Starting running balance = register entries before window + pre-window operational offset
-  // so the chart's final point matches the balance cards exactly.
+  // Calcular saldo acumulado para cada día
+  // Saldo inicial = registros de caja antes de la ventana + offset operacional pre-ventana
+  // para que el punto final del gráfico coincida exactamente con las cards de balance.
   let runningCash = Math.round((Number(registerBeforeWindow[0]?.cash ?? 0) + preWindowOffsetCash) * 100) / 100;
   let runningTransfer = Math.round((Number(registerBeforeWindow[0]?.transfer ?? 0) + preWindowOffsetTransfer) * 100) / 100;
 
@@ -524,7 +528,7 @@ export const GET = handle(async (req) => {
     };
   });
 
-  // ── Custom-range totals ──
+  // ── Totales para rango personalizado ──
   let customIncomeTotal = 0;
   let customIncomeCash = 0;
   let customIncomeTransfer = 0;

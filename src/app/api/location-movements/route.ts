@@ -5,6 +5,11 @@ import { logAudit } from '@/lib/db/audit';
 import { handle, ok, err } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
+// ── API de Movimientos por Almacén ─────────────────────────────────
+// GET: Listar movimientos con filtros por almacén, producto y fechas
+// POST: Registrar entrada, salida o ajuste en un almacén específico
+
+// ── GET: Listar movimientos de almacén ──
 export const GET = handle(async (req: Request) => {
   await requireAuth();
   const { searchParams } = new URL(req.url);
@@ -34,6 +39,7 @@ export const GET = handle(async (req: Request) => {
   return ok(await query(sql, params));
 });
 
+// ── POST: Registrar movimiento en almacén ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
   const { location_id, product_id, type, quantity, notes } = await req.json();
@@ -42,12 +48,14 @@ export const POST = handle(async (req: Request) => {
     return err('Faltan campos requeridos');
   }
   if (!['entrada', 'salida', 'ajuste'].includes(type)) {
-    return err('Tipo inválido');
+    return err('Tipo inválido. Use: entrada, salida o ajuste');
   }
 
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
+  // Ejecutar toda la operación en una transacción para consistencia
   await transaction(async (conn) => {
+    // Obtener stock actual en la ubicación
     const [rows] = await conn.execute(
       'SELECT id, quantity FROM location_stock WHERE location_id=? AND product_id=? LIMIT 1',
       [location_id, product_id]
@@ -55,18 +63,21 @@ export const POST = handle(async (req: Request) => {
     const existing = (rows as { id: string; quantity: number }[])[0];
     const curQty = existing?.quantity ?? 0;
 
+    // Calcular nueva cantidad según el tipo de movimiento
     let newQty: number;
     let delta = 0;
     if (type === 'ajuste') {
-      newQty = quantity;
-      delta = newQty - curQty;
+      newQty = quantity;         // Ajuste: establece la cantidad exacta
+      delta = newQty - curQty;   // Diferencia para actualizar stock global
     } else if (type === 'entrada') {
-      newQty = curQty + quantity;
+      newQty = curQty + quantity; // Entrada: suma a lo existente
     } else {
+      // Salida: resta, validando que haya stock suficiente
       if (curQty < quantity) throw new Error(`Stock insuficiente. Disponible: ${curQty}`);
       newQty = curQty - quantity;
     }
 
+    // Actualizar o crear registro de stock en ubicación
     if (existing) {
       await conn.execute('UPDATE location_stock SET quantity=?, updated_at=? WHERE id=?', [newQty, ts, existing.id]);
     } else {
@@ -77,11 +88,13 @@ export const POST = handle(async (req: Request) => {
       );
     }
 
+    // Registrar el movimiento
     await conn.execute(
       'INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,user_id,created_at) VALUES (?,?,?,?,?,?,?,?)',
       [randomUUID(), location_id, product_id, type, quantity, notes || null, sessionUser.id, ts]
     );
 
+    // Sincronizar stock global según el tipo de movimiento
     if (type === 'ajuste' && delta !== 0) {
       await conn.execute('UPDATE products SET stock=GREATEST(0,stock+?),updated_at=? WHERE id=?', [delta, ts, product_id]);
       const [locRows] = await conn.execute('SELECT name FROM locations WHERE id=?', [location_id]);
@@ -114,6 +127,7 @@ export const POST = handle(async (req: Request) => {
     }
   });
 
+  // Registrar en auditoría si fue un ajuste
   if (type === 'ajuste') {
     const product = await queryOne<{ name: string }>('SELECT name FROM products WHERE id=?', [product_id]);
     const location = await queryOne<{ name: string }>('SELECT name FROM locations WHERE id=?', [location_id]);

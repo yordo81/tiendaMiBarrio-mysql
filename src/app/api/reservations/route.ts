@@ -6,6 +6,11 @@ import { normalizePhone } from '@/lib/validate';
 import { handle, ok, err } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
+// ── API de Reservaciones (Pedidos de Clientes) ─────────────────────
+// GET: Listar reservaciones (autenticado, dashboard)
+// POST: Crear reservación desde la landing page pública (sin auth)
+// PUT: Actualizar estado, cantidad o notas de una reservación pendiente
+
 // ── Validar formato de teléfono dominicano ──
 const PHONE_REGEX = /^(\+?53)?[\s.-]?\d{7,8}$/;
 
@@ -13,11 +18,11 @@ function isValidPhone(phone: string): boolean {
   return PHONE_REGEX.test(phone.trim());
 }
 
-// ── GET: Listar reservaciones (autenticado, dashboard) ──
+// ── GET: Listar reservaciones (requiere autenticación) ──
 export const GET = handle(async (req: Request) => {
   await requireAuth();
   const { searchParams } = new URL(req.url);
-  const status = searchParams.get('status'); // pending, confirmed, cancelled
+  const status = searchParams.get('status'); // pending | confirmed | cancelled
 
   let sql = `
     SELECT r.*, p.name AS product_name, p.sale_price, p.unit
@@ -35,10 +40,11 @@ export const GET = handle(async (req: Request) => {
   return ok(rows);
 });
 
-// ── PUT: Actualizar estado y/o cantidad de una reservación ──
+// ── PUT: Actualizar estado, cantidad o notas de una reservación ──
 // Soporta:
 //   - Cambiar estado: { id, status }
 //   - Editar cantidad: { id, quantity }
+//   - Editar notas: { id, notes }
 //   - Confirmar: { id, status: 'confirmed' }
 // Al confirmar, se crea automáticamente una venta y se descuenta del inventario.
 export const PUT = handle(async (req: Request) => {
@@ -92,7 +98,7 @@ export const PUT = handle(async (req: Request) => {
   if (quantity !== undefined && status === undefined) {
     if (quantity <= 0) return err('La cantidad debe ser mayor a 0');
 
-    // Validar stock disponible
+    // Validar stock disponible antes de actualizar
     const product = await queryOne<{
       name: string;
       stock: number;
@@ -135,7 +141,7 @@ export const PUT = handle(async (req: Request) => {
   }
 
   if (status === 'confirmed') {
-    // ── CONFIRMAR: Crear venta + descontar inventario ──
+    // ── CONFIRMAR: Crear venta automática + descontar inventario ──
     const product = await queryOne<{
       id: string;
       name: string;

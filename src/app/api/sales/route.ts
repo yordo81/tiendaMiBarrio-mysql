@@ -5,6 +5,11 @@ import { validatePaymentMethodOrDefault } from '@/lib/validate';
 import { handle, ok, err } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
+// ── API de Ventas (POS) ────────────────────────────────────────────
+// GET: Lista de ventas con filtros por fecha
+// POST: Crear nueva venta con productos, pagos y descuento de stock
+
+// ── GET: Listar ventas ──
 export const GET = handle(async (req: Request) => {
   await requireAuth();
   const { searchParams } = new URL(req.url);
@@ -21,6 +26,7 @@ export const GET = handle(async (req: Request) => {
   return ok(await query(sql, params));
 });
 
+// ── POST: Crear nueva venta ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
   const { items, payment, customer_id, location_id, notes, date } = await req.json();
@@ -41,7 +47,7 @@ export const POST = handle(async (req: Request) => {
   const total = items.reduce((a: number, i: { quantity: number; unit_price: number }) => a + i.quantity * i.unit_price, 0);
   const status = payment?.method === 'credit' ? 'pending' : 'completed';
 
-  // ── Validar stock antes de iniciar la transaccion (pre-check rapido) ──
+  // ── Validar stock antes de iniciar la transacción (pre-check rápido) ──
   for (const item of items) {
     let available: number;
     if (location_id) {
@@ -65,16 +71,18 @@ export const POST = handle(async (req: Request) => {
   }
 
   await transaction(async (conn) => {
+    // Insertar encabezado de venta
     await conn.execute(
       'INSERT INTO sales (id,customer_id,user_id,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
       [saleId, customer_id??null, sessionUser.id, saleDate, total, status, notes??null, ts, ts]
     );
     for (const item of items) {
+      // Insertar cada producto vendido
       await conn.execute(
         'INSERT INTO sale_items (id,sale_id,product_id,quantity,unit_price,cost,created_at) VALUES (?,?,?,?,?,?,?)',
         [randomUUID(), saleId, item.product_id, item.quantity, item.unit_price, item.cost??0, ts]
       );
-      // Validar stock dentro de la transaccion con bloqueo de fila (race-condition safe)
+      // Validar stock dentro de la transacción con bloqueo de fila (race-condition safe)
       const [lockRows] = await conn.execute(
         'SELECT stock FROM products WHERE id=? FOR UPDATE',
         [item.product_id]
@@ -83,14 +91,18 @@ export const POST = handle(async (req: Request) => {
       if (lockedStock < item.quantity) {
         throw new Error(`Stock insuficiente del producto. Disponible: ${lockedStock}, solicitado: ${item.quantity}`);
       }
+      // Descontar stock global
       await conn.execute('UPDATE products SET stock=stock-?,updated_at=? WHERE id=?',[item.quantity, ts, item.product_id]);
+      // Registrar movimiento de stock
       await conn.execute(
         "INSERT INTO stock_movements (id,product_id,type,quantity,reason,reference_id,user_id,date,created_at) VALUES (?,?,'out',?,?,?,?,?,?)",
         [randomUUID(), item.product_id, item.quantity, 'Venta', saleId, sessionUser.id, saleDate, ts]
       );
 
+      // Descontar stock del almacén correspondiente
       let targetLocationId = location_id;
       if (!targetLocationId) {
+        // Si no se especificó almacén, usar el que tenga más stock
         const [locRows] = await conn.execute(
           'SELECT location_id FROM location_stock WHERE product_id=? AND quantity>0 ORDER BY quantity DESC LIMIT 1',
           [item.product_id]
@@ -107,9 +119,9 @@ export const POST = handle(async (req: Request) => {
         const existing = (locRows as { id: string; quantity: number }[])[0];
         const curQty = existing?.quantity ?? 0;
 
-        // Validar stock en la ubicacion
+        // Validar stock en la ubicación
         if (curQty < item.quantity) {
-          throw new Error(`Stock insuficiente en el almacen. Disponible: ${curQty}, solicitado: ${item.quantity}`);
+          throw new Error(`Stock insuficiente en el almacén. Disponible: ${curQty}, solicitado: ${item.quantity}`);
         }
 
         const remaining = curQty - item.quantity;
@@ -123,6 +135,7 @@ export const POST = handle(async (req: Request) => {
             [remaining, ts, targetLocationId, item.product_id]);
         }
 
+        // Registrar movimiento de almacén
         await conn.execute(
           'INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,reference_id,user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
           [randomUUID(), targetLocationId, item.product_id, 'venta', item.quantity, 'Venta registrada', saleId, sessionUser.id, ts]
@@ -130,6 +143,7 @@ export const POST = handle(async (req: Request) => {
       }
     }
 
+    // Registrar el pago
     const method = validatePaymentMethodOrDefault(payment?.method);
     const amountCash = method === 'cash' ? total : (payment?.amount_cash ?? 0);
     const amountTransfer = method === 'transfer' ? total : (payment?.amount_transfer ?? 0);
@@ -138,6 +152,7 @@ export const POST = handle(async (req: Request) => {
       [randomUUID(), saleId, method, amountCash, amountTransfer, saleDate, payment?.notes??null, ts]
     );
 
+    // Si es crédito, actualizar saldo del cliente
     if (method === 'credit' && customer_id) {
       await conn.execute('UPDATE customers SET balance=balance+?,updated_at=? WHERE id=?',[total, ts, customer_id]);
     }

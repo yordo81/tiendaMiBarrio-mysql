@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { EnumValidationError } from '@/lib/validate';
 
-// ---- Response helpers ----
+// ---- Helpers de respuesta HTTP ----
+// Funciones para generar respuestas JSON estandarizadas
 
 export function ok<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
@@ -28,7 +29,8 @@ export function serverError(e: unknown) {
   return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
 }
 
-// ---- Route handler wrapper ----
+// ---- Wrapper para handlers de rutas API ----
+// Centraliza el manejo de errores y evita try/catch repetitivos en cada ruta
 
 export type RouteHandler = (
   req: Request,
@@ -40,11 +42,11 @@ export type RouteHandler = (
  * Elimina la necesidad de try/catch en cada ruta.
  *
  * Errores conocidos manejados automáticamente:
- *  - `new Error('UNAUTHORIZED')` → 401
- *  - `EnumValidationError`      → 400 con mensaje descriptivo
- *  - `'Stock insuficiente...'`  → 400
- *  - `'Este producto...'`       → 400
- *  - Cualquier otro error       → 500 con console.error
+ *  - `new Error('UNAUTHORIZED')`  → 401 (no autorizado)
+ *  - `EnumValidationError`       → 400 (dato inválido)
+ *  - `'Stock insuficiente...'`   → 400 (sin stock)
+ *  - `'Este producto...'`        → 400 (producto ya existe)
+ *  - Cualquier otro error        → 500 con console.error
  */
 export function handle(fn: RouteHandler): RouteHandler {
   return async (req, context) => {

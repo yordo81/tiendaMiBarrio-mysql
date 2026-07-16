@@ -4,6 +4,11 @@ import { query, execute } from '@/lib/db/mysql';
 import { handle, ok, err } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
+// ── API de Caja (Contabilidad) ─────────────────────────────────────
+// GET: Listar últimos 50 movimientos de caja
+// POST: Registrar saldo inicial, ajuste o aporte de capital
+
+// ── GET: Listar movimientos de caja ──
 export const GET = handle(async () => {
   await requireAuth();
   const rows = await query(
@@ -12,6 +17,9 @@ export const GET = handle(async () => {
   return ok(rows);
 });
 
+// ── POST: Registrar entrada en caja ──
+// type puede ser: 'initial' (saldo inicial), 'adjustment' (ajuste manual),
+// o 'capital' (aporte de capital del dueño)
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
   const { type, cash_amount, transfer_amount, notes, date } = await req.json();

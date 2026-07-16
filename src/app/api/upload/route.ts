@@ -29,7 +29,7 @@ export const POST = handle(async (request: Request) => {
 
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  // ── Procesar con Sharp ──────────────────────────────────────────
+    // ── Procesar con Sharp ──────────────────────────────────────────
   const isGif = file.type === 'image/gif';
   const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'products');
   await mkdir(uploadDir, { recursive: true });
@@ -67,7 +67,7 @@ export const POST = handle(async (request: Request) => {
     pipeline = pipeline.resize(800, undefined, {
       fit: 'inside',
       withoutEnlargement: true,
-      // Usar kernel sharp para mejor calidad al reducir
+      // Usar kernel Lanczos3 para mejor calidad al reducir
       kernel: sharp.kernel.lanczos3,
     });
   }

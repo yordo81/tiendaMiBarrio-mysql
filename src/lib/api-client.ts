@@ -1,14 +1,17 @@
-// Typed fetch wrapper for all API calls in the MySQL version
+// ── Cliente API tipado para todas las llamadas del frontend ─────────────────
+// Proporciona una capa de abstracción sobre fetch con manejo centralizado de
+// errores, tipado genérico y detección de sesión expirada.
 
 /**
- * Dispatched when an API call returns 401 Unauthorized.
- * The detail contains the URL that triggered the error.
- * Components can listen for this event to show session-expired notifications.
+ * Nombre del evento global que se dispara cuando una llamada API retorna 401.
+ * Los componentes pueden escuchar este evento para mostrar notificaciones
+ * de sesión expirada sin forzar un redirect.
  */
 export const UNAUTHORIZED_EVENT = 'api:unauthorized';
 
 /**
- * Custom event detail for unauthorized API calls.
+ * Detalle del evento personalizado para errores 401.
+ * Incluye la URL que causó el error para facilitar la depuración.
  */
 export interface UnauthorizedEventDetail {
   url: string;
@@ -16,8 +19,9 @@ export interface UnauthorizedEventDetail {
 }
 
 /**
- * Dispatch a global custom event for 401 errors so components can react
- * (e.g. show a toast, clear auth state, etc.) without being forcefully redirected.
+ * Dispara un evento global personalizado para errores 401.
+ * Permite que los componentes reaccionen (mostrar toast, limpiar estado de auth)
+ * sin ser redirigidos forzosamente al login.
  */
 function dispatchUnauthorized(url: string) {
   if (typeof window === 'undefined') return;
