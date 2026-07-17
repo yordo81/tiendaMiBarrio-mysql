@@ -5,6 +5,13 @@
 # Run:   docker compose up
 # ============================================================
 
+# ============================================================
+# Dockerfile — TiendaMiBarrio (Next.js + MySQL)
+# ============================================================
+# Build: docker build -t tienda-mi-barrio .
+# Run:   docker compose up
+# ============================================================
+
 # --------------- Stage 1: Dependencias y Build ---------------
 FROM node:24-alpine AS builder
 
