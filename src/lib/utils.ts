@@ -10,6 +10,7 @@ export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
 // Formato de moneda — configurable, por defecto DOP (pesos dominicanos)
 export function formatCurrency(n: number, currency = 'DOP') {
+  if (typeof n !== 'number' || isNaN(n)) return '$0.00';
   return `$${new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2 }).format(n)}`;
 }
 

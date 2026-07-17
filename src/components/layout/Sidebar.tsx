@@ -10,6 +10,7 @@ import {
   Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign, CalendarCheck,
 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
+import { toast } from '@/components/ui/toaster';
 import type { AppUser } from '@/types';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 
@@ -39,12 +40,20 @@ export default function Sidebar() {
   useEffect(() => { setMounted(true); }, []);
 
   const loadUser = useCallback(async () => {
-    if (user) return;
     try {
       const res = await fetch('/api/auth/me');
-      if (res.ok) { const d = await res.json(); if (d.user) setUser(d.user as AppUser); }
-    } catch {}
-  }, [user, setUser]);
+      if (res.ok) {
+        const d = await res.json();
+        if (d.user) setUser(d.user as AppUser);
+        return;
+      }
+      // Si el servidor no reconoce la sesión, limpiar auth local
+      toast.warning('Sesión expirada. Por favor, inicia sesión de nuevo para continuar.');
+      setUser(null);
+    } catch {
+      // Error de red — no limpiar el usuario para evitar pantalla en blanco
+    }
+  }, [setUser]);
 
   useEffect(() => { loadUser(); }, [loadUser]);
 

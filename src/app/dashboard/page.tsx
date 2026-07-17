@@ -48,16 +48,17 @@ export default function DashboardPage() {
   const [reservationsLoading, setReservationsLoading] = useState(true);
 
   useEffect(() => {
+    // Fetch dashboard metrics
     fetch('/api/reports?type=dashboard&days=30')
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error('API error'); return r.json(); })
       .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(() => { setData(null); setLoading(false); });
 
     // Fetch pending reservations
     fetch('/api/reservations?status=pending')
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error('API error'); return r.json(); })
       .then(d => { setPendingReservations(Array.isArray(d) ? d.slice(0, 3) : []); setReservationsLoading(false); })
-      .catch(() => setReservationsLoading(false));
+      .catch(() => { setPendingReservations([]); setReservationsLoading(false); });
   }, []);
 
   // Initialize clock on client only (avoid hydration mismatch) and update every 30s
