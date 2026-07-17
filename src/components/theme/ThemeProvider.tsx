@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 
 type Theme = 'dark' | 'light';
 
@@ -18,43 +18,35 @@ const ThemeContext = createContext<ThemeContextValue>({
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('dark');
-  const [mounted, setMounted] = useState(false);
 
+  // Sincronizar el estado de React con el tema ya aplicado por el script anti-flash
   useEffect(() => {
-    const stored = localStorage.getItem('tienda-theme') as Theme | null;
-    if (stored === 'light' || stored === 'dark') {
-      setThemeState(stored);
+    const html = document.documentElement;
+    if (html.classList.contains('dark')) {
+      setThemeState('dark');
+    } else if (html.classList.contains('light')) {
+      setThemeState('light');
     } else {
-      // Respect system preference
-      const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-      setThemeState(prefersLight ? 'light' : 'dark');
+      const stored = localStorage.getItem('tienda-theme') as Theme | null;
+      if (stored === 'light' || stored === 'dark') {
+        setThemeState(stored);
+      } else {
+        const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+        setThemeState(prefersLight ? 'light' : 'dark');
+      }
     }
-    setMounted(true);
   }, []);
 
+  // Persistir los cambios de tema
   useEffect(() => {
-    if (!mounted) return;
     const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-      root.classList.remove('light');
-    } else {
-      root.classList.remove('dark');
-      root.classList.add('light');
-    }
+    root.classList.remove('dark', 'light');
+    root.classList.add(theme);
     localStorage.setItem('tienda-theme', theme);
-  }, [theme, mounted]);
+  }, [theme]);
 
-  const toggleTheme = useCallback(() => {
-    setThemeState(prev => (prev === 'dark' ? 'light' : 'dark'));
-  }, []);
-
-  const setTheme = useCallback((t: Theme) => {
-    setThemeState(t);
-  }, []);
-
-  // Avoid flash of wrong theme — render nothing until mounted
-  if (!mounted) return <>{children}</>;
+  const toggleTheme = () => setThemeState(prev => (prev === 'dark' ? 'light' : 'dark'));
+  const setTheme = (t: Theme) => setThemeState(t);
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
