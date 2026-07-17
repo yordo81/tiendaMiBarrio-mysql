@@ -40,7 +40,12 @@ export default function InventarioPage() {
   const [moveLocStock, setMoveLocStock] = useState<number | null>(null);
   const [purchaseLocStockMap, setPurchaseLocStockMap] = useState<Record<string, number>>({});
   const [showZeroStock, setShowZeroStock] = useState(false);
-  const [showLowStockBanner, setShowLowStockBanner] = useState(() => localStorage.getItem('inv_hide_low_stock') !== 'true');
+  const [showLowStockBanner, setShowLowStockBanner] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('inv_hide_low_stock') !== 'true';
+    }
+    return true;
+  });
 
   function dismissLowStockBanner() {
     setShowLowStockBanner(false);
