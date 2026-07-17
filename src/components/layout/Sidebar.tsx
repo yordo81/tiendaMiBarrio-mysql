@@ -10,8 +10,8 @@ import {
   Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign, CalendarCheck,
 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
-import { toast } from '@/components/ui/toaster';
 import type { AppUser } from '@/types';
+import { UNAUTHORIZED_EVENT, type UnauthorizedEventDetail } from '@/lib/api-client';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 
 const navItems = [
@@ -48,8 +48,14 @@ export default function Sidebar() {
         return;
       }
       // Si el servidor no reconoce la sesión, limpiar auth local
-      toast.warning('Sesión expirada. Por favor, inicia sesión de nuevo para continuar.');
+      // y disparar el evento centralizado para que providers.tsx
+      // muestre el toast y redirija al login con su debounce
       setUser(null);
+      window.dispatchEvent(
+        new CustomEvent<UnauthorizedEventDetail>(UNAUTHORIZED_EVENT, {
+          detail: { url: '/api/auth/me', message: 'Sesión expirada. Por favor, inicia sesión de nuevo para continuar.' },
+        })
+      );
     } catch {
       // Error de red — no limpiar el usuario para evitar pantalla en blanco
     }

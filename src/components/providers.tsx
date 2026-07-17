@@ -13,8 +13,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [qc] = useState(() => new QueryClient({ defaultOptions: { queries: { staleTime: 60000, retry: 1 } } }));
 
   // Escucha eventos de 401 (sesión expirada) disparados por apiFetch
-  // En lugar de forzar un redirect al login, muestra una notificación
-  // para que el usuario decida cuándo volver a iniciar sesión.
+  // Muestra una notificación, limpia el estado de auth y redirige
+  // automáticamente al login para que el usuario pueda autenticarse de nuevo.
   // Incluye debounce para evitar múltiples toasts cuando varias
   // llamadas API paralelas fallan con 401 al mismo tiempo.
   useEffect(() => {
@@ -23,17 +23,22 @@ export function Providers({ children }: { children: React.ReactNode }) {
     function handleUnauthorized(e: Event) {
       const detail = (e as CustomEvent<UnauthorizedEventDetail>).detail;
 
-      // Solo mostrar toast y limpiar auth una vez por oleada de expiración
+      // Solo mostrar toast y redirigir una vez por oleada de expiración
       if (!authCleared) {
         authCleared = true;
         toast.warning(detail?.message ?? 'Sesión expirada. Inicia sesión de nuevo para realizar cambios.');
 
-        // Limpiar estado de autenticación persistido para que la UI refleje
-        // el estado real sin forzar un redirect de página
+        // Limpiar estado de autenticación persistido
         try {
           useAuthStore.getState().setUser(null);
           localStorage.removeItem('tienda-auth');
         } catch { /* ignorar errores de storage */ }
+
+        // Redirigir automáticamente al login después de un breve delay
+        // para que el usuario alcance a ver el mensaje del toast
+        setTimeout(() => {
+          window.location.href = '/auth/login';
+        }, 1000);
 
         // Re-armar después de unos segundos para reportar expiraciones posteriores
         setTimeout(() => { authCleared = false; }, 5000);
