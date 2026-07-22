@@ -20,7 +20,7 @@ export const GET = handle(async (req: Request) => {
   const params: unknown[] = [];
   const where: string[] = [];
   if (from) { where.push('s.date>=?'); params.push(from); }
-  if (to)   { where.push('s.date<=?'); params.push(to); }
+  if (to)   { where.push('s.date<=?'); params.push(to + ' 23:59:59'); }
   if (where.length) sql += ' WHERE ' + where.join(' AND ');
   sql += ' ORDER BY s.date DESC LIMIT ' + Math.floor(limit);
   return ok(await query(sql, params));

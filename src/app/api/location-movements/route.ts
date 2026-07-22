@@ -30,7 +30,7 @@ export const GET = handle(async (req: Request) => {
 
   if (locationId) { where.push('lm.location_id = ?'); params.push(locationId); }
   if (from)      { where.push('lm.created_at >= ?');  params.push(from); }
-  if (to)        { where.push('lm.created_at <= ?');  params.push(to); }
+  if (to)        { where.push('lm.created_at <= ?');  params.push(to + ' 23:59:59'); }
   if (productId) { where.push('lm.product_id = ?');   params.push(productId); }
 
   if (where.length) sql += ' WHERE ' + where.join(' AND ');

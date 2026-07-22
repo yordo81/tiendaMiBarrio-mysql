@@ -13,7 +13,7 @@ export const GET = handle(async (req: Request) => {
   let sql = `SELECT e.*,ec.name AS category_name,p.name AS product_name,u.name AS user_name FROM expenses e LEFT JOIN expense_categories ec ON ec.id=e.category_id LEFT JOIN products p ON p.id=e.product_id LEFT JOIN users u ON u.id=e.user_id`;
   const params: unknown[] = []; const where: string[] = [];
   if (from) { where.push('e.date>=?'); params.push(from); }
-  if (to)   { where.push('e.date<=?'); params.push(to); }
+  if (to)   { where.push('e.date<=?'); params.push(to + ' 23:59:59'); }
   if (where.length) sql += ' WHERE '+where.join(' AND ');
   sql += ' ORDER BY e.date DESC LIMIT 200';
   return ok(await query(sql, params));
