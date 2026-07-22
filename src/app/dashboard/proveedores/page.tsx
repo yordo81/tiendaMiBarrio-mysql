@@ -7,6 +7,7 @@ import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
 import { Truck, Plus, Search, Edit2, Trash2, TrendingDown, History, Phone, PhoneOff, CheckCircle } from 'lucide-react';
 type R = Record<string,unknown>;
@@ -185,16 +186,28 @@ export default function ProveedoresPage() {
       <Modal open={showPriceModal} onClose={()=>setShowPriceModal(false)} title="Registrar precio de compra" size="md">
         <div className="space-y-4">
           <div><label className="label">Producto *</label>
-            <select className="input" value={priceForm.product_id} onChange={e=>setPriceForm(f=>({...f,product_id:e.target.value}))}>
-              <option value="">Seleccionar producto</option>
-              {products.map(p=><option key={String(p.id)} value={String(p.id)}>{String(p.name)}</option>)}
-            </select>
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Seleccionar producto' },
+                ...products.map(p => ({ value: String(p.id), label: String(p.name) }))
+              ]}
+              value={priceForm.product_id}
+              onChange={v => setPriceForm(f => ({ ...f, product_id: v }))}
+              placeholder="Seleccionar producto"
+              noResultsMessage="Sin productos"
+            />
           </div>
           <div><label className="label">Proveedor *</label>
-            <select className="input" value={priceForm.supplier_id} onChange={e=>setPriceForm(f=>({...f,supplier_id:e.target.value}))}>
-              <option value="">Seleccionar proveedor</option>
-              {suppliers.map(s=><option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
-            </select>
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Seleccionar proveedor' },
+                ...suppliers.map(s => ({ value: String(s.id), label: String(s.name) }))
+              ]}
+              value={priceForm.supplier_id}
+              onChange={v => setPriceForm(f => ({ ...f, supplier_id: v }))}
+              placeholder="Seleccionar proveedor"
+              noResultsMessage="Sin proveedores"
+            />
           </div>
           <div><label className="label">Precio *</label><input type="number" min="1" step="1" className="input" value={priceForm.price||''} onChange={e=>setPriceForm(f=>({...f,price:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Notas</label><input className="input" value={priceForm.notes} onChange={e=>setPriceForm(f=>({...f,notes:e.target.value}))}/></div>

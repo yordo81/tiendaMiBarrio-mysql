@@ -5,6 +5,7 @@ import { api } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
 import { Shield, Search, Filter } from 'lucide-react';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 type R = Record<string, unknown>;
 
@@ -78,24 +79,36 @@ export default function AuditoriaPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex gap-2 flex-1">
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
-            <select className="input pl-9 w-40" value={entityFilter} onChange={e => setEntityFilter(e.target.value)}>
-              <option value="">Todos los tipos</option>
-              {Object.entries(entityLabels).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
+        <div className="flex gap-2 flex-1 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <Filter className="w-4 h-4 text-[var(--text-tertiary)] shrink-0" />
+            <div className="w-40">
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Todos los tipos' },
+                  ...Object.entries(entityLabels).map(([k, v]) => ({ value: k, label: v }))
+                ]}
+                value={entityFilter}
+                onChange={v => setEntityFilter(v)}
+                placeholder="Todos los tipos"
+                noResultsMessage="Sin tipos"
+              />
+            </div>
           </div>
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
-            <select className="input pl-9 w-40" value={actionFilter} onChange={e => setActionFilter(e.target.value)}>
-              <option value="">Todas las acciones</option>
-              {Object.entries(actionLabels).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
+          <div className="flex items-center gap-1.5">
+            <Filter className="w-4 h-4 text-[var(--text-tertiary)] shrink-0" />
+            <div className="w-40">
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Todas las acciones' },
+                  ...Object.entries(actionLabels).map(([k, v]) => ({ value: k, label: v }))
+                ]}
+                value={actionFilter}
+                onChange={v => setActionFilter(v)}
+                placeholder="Todas las acciones"
+                noResultsMessage="Sin acciones"
+              />
+            </div>
           </div>
         </div>
         <p className="text-sm text-[var(--text-secondary)]">{logs.length} registro(s)</p>

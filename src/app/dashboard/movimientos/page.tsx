@@ -5,6 +5,7 @@ import { api } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
 import { List, Filter, X, RefreshCw, Calendar, Package, Warehouse, MoveHorizontal, ArrowRightLeft } from 'lucide-react';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 type R = Record<string,unknown>;
 
 const movLabel:Record<string,string> = {
@@ -170,18 +171,16 @@ export default function MovimientosPage() {
                 <Warehouse className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
                 Almacén
               </label>
-              <select
-                className="input"
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Todos los almacenes' },
+                  ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
+                ]}
                 value={locFilter}
-                onChange={e => setLocFilter(e.target.value)}
-              >
-                <option value="">Todos los almacenes</option>
-                {locations.map(l => (
-                  <option key={String(l.id)} value={String(l.id)}>
-                    {String(l.name)}
-                  </option>
-                ))}
-              </select>
+                onChange={v => setLocFilter(v)}
+                placeholder="Todos los almacenes"
+                noResultsMessage="Sin almacenes"
+              />
             </div>
 
             {/* Product filter */}

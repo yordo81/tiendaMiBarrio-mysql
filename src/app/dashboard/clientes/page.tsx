@@ -6,6 +6,7 @@ import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
 import { Users, Plus, Search, Edit2, CreditCard, History, ShoppingCart, Trash2, Phone, PhoneOff, CheckCircle } from 'lucide-react';
@@ -177,9 +178,16 @@ export default function ClientesPage() {
           </div>
           <div><label className="label">Monto del abono *</label><input type="number" min="1" step="1" className="input" value={payForm.amount||''} onChange={e=>setPayForm(f=>({...f,amount:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Método</label>
-            <select className="input" value={payForm.method} onChange={e=>setPayForm(f=>({...f,method:e.target.value}))}>
-              <option value="cash">Efectivo</option><option value="transfer">Transferencia</option><option value="mixed">Mixto</option>
-            </select>
+            <SearchableSelect
+              options={[
+                { value: 'cash', label: 'Efectivo' },
+                { value: 'transfer', label: 'Transferencia' },
+                { value: 'mixed', label: 'Mixto' }
+              ]}
+              value={payForm.method}
+              onChange={v => setPayForm(f => ({ ...f, method: v }))}
+              placeholder="Seleccionar método"
+            />
           </div>
           <div><label className="label">Notas</label><input className="input" value={payForm.notes} onChange={e=>setPayForm(f=>({...f,notes:e.target.value}))}/></div>
           <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowPayModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handlePay} disabled={saving||payForm.amount<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Registrando...':'Registrar abono'}</button></div>

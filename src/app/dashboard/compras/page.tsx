@@ -5,6 +5,7 @@ import { api } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { ShoppingBag, Search, RotateCcw, Package, Truck, MapPin, User } from 'lucide-react';
 
 type AnyRecord = Record<string, unknown>;
@@ -90,16 +91,18 @@ export default function ComprasPage() {
               <option key={String(p.id)} value={String(p.id)}>{String(p.name)}</option>
             ))}
           </select>
-          <select
-            className="input text-sm max-w-[160px]"
-            value={supplierFilter}
-            onChange={e => setSupplierFilter(e.target.value)}
-          >
-            <option value="">Todos los proveedores</option>
-            {suppliers.map(s => (
-              <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>
-            ))}
-          </select>
+          <div className="max-w-[160px]">
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Todos los proveedores' },
+                ...suppliers.map(s => ({ value: String(s.id), label: String(s.name) }))
+              ]}
+              value={supplierFilter}
+              onChange={v => setSupplierFilter(v)}
+              placeholder="Todos los proveedores"
+              noResultsMessage="Sin proveedores"
+            />
+          </div>
           <input
             type="date"
             className="input text-sm max-w-[150px]"

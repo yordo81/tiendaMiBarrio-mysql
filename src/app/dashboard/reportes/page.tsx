@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse } from 'lucide-react';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import InfoTooltip from '@/components/ui/Tooltip';
 import { exportToCSV } from '@/lib/export';
 import { api } from '@/lib/api-client';
@@ -194,16 +195,18 @@ export default function ReportesPage() {
           {(tab==='ventas'||tab==='rentabilidad'||tab==='reabastecimiento')&&locations.length>0&&(
             <div className="flex items-center gap-2">
               <Warehouse size={14} className="text-[var(--text-tertiary)] shrink-0" />
-              <select
-                value={locationFilter}
-                onChange={e => setLocationFilter(e.target.value)}
-                className="input py-1.5 px-2 text-xs max-w-[180px]"
-              >
-                <option value="">Todos los almacenes</option>
-                {locations.map(l => (
-                  <option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>
-                ))}
-              </select>
+              <div className="max-w-[180px]">
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Todos los almacenes' },
+                    ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
+                  ]}
+                  value={locationFilter}
+                  onChange={v => setLocationFilter(v)}
+                  placeholder="Todos los almacenes"
+                  noResultsMessage="Sin almacenes"
+                />
+              </div>
             </div>
           )}
         </div>
