@@ -5,6 +5,7 @@ import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
 import Pagination from '@/components/ui/Pagination';
 import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw, Package, DollarSign, Layers, Search } from 'lucide-react';
@@ -339,19 +340,29 @@ export default function AlmacenesPage() {
             <p><strong className="text-yellow-400">Ajuste:</strong> Establece la cantidad exacta (corrección de conteo físico).</p>
           </div>
           <div><label className="label">Almacén *</label>
-            <select className="input" value={movForm.location_id} onChange={e=>setMovForm(f=>({...f,location_id:e.target.value}))}>
-              <option value="">Seleccionar almacén / punto de venta</option>
-              {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)} ({typeLabel[String(l.type)]??String(l.type)})</option>)}
-            </select>
+            <SearchableSelect
+              options={locations.map(l => ({
+                value: String(l.id),
+                label: `${String(l.name)} (${typeLabel[String(l.type)] ?? String(l.type)})`
+              }))}
+              value={movForm.location_id}
+              onChange={v => setMovForm(f => ({ ...f, location_id: v }))}
+              placeholder="Seleccionar almacén / punto de venta"
+              noResultsMessage="Sin almacenes"
+            />
           </div>
           <div><label className="label">Producto *</label>
-            <select className="input" value={movForm.product_id} onChange={e=>setMovForm(f=>({...f,product_id:e.target.value}))}>
-              <option value="">Seleccionar producto</option>
-              {products.map(p=>{
-                const locQty = movForm.location_id ? (locStockMap[String(p.id)]??0) : Number(p.stock??0);
-                return <option key={String(p.id)} value={String(p.id)}>{String(p.name)} — stock en almacén: {formatNumber(locQty,2)} {String(p.unit??'')}</option>;
-              })}
-            </select>
+            <SearchableSelect
+              options={products.map(p=>({
+                value: String(p.id),
+                label: String(p.name),
+                sublabel: `Stock: ${formatNumber(movForm.location_id ? (locStockMap[String(p.id)]??0) : Number(p.stock??0),2)} ${String(p.unit??'')}`
+              }))}
+              value={movForm.product_id}
+              onChange={v=>setMovForm(f=>({...f,product_id:v}))}
+              placeholder="Buscar producto…"
+              noResultsMessage="No se encontraron productos"
+            />
           </div>
           <div><label className="label">Tipo *</label>
             <div className="grid grid-cols-3 gap-2">
@@ -376,22 +387,37 @@ export default function AlmacenesPage() {
         <div className="space-y-4">
           <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-400">El traslado mueve stock entre almacenes/puntos de venta. El stock global no cambia.</div>
           <div><label className="label">Origen *</label>
-            <select className="input" value={trForm.from_location_id} onChange={e=>setTrForm(f=>({...f,from_location_id:e.target.value}))}>
-              <option value="">Seleccionar origen</option>
-              {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
-            </select>
+            <SearchableSelect
+              options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
+              value={trForm.from_location_id}
+              onChange={v => setTrForm(f => ({ ...f, from_location_id: v }))}
+              placeholder="Seleccionar origen"
+              noResultsMessage="Sin almacenes"
+            />
           </div>
           <div><label className="label">Destino *</label>
-            <select className="input" value={trForm.to_location_id} onChange={e=>setTrForm(f=>({...f,to_location_id:e.target.value}))}>
-              <option value="">Seleccionar destino</option>
-              {locations.filter(l=>String(l.id)!==trForm.from_location_id).map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
-            </select>
+            <SearchableSelect
+              options={locations
+                .filter(l => String(l.id) !== trForm.from_location_id)
+                .map(l => ({ value: String(l.id), label: String(l.name) }))}
+              value={trForm.to_location_id}
+              onChange={v => setTrForm(f => ({ ...f, to_location_id: v }))}
+              placeholder="Seleccionar destino"
+              noResultsMessage="Sin almacenes disponibles"
+            />
           </div>
           <div><label className="label">Producto *</label>
-            <select className="input" value={trForm.product_id} onChange={e=>setTrForm(f=>({...f,product_id:e.target.value}))}>
-              <option value="">Seleccionar producto</option>
-              {products.map(p=><option key={String(p.id)} value={String(p.id)}>{String(p.name)}</option>)}
-            </select>
+            <SearchableSelect
+              options={products.map(p=>({
+                value: String(p.id),
+                label: String(p.name),
+                sublabel: p.unit ? String(p.unit) : undefined
+              }))}
+              value={trForm.product_id}
+              onChange={v=>setTrForm(f=>({...f,product_id:v}))}
+              placeholder="Buscar producto…"
+              noResultsMessage="No se encontraron productos"
+            />
           </div>
           <div><label className="label">Cantidad *</label><input type="number" min="1" step="1" className="input" value={trForm.quantity||''} onChange={e=>setTrForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Notas</label><input className="input" placeholder="Motivo..." value={trForm.notes} onChange={e=>setTrForm(f=>({...f,notes:e.target.value}))}/></div>

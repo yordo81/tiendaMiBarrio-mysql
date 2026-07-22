@@ -6,6 +6,7 @@ import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
 import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Tag, History, ArrowRightLeft, ShoppingBag, Image as ImageIcon, Upload, X as XIcon } from 'lucide-react';
@@ -275,14 +276,30 @@ export default function InventarioPage() {
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
             <div className="flex gap-2 flex-1 w-full sm:w-auto">
               <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
-              <select className="input w-44" value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
-                <option value="">Todas las categorías</option>
-                {categories.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name)}</option>)}
-              </select>
-              <select className="input w-44" value={locFilter} onChange={e=>setLocFilter(e.target.value)}>
-                <option value="">Todos los almacenes</option>
-                {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
-              </select>
+              <div className="w-44">
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Todas las categorías' },
+                    ...categories.map(c => ({ value: String(c.id), label: String(c.name) }))
+                  ]}
+                  value={catFilter}
+                  onChange={v => setCatFilter(v)}
+                  placeholder="Todas las categorías"
+                  noResultsMessage="Sin categorías"
+                />
+              </div>
+              <div className="w-44">
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Todos los almacenes' },
+                    ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
+                  ]}
+                  value={locFilter}
+                  onChange={v => setLocFilter(v)}
+                  placeholder="Todos los almacenes"
+                  noResultsMessage="Sin almacenes"
+                />
+              </div>
               <button onClick={()=>setShowZeroStock(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showZeroStock ? 'bg-brand-600/20 border-brand-600/50 text-brand-400' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[#6e7681]')}>
                 <span className="text-sm">{showZeroStock ? '☑' : '☐'}</span> Stock 0
               </button>
@@ -493,10 +510,16 @@ export default function InventarioPage() {
             </div>
           </div>
           <div><label className="label">Categoría</label>
-            <select className="input" value={String(form.category_id??'')} onChange={e=>setForm(f=>({...f,category_id:e.target.value||null}))}>
-              <option value="">Sin categoría</option>
-              {categories.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name)}</option>)}
-            </select>
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Sin categoría' },
+                ...categories.map(c => ({ value: String(c.id), label: String(c.name) }))
+              ]}
+              value={String(form.category_id??'')}
+              onChange={v => setForm(f => ({ ...f, category_id: v || null }))}
+              placeholder="Sin categoría"
+              noResultsMessage="Sin categorías"
+            />
           </div>
           <div><label className="label">Unidad</label><input className="input" value={String(form.unit??'unidad')} onChange={e=>setForm(f=>({...f,unit:e.target.value}))}/></div>
           <div><label className="label">Precio de venta</label><input type="number" min="0" step="1" className="input" value={Number(form.sale_price??0)} onChange={e=>setForm(f=>({...f,sale_price:parseFloat(e.target.value)||0}))}/></div>
@@ -530,10 +553,13 @@ export default function InventarioPage() {
           </div>
           {!editProduct && (
             <div><label className="label">Almacén destino</label>
-              <select className="input" value={String(form.location_id??'')} onChange={e=>setForm(f=>({...f,location_id:e.target.value}))}>
-                {locations.length === 0 && <option value="">Cargando...</option>}
-                {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
-              </select>
+              <SearchableSelect
+                options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
+                value={String(form.location_id??'')}
+                onChange={v => setForm(f => ({ ...f, location_id: v }))}
+                placeholder={locations.length === 0 ? 'Cargando...' : 'Seleccionar almacén'}
+                noResultsMessage="Sin almacenes"
+              />
               <p className="text-[10px] text-[var(--text-tertiary)] mt-1">El stock inicial se registrará en este almacén</p>
             </div>
           )}
@@ -592,31 +618,45 @@ export default function InventarioPage() {
       <Modal open={showPurchaseModal} onClose={() => setShowPurchaseModal(false)} title="Registrar compra" size="md">
         <div className="space-y-4">
           <div><label className="label">Producto *</label>
-            <select className="input" value={purchaseForm.product_id} onChange={e => setPurchaseForm(f => ({ ...f, product_id: e.target.value }))}>
-              <option value="">Seleccionar producto...</option>
-              {products.map(p => {
+            <SearchableSelect
+              options={products.map(p => {
                 const locStock = purchaseForm.location_id ? (purchaseLocStockMap[String(p.id)]??0) : Number(p.stock??0);
                 const lowS = Number(p.stock) <= Number(p.min_stock);
-                return (
-                  <option key={String(p.id)} value={String(p.id)}>
-                    {String(p.name)} — Stock en almacén: {formatNumber(locStock, 1)} {String(p.unit)} · Costo actual: {formatCurrency(Number(p.cost))}
-                    {lowS ? ' ⚠️ Stock bajo' : ''}
-                  </option>
-                );
+                const stockLabel = `Stock: ${formatNumber(locStock, 1)} ${String(p.unit??'')}`;
+                const costLabel = `Costo: ${formatCurrency(Number(p.cost))}`;
+                return {
+                  value: String(p.id),
+                  label: String(p.name),
+                  sublabel: lowS ? `${stockLabel} · ${costLabel} ⚠️` : `${stockLabel} · ${costLabel}`
+                };
               })}
-            </select>
+              value={purchaseForm.product_id}
+              onChange={v => setPurchaseForm(f => ({ ...f, product_id: v }))}
+              placeholder="Buscar producto…"
+              noResultsMessage="No se encontraron productos"
+            />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div><label className="label">Proveedor *</label>
-              <select className="input" value={purchaseForm.supplier_id} onChange={e => setPurchaseForm(f => ({ ...f, supplier_id: e.target.value }))}>
-                <option value="">Seleccionar...</option>
-                {suppliers.map(s => <option key={String(s.id)} value={String(s.id)}>{String(s.name)}</option>)}
-              </select>
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Seleccionar...' },
+                  ...suppliers.map(s => ({ value: String(s.id), label: String(s.name) }))
+                ]}
+                value={purchaseForm.supplier_id}
+                onChange={v => setPurchaseForm(f => ({ ...f, supplier_id: v }))}
+                placeholder="Seleccionar..."
+                noResultsMessage="Sin proveedores"
+              />
             </div>
             <div><label className="label">Almacén destino</label>
-              <select className="input" value={purchaseForm.location_id} onChange={e => setPurchaseForm(f => ({ ...f, location_id: e.target.value }))}>
-                {locations.map(l => <option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
-              </select>
+              <SearchableSelect
+                options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
+                value={purchaseForm.location_id}
+                onChange={v => setPurchaseForm(f => ({ ...f, location_id: v }))}
+                placeholder="Seleccionar almacén"
+                noResultsMessage="Sin almacenes"
+              />
             </div>
             <div><label className="label">Cantidad *</label><input type="number" min="1" step="1" className="input" value={purchaseForm.quantity || ''} onChange={e => setPurchaseForm(f => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))} /></div>
             <div><label className="label">Precio unitario *</label><input type="number" min="0" step="1" className="input" value={purchaseForm.price || ''} onChange={e => setPurchaseForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))} /></div>
@@ -690,18 +730,26 @@ export default function InventarioPage() {
             </div>
           )}
           <div><label className="label">Tipo</label>
-            <select className="input" value={moveForm.type} onChange={e=>setMoveForm(f=>({...f,type:e.target.value}))}>
-              <option value="in">Entrada</option><option value="out">Salida</option><option value="adjust">Ajuste (stock exacto)</option>
-            </select>
+            <SearchableSelect
+              options={[
+                { value: 'in', label: 'Entrada' },
+                { value: 'out', label: 'Salida' },
+                { value: 'adjust', label: 'Ajuste (stock exacto)' }
+              ]}
+              value={moveForm.type}
+              onChange={v => setMoveForm(f => ({ ...f, type: v }))}
+              placeholder="Seleccionar tipo"
+            />
           </div>
           <div><label className="label">Cantidad</label><input type="number" min="1" step="1" className="input" value={moveForm.quantity||''} onChange={e=>setMoveForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Almacén destino</label>
-            <select className="input" value={moveForm.location_id} onChange={e=>setMoveForm(f=>({...f,location_id:e.target.value}))}>
-              {locations.map(l=>{
-                const locName = String(l.name);
-                return <option key={String(l.id)} value={String(l.id)}>{locName}</option>;
-              })}
-            </select>
+            <SearchableSelect
+              options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
+              value={moveForm.location_id}
+              onChange={v => setMoveForm(f => ({ ...f, location_id: v }))}
+              placeholder="Seleccionar almacén"
+              noResultsMessage="Sin almacenes"
+            />
             {moveForm.location_id && moveLocStock !== null && (
               <p className="text-xs text-[var(--text-tertiary)] mt-1">
                 Stock en este almacén: <strong className={cn(moveLocStock <= 0 ? 'text-red-400' : 'text-[var(--text-primary)]')}>{formatNumber(moveLocStock, 2)}</strong>
@@ -718,10 +766,16 @@ export default function InventarioPage() {
         <div className="space-y-4">
           <div><label className="label">Nombre *</label><input className="input" placeholder="Ej: Bebidas, Lácteos..." value={catForm.name} onChange={e=>setCatForm(f=>({...f,name:e.target.value}))}/></div>
           <div><label className="label">Categoría padre (opcional)</label>
-            <select className="input" value={catForm.parent_id} onChange={e=>setCatForm(f=>({...f,parent_id:e.target.value}))}>
-              <option value="">Sin categoría padre</option>
-              {categories.filter(c=>c.id!==editCat?.id).map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name)}</option>)}
-            </select>
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Sin categoría padre' },
+                ...categories.filter(c => c.id !== editCat?.id).map(c => ({ value: String(c.id), label: String(c.name) }))
+              ]}
+              value={catForm.parent_id}
+              onChange={v => setCatForm(f => ({ ...f, parent_id: v }))}
+              placeholder="Sin categoría padre"
+              noResultsMessage="Sin categorías"
+            />
           </div>
           <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowCatModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSaveCat} disabled={saving||!catForm.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editCat?'Actualizar':'Crear'}</button></div>
         </div>

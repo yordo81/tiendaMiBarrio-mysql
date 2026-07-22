@@ -5,6 +5,7 @@ import { useAuthStore } from '@/lib/stores/auth-store';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/toaster';
@@ -279,16 +280,29 @@ export default function VentasPage() {
           </div>
           <div className="space-y-4">
             <div><label className="label">Almacén de salida *</label>
-              <select className="input" value={locationId} onChange={e=>setLocationId(e.target.value)}>
-                {locations.length === 0 && <option value="">Cargando ubicaciones...</option>}
-                {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
-              </select>
+              <SearchableSelect
+                options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
+                value={locationId}
+                onChange={v => setLocationId(v)}
+                placeholder={locations.length === 0 ? 'Cargando ubicaciones...' : 'Seleccionar almacén'}
+                noResultsMessage="Sin almacenes"
+              />
             </div>
             <div><label className="label">Cliente (opcional)</label>
-              <select className="input" value={customerId} onChange={e=>setCustomerId(e.target.value)}>
-                <option value="">Sin cliente</option>
-                {customers.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name)}{Number(c.balance)>0?` (debe ${formatCurrency(Number(c.balance))})`:''}</option>)}
-              </select>
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Sin cliente' },
+                  ...customers.map(c => ({
+                    value: String(c.id),
+                    label: String(c.name),
+                    sublabel: Number(c.balance) > 0 ? `Debe ${formatCurrency(Number(c.balance))}` : undefined
+                  }))
+                ]}
+                value={customerId}
+                onChange={v => setCustomerId(v)}
+                placeholder="Sin cliente"
+                noResultsMessage="Sin clientes"
+              />
             </div>
             <div><label className="label">Método de pago</label>
               <div className="grid grid-cols-2 gap-2">
@@ -415,11 +429,16 @@ export default function VentasPage() {
           </div>
           <div><label className="label">Monto a cobrar *</label><input type="number" min="1" step="1" className="input" value={paySaleForm.amount || ''} onChange={e => setPaySaleForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} /></div>
           <div><label className="label">Método</label>
-            <select className="input" value={paySaleForm.method} onChange={e => setPaySaleForm(f => ({ ...f, method: e.target.value }))}>
-              <option value="cash">Efectivo</option>
-              <option value="transfer">Transferencia</option>
-              <option value="mixed">Mixto</option>
-            </select>
+            <SearchableSelect
+              options={[
+                { value: 'cash', label: 'Efectivo' },
+                { value: 'transfer', label: 'Transferencia' },
+                { value: 'mixed', label: 'Mixto' }
+              ]}
+              value={paySaleForm.method}
+              onChange={v => setPaySaleForm(f => ({ ...f, method: v }))}
+              placeholder="Seleccionar método"
+            />
           </div>
           <div><label className="label">Notas</label><input className="input" value={paySaleForm.notes} onChange={e => setPaySaleForm(f => ({ ...f, notes: e.target.value }))} /></div>
           <div className="flex gap-3">

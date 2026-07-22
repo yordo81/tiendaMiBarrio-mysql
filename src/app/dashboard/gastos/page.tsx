@@ -6,6 +6,7 @@ import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
 import { TrendingDown, Plus, Search, Trash2 } from 'lucide-react';
@@ -126,10 +127,16 @@ export default function GastosPage() {
       <Modal open={showModal} onClose={()=>setShowModal(false)} title="Registrar gasto" size="md">
         <div className="space-y-4">
           <div><label className="label">Categoría</label>
-            <select className="input" value={form.category_id} onChange={e=>setForm(f=>({...f,category_id:e.target.value}))}>
-              <option value="">Sin categoría</option>
-              {categories.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name)}</option>)}
-            </select>
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Sin categoría' },
+                ...categories.map(c => ({ value: String(c.id), label: String(c.name) }))
+              ]}
+              value={form.category_id}
+              onChange={v => setForm(f => ({ ...f, category_id: v }))}
+              placeholder="Sin categoría"
+              noResultsMessage="Sin categorías"
+            />
           </div>
           <div><label className="label">Descripción *</label><input className="input" placeholder="Ej: Compra para uso interno..." value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></div>
           <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] space-y-3">
@@ -143,10 +150,16 @@ export default function GastosPage() {
             {form.product_id&&<>
               <div><label className="label">Cantidad</label><input type="number" min="1" step="1" className="input" value={form.product_quantity||''} onChange={e=>setForm(f=>({...f,product_quantity:parseFloat(e.target.value)||0}))}/></div>
               <div><label className="label">Almacén de origen *</label>
-                <select className="input" value={form.location_id} onChange={e=>setForm(f=>({...f,location_id:e.target.value}))}>
-                  <option value="">Seleccionar almacén</option>
-                  {locations.map(l=><option key={String(l.id)} value={String(l.id)}>{String(l.name)}</option>)}
-                </select>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Seleccionar almacén' },
+                    ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
+                  ]}
+                  value={form.location_id}
+                  onChange={v => setForm(f => ({ ...f, location_id: v }))}
+                  placeholder="Seleccionar almacén"
+                  noResultsMessage="Sin almacenes"
+                />
               </div>
             </>}
           </div>
