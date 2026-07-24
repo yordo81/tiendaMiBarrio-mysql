@@ -94,11 +94,11 @@ export const POST = handle(async (request: Request) => {
 
   // Insertar producto
   await execute(
-    `INSERT INTO products (id,name,description,category_id,sale_price,cost,stock,min_stock,unit,image_url,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)`,
-    [id, body.name, body.description??null, body.category_id??null,
+    `INSERT INTO products (id,barcode,name,description,category_id,sale_price,cost,stock,min_stock,unit,expiration_date,is_perishable,image_url,active,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
+    [id, body.barcode ?? null, body.name, body.description??null, body.category_id??null,
      Number(body.sale_price??0), Number(body.cost??0), Number(body.stock??0),
-     Number(body.min_stock??0), body.unit??'unidad', body.image_url ?? null, ts, ts]
+     Number(body.min_stock??0), body.unit??'unidad', body.expiration_date ?? null, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, ts]
   );
 
   // Asignar proveedores

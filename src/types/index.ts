@@ -31,6 +31,7 @@ export interface Category {
 
 export interface Product {
   id: string;
+  barcode: string | null;
   name: string;
   description: string | null;
   category_id: string | null;
@@ -40,6 +41,8 @@ export interface Product {
   stock: number;
   min_stock: number;
   unit: string;
+  expiration_date: string | null;
+  is_perishable: boolean;
   image_url: string | null;
   active: boolean;
   created_at: string;

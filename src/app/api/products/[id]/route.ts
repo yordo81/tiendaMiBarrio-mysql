@@ -17,9 +17,9 @@ export const PUT = handle(async (request: Request, ctx) => {
   const diff = newStock - oldStock;
 
   await execute(
-    `UPDATE products SET name=?,description=?,category_id=?,sale_price=?,cost=?,stock=?,min_stock=?,unit=?,image_url=?,updated_at=? WHERE id=?`,
-    [body.name, body.description??null, body.category_id??null, Number(body.sale_price), Number(body.cost),
-     Number(body.stock), Number(body.min_stock), body.unit??'unidad', body.image_url ?? null, ts, id]
+    `UPDATE products SET name=?,barcode=?,description=?,category_id=?,sale_price=?,cost=?,stock=?,min_stock=?,unit=?,expiration_date=?,is_perishable=?,image_url=?,updated_at=? WHERE id=?`,
+    [body.name, body.barcode ?? null, body.description??null, body.category_id??null, Number(body.sale_price), Number(body.cost),
+     Number(body.stock), Number(body.min_stock), body.unit??'unidad', body.expiration_date ?? null, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, id]
   );
 
   if (diff !== 0) {

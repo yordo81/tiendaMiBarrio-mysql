@@ -45,13 +45,18 @@ export const GET = handle(async (req: Request) => {
 // ── POST: Registrar nueva compra ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital } = await req.json();
+  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital, expiration_date } = await req.json();
 
   if (!product_id || !supplier_id || !quantity || quantity <= 0 || price == null || price < 0) {
     return err('Faltan datos: producto, proveedor, cantidad (>0) y precio requeridos');
   }
 
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+  // Construir notas de compra incluyendo fecha de caducidad si aplica
+  const purchaseNotes = expiration_date
+    ? (notes ? `${notes} | Vence: ${expiration_date}` : `Vence: ${expiration_date}`)
+    : (notes ?? null);
 
   // Verificar que el producto existe y está activo
   const [preCheck] = await pool.execute(
@@ -79,11 +84,18 @@ export const POST = handle(async (req: Request) => {
     const newStock = currentStock + purchaseQty;
     const newCost = ((currentStock * currentCost) + (purchaseQty * purchasePrice)) / newStock;
 
-    // Actualizar producto
-    await conn.execute(
-      'UPDATE products SET stock=stock+?, cost=?, updated_at=? WHERE id=?',
-      [purchaseQty, Math.round(newCost * 100) / 100, ts, product_id]
-    );
+    // Actualizar producto (stock, costo y opcionalmente fecha de caducidad)
+    if (expiration_date) {
+      await conn.execute(
+        'UPDATE products SET stock=stock+?, cost=?, expiration_date=?, updated_at=? WHERE id=?',
+        [purchaseQty, Math.round(newCost * 100) / 100, expiration_date, ts, product_id]
+      );
+    } else {
+      await conn.execute(
+        'UPDATE products SET stock=stock+?, cost=?, updated_at=? WHERE id=?',
+        [purchaseQty, Math.round(newCost * 100) / 100, ts, product_id]
+      );
+    }
 
     // Registrar movimiento de stock de entrada
     const smId = randomUUID();
@@ -96,7 +108,7 @@ export const POST = handle(async (req: Request) => {
     const ppId = randomUUID();
     await conn.execute(
       'INSERT INTO purchase_prices (id,product_id,supplier_id,price,date,notes,created_at) VALUES (?,?,?,?,?,?,?)',
-      [ppId, product_id, supplier_id, purchasePrice, ts, notes ?? null, ts]
+      [ppId, product_id, supplier_id, purchasePrice, ts, purchaseNotes, ts]
     );
 
     // Vincular producto con proveedor si no existe
@@ -129,7 +141,7 @@ export const POST = handle(async (req: Request) => {
     const totalCost = Math.round(purchaseQty * purchasePrice * 100) / 100;
     await conn.execute(
       'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, notes ?? null, sessionUser.id, ts]
+      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, purchaseNotes, sessionUser.id, ts]
     );
 
     // ── Registrar en contabilidad ──
