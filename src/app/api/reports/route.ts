@@ -30,18 +30,18 @@ export const GET = handle(async (req: Request) => {
 
     const [today, week, month, expenses, cogs, debt, lowStock, chart, top, expensesToday, expensesWeek, cogsToday, cogsWeek] = await Promise.all([
       query<{total:number}>(`SELECT COALESCE(SUM(total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} DATE(${locationId?'s.':''}date)=CURDATE() AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
-      query<{total:number}>(`SELECT COALESCE(SUM(total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL 7 DAY) AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
-      query<{total:number}>(`SELECT COALESCE(SUM(total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL 30 DAY) AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
-      query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE date>=DATE_SUB(NOW(),INTERVAL 30 DAY)`),
-      query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY) AND s.status!='cancelled'`,locParams()),
+      query<{total:number}>(`SELECT COALESCE(SUM(total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
+      query<{total:number}>(`SELECT COALESCE(SUM(total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_FORMAT(CURDATE(), '%Y-%m-01') AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
+      query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE date>=DATE_FORMAT(CURDATE(), '%Y-%m-01')`),
+      query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_FORMAT(CURDATE(), '%Y-%m-01') AND s.status!='cancelled'`,locParams()),
       query<{total:number;count:number}>(`SELECT COALESCE(SUM(balance),0) AS total,COUNT(*) AS count FROM customers WHERE balance>0`),
       query<{count:number}>(`SELECT COUNT(*) AS count FROM products p WHERE p.active=1${locationId?' AND p.id IN (SELECT product_id FROM location_stock WHERE location_id=?)':''} AND (SELECT COALESCE(${locationId?'quantity,0':'SUM(quantity),0'}) FROM location_stock WHERE product_id=p.id${locationId?' AND location_id=?':''}) <= p.min_stock`, (locationId ? [locationId, locationId] : []) as unknown[]),
       query<{date:string;total:number}>(`SELECT DATE_FORMAT(${locationId?'s.':''}date,'%d/%m') AS date,COALESCE(SUM(${locationId?'s.':''}total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND${locationId?' s.':' '}status!='cancelled' GROUP BY DATE(${locationId?'s.':''}date),DATE_FORMAT(${locationId?'s.':''}date,'%d/%m') ORDER BY DATE(${locationId?'s.':''}date) ASC`, locationId ? [locationId, days] : [days]),
-      query<{name:string;total:number}>(`SELECT p.name,COALESCE(SUM(si.quantity*si.unit_price),0) AS total FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY) AND s.status!='cancelled' GROUP BY p.id,p.name ORDER BY total DESC LIMIT 5`,locParams()),
+      query<{name:string;total:number}>(`SELECT p.name,COALESCE(SUM(si.quantity*si.unit_price),0) AS total FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_FORMAT(CURDATE(), '%Y-%m-01') AND s.status!='cancelled' GROUP BY p.id,p.name ORDER BY total DESC LIMIT 5`,locParams()),
       query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE${locationId?` id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='gasto' AND DATE(date)=CURDATE()) AND`:''} DATE(date)=CURDATE()`,locParams()),
-      query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE${locationId?` id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='gasto') AND`:''} date>=DATE_SUB(NOW(),INTERVAL 7 DAY)`,locParams()),
+      query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE${locationId?` id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='gasto') AND`:''} date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)`,locParams()),
       query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} DATE(${locationId?'s.':''}date)=CURDATE() AND s.status!='cancelled'`,locParams()),
-      query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL 7 DAY) AND s.status!='cancelled'`,locParams()),
+      query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) AND s.status!='cancelled'`,locParams()),
     ]);
     const salesTodayVal = today[0]?.total ?? 0;
     const salesWeekVal = week[0]?.total ?? 0;
@@ -141,6 +141,35 @@ export const GET = handle(async (req: Request) => {
     const pid = searchParams.get('product_id');
     const sql = `SELECT sm.*,p.name AS product_name,u.name AS user_name FROM stock_movements sm LEFT JOIN products p ON p.id=sm.product_id LEFT JOIN users u ON u.id=sm.user_id${pid?' WHERE sm.product_id=?':''} ORDER BY sm.date DESC LIMIT 100`;
     return ok(await query(sql, pid?[pid]:[]));
+  }
+
+  if (type === 'expiration') {
+    const rows = await query<Record<string, unknown>>(`
+      SELECT p.id, p.name, p.expiration_date, p.is_perishable, p.stock, p.unit,
+        c.name AS category_name,
+        DATEDIFF(p.expiration_date, CURDATE()) AS days_left
+      FROM products p
+      LEFT JOIN categories c ON c.id = p.category_id
+      WHERE p.active = 1
+        AND p.is_perishable = 1
+        AND p.expiration_date IS NOT NULL
+      ORDER BY p.expiration_date ASC
+    `);
+    return ok(rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      expiration_date: r.expiration_date,
+      is_perishable: Boolean(r.is_perishable),
+      stock: Number(r.stock),
+      unit: r.unit,
+      category_name: r.category_name ?? null,
+      days_left: Number(r.days_left),
+      status: Number(r.days_left) < 0 ? 'expired'
+        : Number(r.days_left) <= 5 ? 'critical'
+        : Number(r.days_left) <= 15 ? 'warning'
+        : Number(r.days_left) <= 30 ? 'info'
+        : 'future',
+    })));
   }
 
   return err('Tipo inválido');

@@ -112,7 +112,7 @@ export const GET = handle(async (req) => {
       COALESCE(SUM(p.amount_transfer), 0) AS transfer
     FROM payments p
     JOIN sales s ON s.id = p.sale_id
-    WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)
 
     UNION ALL
 
@@ -122,7 +122,7 @@ export const GET = handle(async (req) => {
       COALESCE(SUM(p.amount_transfer), 0) AS transfer
     FROM payments p
     JOIN sales s ON s.id = p.sale_id
-    WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    WHERE s.status != 'cancelled' AND p.date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
 
     UNION ALL
 
@@ -143,7 +143,7 @@ export const GET = handle(async (req) => {
       COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
       COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
     FROM customer_payments
-    WHERE date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    WHERE date >= DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)
 
     UNION ALL
 
@@ -153,7 +153,7 @@ export const GET = handle(async (req) => {
       COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
       COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
     FROM customer_payments
-    WHERE date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    WHERE date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
 
     UNION ALL
 
@@ -175,7 +175,7 @@ export const GET = handle(async (req) => {
       COALESCE(SUM(CASE WHEN payment_method='mixed' THEN amount ELSE 0 END), 0) AS mixed,
       COALESCE(SUM(CASE WHEN payment_method IS NULL THEN amount ELSE 0 END), 0) AS unclassified
     FROM expenses
-    WHERE date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    WHERE date >= DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)
 
     UNION ALL
 
@@ -186,7 +186,7 @@ export const GET = handle(async (req) => {
       COALESCE(SUM(CASE WHEN payment_method='mixed' THEN amount ELSE 0 END), 0) AS mixed,
       COALESCE(SUM(CASE WHEN payment_method IS NULL THEN amount ELSE 0 END), 0) AS unclassified
     FROM expenses
-    WHERE date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    WHERE date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
 
     UNION ALL
 
