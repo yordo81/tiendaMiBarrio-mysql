@@ -28,7 +28,7 @@ export default function InventarioPage() {
   const [showModal, setShowModal] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
-  const [purchaseForm, setPurchaseForm] = useState({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', is_capital: false });
+  const [purchaseForm, setPurchaseForm] = useState({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', is_capital: false, expiration_date: '' });
   const [purchaseSaving, setPurchaseSaving] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [editProduct, setEditProduct] = useState<AnyRecord | null>(null);
@@ -40,7 +40,23 @@ export default function InventarioPage() {
   const [moveForm, setMoveForm] = useState({ type: 'in', quantity: 0, reason: '', location_id: '' });
   const [moveLocStock, setMoveLocStock] = useState<number | null>(null);
   const [purchaseLocStockMap, setPurchaseLocStockMap] = useState<Record<string, number>>({});
+  const [expiringProducts, setExpiringProducts] = useState<AnyRecord[]>([]);
+  const [showExpiryBanner, setShowExpiryBanner] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('inv_hide_expiry') !== 'true';
+    return true;
+  });
+
+  function dismissExpiryBanner() {
+    setShowExpiryBanner(false);
+    localStorage.setItem('inv_hide_expiry', 'true');
+  }
+
+  function restoreExpiryBanner() {
+    setShowExpiryBanner(true);
+    localStorage.removeItem('inv_hide_expiry');
+  }
   const [showZeroStock, setShowZeroStock] = useState(false);
+  const [showExpiringOnly, setShowExpiringOnly] = useState(false);
   const [showLowStockBanner, setShowLowStockBanner] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('inv_hide_low_stock') !== 'true';
@@ -93,8 +109,8 @@ export default function InventarioPage() {
   // Cargar datos cada vez que cambie el filtro de ubicación
   useEffect(() => { load(locFilter || undefined); }, [load, locFilter]);
 
-  function openNew() { setEditProduct(null); setForm({ name:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '', is_capital: false }); setImageFile(null); setImagePreview(null); setShowModal(true); }
-  function openEdit(p: AnyRecord) { setEditProduct(p); setForm({ ...p, supplier_ids: (p.supplier_ids as string[]|undefined) ?? [] }); setImageFile(null); setImagePreview(String(p.image_url??'')); setShowModal(true); }
+  function openNew() { setEditProduct(null); setForm({ name:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', expiration_date:'', is_perishable: false, supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '', is_capital: false }); setImageFile(null); setImagePreview(null); setShowModal(true); }
+  function openEdit(p: AnyRecord) { setEditProduct(p); setForm({ ...p, is_perishable: Boolean(p.is_perishable), supplier_ids: (p.supplier_ids as string[]|undefined) ?? [] }); setImageFile(null); setImagePreview(String(p.image_url??'')); setShowModal(true); }
 
   async function handleSave() {
     if (!String(form.name ?? '').trim()) return;
@@ -137,6 +153,7 @@ export default function InventarioPage() {
   }
 
   function openPurchase(productId?: string) {
+    const product = productId ? products.find(p => String(p.id) === productId) : null;
     setPurchaseForm({
       product_id: productId ?? '',
       supplier_id: suppliers.length > 0 ? String(suppliers[0].id) : '',
@@ -145,6 +162,7 @@ export default function InventarioPage() {
       location_id: locations.length > 0 ? String(locations[0].id) : '',
       notes: '',
       is_capital: false,
+      expiration_date: product?.expiration_date ? String(product.expiration_date) : '',
     });
     setPurchaseLocStockMap({});
     setShowPurchaseModal(true);
@@ -196,6 +214,7 @@ export default function InventarioPage() {
         location_id: purchaseForm.location_id,
         notes: purchaseForm.notes,
         is_capital: purchaseForm.is_capital,
+        expiration_date: purchaseForm.expiration_date || null,
       });
       toast.success(`Compra registrada — costo promedio: $${Number((res as any).cost_after).toFixed(2)}`);
       setShowPurchaseModal(false);
@@ -238,12 +257,35 @@ export default function InventarioPage() {
     const matchSearch = String(p.name ?? '').toLowerCase().includes(search.toLowerCase());
     const matchCat = catFilter ? p.category_id === catFilter : true;
     const matchStock = showZeroStock || Number(p.stock ?? 0) > 0;
-    return matchSearch && matchCat && matchStock;
+    const matchExpiring = !showExpiringOnly || (() => {
+      if (!p.is_perishable || !p.expiration_date) return false;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const expDate = new Date(String(p.expiration_date)); expDate.setHours(0, 0, 0, 0);
+      const daysLeft = Math.round((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return daysLeft >= 0 && daysLeft <= 30;
+    })();
+    return matchSearch && matchCat && matchStock && matchExpiring;
   });
   const paginated = pageSize === 0 ? filtered : filtered.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, catFilter, locFilter]);
+  useEffect(() => { setPage(1); }, [search, catFilter, locFilter, showExpiringOnly]);
+  // Productos próximos a vencer (30 días)
+  useEffect(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const thirtyDaysFromNow = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const expiring = products
+      .filter(p => {
+        if (!p.expiration_date) return false;
+        const expDate = new Date(String(p.expiration_date));
+        expDate.setHours(0, 0, 0, 0);
+        return expDate >= today && expDate <= thirtyDaysFromNow;
+      })
+      .sort((a, b) => new Date(String(a.expiration_date)).getTime() - new Date(String(b.expiration_date)).getTime());
+    setExpiringProducts(expiring);
+  }, [products]);
+
   const lowStock = products.filter(p => Number(p.stock ?? 0) <= Number(p.min_stock ?? 0) && Number(p.min_stock ?? 0) > 0);
   const movTypeLabel: Record<string,string> = { in:'Entrada', out:'Salida', adjust:'Ajuste', expense:'Gasto', sale:'Venta' };
   const movTypeColor: Record<string,string> = { in:'text-green-400', out:'text-red-400', adjust:'text-yellow-400', expense:'text-orange-400', sale:'text-blue-400' };
@@ -272,6 +314,101 @@ export default function InventarioPage() {
                 <XIcon className="w-4 h-4" />
               </button>
             </div>
+          )}
+
+          {/* ── Alerta de productos próximos a vencer ── */}
+          {expiringProducts.length > 0 && showExpiryBanner && (() => {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const critical = expiringProducts.filter(p => {
+              const d = new Date(String(p.expiration_date));
+              d.setHours(0, 0, 0, 0);
+              return (d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24) <= 5;
+            });
+            const warning = expiringProducts.filter(p => {
+              const d = new Date(String(p.expiration_date));
+              d.setHours(0, 0, 0, 0);
+              const days = (d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+              return days > 5 && days <= 15;
+            });
+            const info = expiringProducts.filter(p => {
+              const d = new Date(String(p.expiration_date));
+              d.setHours(0, 0, 0, 0);
+              const days = (d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+              return days > 15 && days <= 30;
+            });
+
+            const hasCritical = critical.length > 0;
+            const bannerColor = hasCritical ? 'red' : warning.length > 0 ? 'orange' : 'yellow';
+            const borderClass = hasCritical ? 'border-red-500/30' : warning.length > 0 ? 'border-orange-500/30' : 'border-yellow-500/30';
+            const bgClass = hasCritical ? 'bg-red-500/10' : warning.length > 0 ? 'bg-orange-500/10' : 'bg-yellow-500/10';
+            const iconColor = hasCritical ? 'text-red-400' : warning.length > 0 ? 'text-orange-400' : 'text-yellow-400';
+            const textColor = hasCritical ? 'text-red-400' : warning.length > 0 ? 'text-orange-400' : 'text-yellow-400';
+
+            return (
+              <div className={`${bgClass} border ${borderClass} rounded-xl px-4 py-3 flex items-start gap-3`}>
+                <AlertTriangle className={`w-4 h-4 ${iconColor} flex-shrink-0 mt-0.5`}/>
+                <div className="flex-1 text-sm">
+                  <p className={`${textColor} font-semibold mb-1`}>
+                    {critical.length > 0 && `${critical.length} producto(s) VENCEN EN MENOS DE 5 DÍAS`}
+                    {critical.length > 0 && (warning.length > 0 || info.length > 0) && ' · '}
+                    {warning.length > 0 && `${warning.length} vencen en 5-15 días`}
+                    {warning.length > 0 && info.length > 0 && ' · '}
+                    {info.length > 0 && `${info.length} vencen en 15-30 días`}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {critical.slice(0, 3).map(p => {
+                      const d = new Date(String(p.expiration_date));
+                      const daysLeft = Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                      return (
+                        <span key={String(p.id)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500/15 text-red-300 text-xs font-medium">
+                          {String(p.name)} <span className="opacity-70">({daysLeft}d)</span>
+                        </span>
+                      );
+                    })}
+                    {critical.length > 3 && <span className="text-xs text-[var(--text-tertiary)] self-center">+{critical.length - 3} más</span>}
+                    {warning.slice(0, 2).map(p => {
+                      const d = new Date(String(p.expiration_date));
+                      const daysLeft = Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                      return (
+                        <span key={String(p.id)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-500/15 text-orange-300 text-xs font-medium">
+                          {String(p.name)} <span className="opacity-70">({daysLeft}d)</span>
+                        </span>
+                      );
+                    })}
+                    {warning.length > 2 && <span className="text-xs text-[var(--text-tertiary)] self-center">+{warning.length - 2} más</span>}
+                    {info.slice(0, 2).map(p => {
+                      const d = new Date(String(p.expiration_date));
+                      const daysLeft = Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                      return (
+                        <span key={String(p.id)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-yellow-500/15 text-yellow-300 text-xs font-medium">
+                          {String(p.name)} <span className="opacity-70">({daysLeft}d)</span>
+                        </span>
+                      );
+                    })}
+                    {info.length > 2 && <span className="text-xs text-[var(--text-tertiary)] self-center">+{info.length - 2} más</span>}
+                  </div>
+                </div>
+                <button
+                  onClick={dismissExpiryBanner}
+                  className={`${iconColor}/60 hover:${iconColor} transition-colors p-1 rounded-lg hover:bg-white/5`}
+                  title="Ocultar aviso"
+                >
+                  <XIcon className="w-4 h-4" />
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Botón restaurar banner de vencimiento */}
+          {!showExpiryBanner && expiringProducts.length > 0 && (
+            <button
+              onClick={restoreExpiryBanner}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border border-[var(--border-secondary)] text-orange-400 hover:text-orange-300 hover:border-orange-500/40 hover:bg-orange-500/5 transition-colors"
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Próximos a vencer ({expiringProducts.length})
+            </button>
           )}
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
             <div className="flex gap-2 flex-1 w-full sm:w-auto">
@@ -303,6 +440,9 @@ export default function InventarioPage() {
               <button onClick={()=>setShowZeroStock(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showZeroStock ? 'bg-brand-600/20 border-brand-600/50 text-brand-400' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[#6e7681]')}>
                 <span className="text-sm">{showZeroStock ? '☑' : '☐'}</span> Stock 0
               </button>
+              <button onClick={()=>setShowExpiringOnly(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showExpiringOnly ? 'bg-orange-600/20 border-orange-600/50 text-orange-400' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[#6e7681]')}>
+                <AlertTriangle className="w-3.5 h-3.5" /> Próx. a vencer
+              </button>
               {!showLowStockBanner && lowStock.length > 0 && (
                 <button
                   onClick={restoreLowStockBanner}
@@ -325,7 +465,7 @@ export default function InventarioPage() {
             : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[var(--border-primary)]">{['img-col','Producto','Categoría','Proveedores','Ubicación','Stock','Precio','Costo','Margen','actions-col'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{['img-col','actions-col'].includes(h)?'':h}</th>)}</tr></thead>
+                  <thead><tr className="border-b border-[var(--border-primary)]">{['img-col','Producto','Categoría','Proveedores','Ubicación','Stock','Vence','Precio','Costo','Margen','actions-col'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{['img-col','actions-col'].includes(h)?'':h}</th>)}</tr></thead>
                   <tbody>
                     {paginated.map(p => {
                       const lowS = Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0;
@@ -351,6 +491,18 @@ export default function InventarioPage() {
                           <td className="px-4 py-3 text-[var(--text-secondary)] text-xs max-w-[120px] truncate">{(p.supplier_names as string[]|undefined)?.join(', ')||'—'}</td>
                           <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{String(p.location_name??'—')}</td>
                           <td className="px-4 py-3"><span className={cn('font-medium',lowS?'text-red-400':'text-[var(--text-primary)]')}>{formatNumber(Number(p.stock),1)} {String(p.unit)}</span>{lowS ? <span className="ml-1.5 badge-danger text-[10px]">Bajo</span> : null}</td>
+                          <td className="px-4 py-3">{(() => {
+                            if (!p.expiration_date) return <span className="text-[var(--text-tertiary)] text-xs">—</span>;
+                            const today = new Date(); today.setHours(0,0,0,0);
+                            const expDate = new Date(String(p.expiration_date)); expDate.setHours(0,0,0,0);
+                            const daysLeft = Math.round((expDate.getTime() - today.getTime()) / (1000*60*60*24));
+                            const formatted = String(p.expiration_date).split('-').reverse().join('/');
+                            if (daysLeft < 0) return <span className="text-red-400 text-xs font-medium">VENCIDO ({formatted})</span>;
+                            if (daysLeft <= 5) return <span className="text-red-400 text-xs font-medium">{formatted} ⚠️ {daysLeft}d</span>;
+                            if (daysLeft <= 15) return <span className="text-orange-400 text-xs font-medium">{formatted}</span>;
+                            if (daysLeft <= 30) return <span className="text-yellow-400 text-xs">{formatted}</span>;
+                            return <span className="text-[var(--text-tertiary)] text-xs">{formatted}</span>;
+                          })()}</td>
                           <td className="px-4 py-3 text-[var(--text-primary)]">{formatCurrency(Number(p.sale_price))}</td>
                           <td className="px-4 py-3 text-[var(--text-secondary)]">{formatCurrency(Number(p.cost))}</td>
                           <td className="px-4 py-3"><span className={cn('font-medium',margin>=20?'text-green-400':margin>=10?'text-yellow-400':'text-red-400')}>{margin.toFixed(1)}%</span></td>
@@ -522,6 +674,36 @@ export default function InventarioPage() {
             />
           </div>
           <div><label className="label">Unidad</label><input className="input" value={String(form.unit??'unidad')} onChange={e=>setForm(f=>({...f,unit:e.target.value}))}/></div>
+          <div className="sm:col-span-2">
+            <div className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] p-3">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={form.is_perishable === true}
+                    onChange={e => setForm(f => ({ ...f, is_perishable: e.target.checked }))}
+                  />
+                  <div className="w-10 h-6 bg-[var(--bg-muted)] rounded-full peer-checked:bg-brand-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4" />
+                </div>
+                <div>
+                  <p className="text-sm text-[var(--text-primary)] font-medium">¿Es un producto perecedero?</p>
+                  <p className="text-xs text-[var(--text-tertiary)]">
+                    {form.is_perishable === true
+                      ? 'Se solicitará fecha de caducidad y se mostrarán alertas de vencimiento'
+                      : 'Actívalo si este producto tiene fecha de vencimiento (alimentos, lácteos, carnes, etc.)'}
+                  </p>
+                </div>
+              </label>
+            </div>
+            {form.is_perishable === true && (
+              <div className="mt-3">
+                <label className="label">Fecha de caducidad</label>
+                <input type="date" className="input" value={String(form.expiration_date??'')} onChange={e=>setForm(f=>({...f,expiration_date:e.target.value||null}))}/>
+                <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Opcional — puedes dejarlo vacío si la fecha se asigna al recibir el producto</p>
+              </div>
+            )}
+          </div>
           <div><label className="label">Precio de venta</label><input type="number" min="0" step="1" className="input" value={Number(form.sale_price??0)} onChange={e=>setForm(f=>({...f,sale_price:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Costo</label><input type="number" min="0" step="1" className="input" value={Number(form.cost??0)} onChange={e=>setForm(f=>({...f,cost:parseFloat(e.target.value)||0}))}/></div>
           <div>
@@ -631,10 +813,41 @@ export default function InventarioPage() {
                 };
               })}
               value={purchaseForm.product_id}
-              onChange={v => setPurchaseForm(f => ({ ...f, product_id: v }))}
+              onChange={v => {
+                // Al cambiar de producto, precargar su fecha de caducidad actual
+                const prod = products.find(p => String(p.id) === v);
+                setPurchaseForm(f => ({
+                  ...f,
+                  product_id: v,
+                  expiration_date: prod?.expiration_date ? String(prod.expiration_date) : '',
+                }));
+              }}
               placeholder="Buscar producto…"
               noResultsMessage="No se encontraron productos"
             />
+            {/* Fecha de caducidad — solo para productos perecederos */}
+            {(() => {
+              const prod = purchaseForm.product_id
+                ? products.find(p => String(p.id) === purchaseForm.product_id)
+                : null;
+              if (!prod || !prod.is_perishable) return null;
+              return (
+                <div className="mt-3">
+                  <label className="label">Fecha de caducidad del lote</label>
+                  <input
+                    type="date"
+                    className="input"
+                    value={purchaseForm.expiration_date}
+                    onChange={e => setPurchaseForm(f => ({ ...f, expiration_date: e.target.value }))}
+                  />
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                    {prod.expiration_date
+                      ? `Fecha actual del producto: ${String(prod.expiration_date).split('-').reverse().join('/')}. Cámbiala si este lote tiene una fecha diferente.`
+                      : 'Asigna la fecha de vencimiento de este lote'}
+                  </p>
+                </div>
+              );
+            })()}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div><label className="label">Proveedor *</label>

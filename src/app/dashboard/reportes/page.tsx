@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse, Calendar } from 'lucide-react';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import InfoTooltip from '@/components/ui/Tooltip';
 import { exportToCSV } from '@/lib/export';
@@ -11,7 +11,7 @@ import { toast } from '@/components/ui/toaster';
 
 function exportCSV(data: R[], filename: string) { exportToCSV(data as Record<string, unknown>[], filename); }
 
-type TabKey = 'ventas'|'rentabilidad'|'precios'|'reabastecimiento'|'cuentas';
+type TabKey = 'ventas'|'rentabilidad'|'precios'|'reabastecimiento'|'cuentas'|'vencimientos';
 type R = Record<string,unknown>;
 
 const tabs: { key: TabKey; label: string; icon: React.ElementType }[] = [
@@ -19,6 +19,7 @@ const tabs: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key:'rentabilidad', label:'Rentabilidad', icon:BarChart3 },
   { key:'precios', label:'Variación Precios', icon:TrendingDown },
   { key:'reabastecimiento', label:'Reabastecimiento', icon:Package },
+  { key:'vencimientos', label:'Vencimientos', icon:Calendar },
   { key:'cuentas', label:'Cuentas', icon:Users },
 ];
 
@@ -46,6 +47,7 @@ export default function ReportesPage() {
   const [forecasts, setForecasts] = useState<R[]>([]);
   const [debts, setDebts] = useState<R[]>([]);
   const [totalDebt, setTotalDebt] = useState(0);
+  const [expirationData, setExpirationData] = useState<R[]>([]);
   const [locations, setLocations] = useState<R[]>([]);
   const [locationFilter, setLocationFilter] = useState('');
 
@@ -164,6 +166,16 @@ export default function ReportesPage() {
     finally { setLoading(false); }
   }, []);
 
+  const loadExpirations = useCallback(async () => {
+    setLoading(true);
+    try {
+      const d = await fetch('/api/reports?type=expiration').then(r=>r.json());
+      const arr = Array.isArray(d) ? d as R[] : [];
+      setExpirationData(arr);
+    } catch(e) { console.error('[loadExpirations]', e); }
+    finally { setLoading(false); }
+  }, []);
+
   // Cargar ubicaciones al montar
   useEffect(() => {
     api.getLocations().then(setLocations).catch(() => {});
@@ -174,6 +186,7 @@ export default function ReportesPage() {
     else if (tab==='rentabilidad') loadMargins();
     else if (tab==='precios') loadProducts();
     else if (tab==='reabastecimiento') loadForecasts();
+    else if (tab==='vencimientos') loadExpirations();
     else if (tab==='cuentas') loadDebts();
   }, [tab, range, locationFilter]);
 
@@ -393,6 +406,84 @@ export default function ReportesPage() {
                 ))}</tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {!loading&&tab==='vencimientos'&&(
+        <div className="space-y-5">
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Productos vencidos y próximos a vencer</h3>
+                <p className="text-xs text-[var(--text-tertiary)] mt-0.5">Productos perecederos con fecha de caducidad registrada</p>
+              </div>
+              <button onClick={()=>exportCSV(expirationData,'vencimientos')} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
+            </div>
+            {expirationData.length===0?<p className="text-center text-[var(--text-tertiary)] py-8 text-sm">No hay productos perecederos con fecha de caducidad registrada 🎉</p>:(
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-[var(--border-primary)]">{['Estado','Producto','Categoría','Stock','Vence','Días'].map(h=><th key={h} className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                  <tbody>
+                    {(() => {
+                      const groups: { label: string; color: string; bgColor: string; statuses: string[] }[] = [
+                        { label: '🔴 Vencidos', color:'text-red-400', bgColor:'bg-red-500/5', statuses:['expired'] },
+                        { label: '⚠️ Críticos (≤5 días)', color:'text-red-400', bgColor:'bg-red-500/5', statuses:['critical'] },
+                        { label: '⚠️ Por vencer (6-15 días)', color:'text-orange-400', bgColor:'bg-orange-500/5', statuses:['warning'] },
+                        { label: '📅 Próximos (16-30 días)', color:'text-yellow-400', bgColor:'bg-yellow-500/5', statuses:['info'] },
+                        { label: '✅ Vigentes (>30 días)', color:'text-green-400', bgColor:'bg-green-500/5', statuses:['future'] },
+                      ];
+
+                      const rows: React.ReactNode[] = [];
+                      for (const group of groups) {
+                        const items = expirationData.filter(p => group.statuses.includes(String(p.status)));
+                        if (items.length === 0) continue;
+                        rows.push(
+                          <tr key={group.label} className="border-b border-[var(--border-primary)]">
+                            <td colSpan={6} className={`px-3 py-2 ${group.bgColor}`}>
+                              <span className={`text-xs font-semibold ${group.color}`}>{group.label} · {items.length} producto(s)</span>
+                            </td>
+                          </tr>
+                        );
+                        items.forEach(p => {
+                          const daysLeft = Number(p.days_left);
+                          const formatted = String(p.expiration_date).split('-').reverse().join('/');
+                          rows.push(
+                            <tr key={String(p.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                              <td className="px-3 py-2.5">
+                                {daysLeft < 0
+                                  ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500/15 text-red-300 text-xs font-medium">Vencido</span>
+                                  : daysLeft <= 5
+                                    ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500/15 text-red-300 text-xs font-medium">Crítico</span>
+                                    : daysLeft <= 15
+                                      ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-500/15 text-orange-300 text-xs font-medium">Pronto</span>
+                                      : daysLeft <= 30
+                                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-yellow-500/15 text-yellow-300 text-xs font-medium">Próximo</span>
+                                        : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-green-500/15 text-green-300 text-xs font-medium">Vigente</span>
+                                }
+                              </td>
+                              <td className="px-3 py-2.5 text-[var(--text-primary)] font-medium">{String(p.name)}</td>
+                              <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{String(p.category_name??'—')}</td>
+                              <td className="px-3 py-2.5 text-[var(--text-secondary)]">{formatNumber(Number(p.stock),1)} {String(p.unit)}</td>
+                              <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{formatted}</td>
+                              <td className="px-3 py-2.5">
+                                <span className={cn(
+                                  'font-medium text-xs',
+                                  daysLeft < 0 ? 'text-red-400' : daysLeft <= 5 ? 'text-red-400' : daysLeft <= 15 ? 'text-orange-400' : daysLeft <= 30 ? 'text-yellow-400' : 'text-green-400'
+                                )}>
+                                  {daysLeft < 0 ? `${Math.abs(daysLeft)}d vencido` : `${daysLeft}d`}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      }
+                      return rows;
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import { WifiOff } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import ThemeToggle from '@/components/ui/ThemeToggle';
+import NotificationBell from '@/components/notifications/NotificationBell';
 const titles: Record<string,string> = { '/dashboard':'Dashboard','/dashboard/inventario':'Inventario','/dashboard/ventas':'Ventas','/dashboard/clientes':'Clientes','/dashboard/proveedores':'Proveedores','/dashboard/gastos':'Gastos','/dashboard/reportes':'Reportes','/dashboard/usuarios':'Usuarios','/dashboard/almacenes':'Almacenes','/dashboard/contabilidad':'Contabilidad','/dashboard/auditoria':'Auditoría','/dashboard/compras':'Compras','/dashboard/movimientos':'Movimientos','/dashboard/reservaciones':'Reservaciones' };
 export default function Topbar() {
   const pathname = usePathname();
@@ -15,6 +16,7 @@ export default function Topbar() {
       <h1 className="font-display text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{titles[pathname] ?? 'TiendaMiBarrio'}</h1>
       <div className="flex items-center gap-2">
         {mounted && !isOnline && <div className="flex items-center gap-1.5 text-yellow-400 text-xs bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1 rounded-full"><WifiOff size={12}/>Sin conexión</div>}
+        <NotificationBell />
         <ThemeToggle compact />
       </div>
     </header>
