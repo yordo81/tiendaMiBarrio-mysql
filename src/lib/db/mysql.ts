@@ -43,12 +43,12 @@ export const pool: mysql.Pool = globalThis._mysqlPool ?? (globalThis._mysqlPool 
 
 // Configura la zona horaria de la sesión MySQL en cada nueva conexión
 // para que CURDATE()/NOW() reflejen la zona horaria de la aplicación.
-pool.on('connection', (conn) => {
+pool.on('connection', async (conn) => {
   try {
-    conn.execute("SET time_zone = 'America/Havana'")
-      .catch((err: Error) => console.error('[mysql] Error al configurar timezone:', err.message));
+    await conn.execute("SET time_zone = 'America/Havana'");
   } catch (err) {
-    console.error('[mysql] Error inesperado en connection handler:', err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[mysql] Error al configurar timezone:', message);
   }
 });
 
