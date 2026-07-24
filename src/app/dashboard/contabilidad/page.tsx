@@ -498,7 +498,7 @@ export default function ContabilidadPage() {
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#1c2128] border border-transparent'
                 )}
               >
-                {p === 'total' ? 'Todo' : p === 'week' ? 'Semana' : p === 'month' ? 'Último mes' : p === '90days' ? '90 días' : 'Personalizado'}
+                {p === 'total' ? 'Todo' : p === 'week' ? 'Semana' : p === 'month' ? 'Este mes' : p === '90days' ? '90 días' : 'Personalizado'}
               </button>
             ))}
           </div>
@@ -525,7 +525,7 @@ export default function ContabilidadPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="card p-4">
             <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-3">
-              Ingresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
+              Ingresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'esta semana' : periodFilter === 'month' ? 'este mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
             </h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
@@ -568,7 +568,7 @@ export default function ContabilidadPage() {
           </div>
           <div className="card p-4">
             <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-3">
-              Egresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'última semana' : periodFilter === 'month' ? 'último mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
+              Egresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'esta semana' : periodFilter === 'month' ? 'este mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
             </h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
