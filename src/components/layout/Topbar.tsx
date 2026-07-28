@@ -1,11 +1,10 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { WifiOff, LogOut, Sun, Moon, ChevronDown, User } from 'lucide-react';
+import { WifiOff, LogOut, ChevronDown, User } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { classifyRole, cn } from '@/lib/utils';
-import { useTheme } from '@/components/theme/ThemeProvider';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import NotificationBell from '@/components/notifications/NotificationBell';
 
@@ -22,7 +21,6 @@ export default function Topbar() {
   const router = useRouter();
   const isOnline = useOnlineStatus();
   const { user, setUser } = useAuthStore();
-  const { theme, toggleTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -49,8 +47,6 @@ export default function Topbar() {
     setUser(null);
     router.push('/auth/login');
   };
-
-  const isDark = theme === 'dark';
 
   return (
     <header className="h-14 border-b backdrop-blur-sm flex items-center justify-between px-5 sticky top-0 z-20" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)' }}>
@@ -107,20 +103,6 @@ export default function Topbar() {
                   </p>
                 </div>
               </div>
-
-              {/* Theme toggle */}
-              <button
-                onClick={toggleTheme}
-                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                {isDark ? (
-                  <Sun className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                ) : (
-                  <Moon className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                )}
-                <span>{isDark ? 'Modo claro' : 'Modo oscuro'}</span>
-              </button>
 
               {/* Logout */}
               <button
