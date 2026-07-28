@@ -31,3 +31,25 @@ export const POST = handle(async (req: Request) => {
 
   return ok({ dismissed: id });
 });
+
+// ── Delete Notification (permanente) ──────────────────────────────
+// Elimina físicamente notificaciones de la base de datos.
+// DELETE: { id: string } o { all: true } para eliminar todas las descartadas
+
+export const DELETE = handle(async (req: Request) => {
+  await requireAuth();
+  const { id, all } = await req.json();
+
+  if (all === true) {
+    await execute('DELETE FROM notification_logs WHERE dismissed = 1');
+    return ok({ deleted: 'all' });
+  }
+
+  if (!id) {
+    return err('Se requiere id o all: true');
+  }
+
+  await execute('DELETE FROM notification_logs WHERE id = ?', [id]);
+
+  return ok({ deleted: id });
+});

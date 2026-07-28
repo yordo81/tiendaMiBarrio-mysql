@@ -17,7 +17,7 @@ async function createNotification(
   message: string, severity: 'critical' | 'warning' | 'info' | 'success', ts: string
 ) {
   const existing = await query<{ id: string }>(
-    'SELECT id FROM notification_logs WHERE type = ? AND product_id <=> ? AND dismissed = 0 LIMIT 1',
+    'SELECT id FROM notification_logs WHERE type = ? AND product_id <=> ? LIMIT 1',
     [type, productId]
   );
   if (existing.length > 0) return null; // Ya notificado

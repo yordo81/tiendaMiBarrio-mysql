@@ -184,7 +184,17 @@ export default function NotificationBell() {
                         <Icon className={cn('w-4 h-4', cfg.text)} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-[var(--text-primary)] leading-snug">{n.title}</p>
+                        {n.product_id ? (
+                          <a
+                            href={`/dashboard/productos/${n.product_id}`}
+                            onClick={() => setOpen(false)}
+                            className="text-xs font-medium text-[var(--text-primary)] leading-snug hover:text-brand-400 transition-colors"
+                          >
+                            {n.title}
+                          </a>
+                        ) : (
+                          <p className="text-xs font-medium text-[var(--text-primary)] leading-snug">{n.title}</p>
+                        )}
                         <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
                         <p className="text-[10px] text-[var(--text-tertiary)] mt-1 opacity-60">
                           {timeAgo(n.created_at)}
@@ -207,7 +217,13 @@ export default function NotificationBell() {
 
           {/* Footer */}
           {notifications.length > 0 && (
-            <div className="px-4 py-2 border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+            <div className="px-4 py-2 border-t border-[var(--border-primary)] bg-[var(--bg-secondary)] space-y-1">
+              <a
+                href="/dashboard/notificaciones"
+                className="block text-[10px] font-medium text-brand-400 hover:text-brand-300 text-center hover:underline transition-colors"
+              >
+                Ver todas las notificaciones →
+              </a>
               <p className="text-[10px] text-[var(--text-tertiary)] text-center">
                 Las notificaciones se actualizan cada 2 minutos
               </p>
