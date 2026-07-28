@@ -2,8 +2,39 @@ export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute } from '@/lib/db/mysql';
 import { logAudit } from '@/lib/db/audit';
-import { handle, ok, err, forbidden } from '@/lib/api-helpers';
+import { handle, ok, err, forbidden, notFound } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
+
+// ── GET: Obtener un producto por ID (con relaciones) ─────────────────────────
+export const GET = handle(async (_: Request, ctx) => {
+  const { id } = await ctx!.params;
+  await requireAuth();
+
+  const rows = await query<Record<string, unknown>>(
+    `SELECT p.*,
+            c.name AS category_name,
+            GROUP_CONCAT(DISTINCT s.id ORDER BY ps.is_preferred DESC SEPARATOR '||') AS supplier_ids,
+            GROUP_CONCAT(DISTINCT s.name ORDER BY ps.is_preferred DESC SEPARATOR '||') AS supplier_names
+     FROM products p
+     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN product_suppliers ps ON ps.product_id = p.id
+     LEFT JOIN suppliers s ON s.id = ps.supplier_id
+     WHERE p.id = ?
+     GROUP BY p.id`,
+    [id]
+  );
+
+  if (rows.length === 0) return notFound('Producto no encontrado');
+
+  const product = rows[0];
+  return ok({
+    ...product,
+    active: Boolean(product.active),
+    is_perishable: Boolean(product.is_perishable),
+    supplier_ids: product.supplier_ids ? String(product.supplier_ids).split('||') : [],
+    supplier_names: product.supplier_names ? String(product.supplier_names).split('||') : [],
+  });
+});
 
 export const PUT = handle(async (request: Request, ctx) => {
   const { id } = await ctx!.params;
