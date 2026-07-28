@@ -1,18 +1,17 @@
 'use client';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useEffect, useCallback, useState } from 'react';
 import { useAuthStore } from '@/lib/stores/auth-store';
-import { classifyRole, cn } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, Truck,
-  TrendingDown, BarChart2, UserCog, LogOut, Wifi, WifiOff,
-  Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign, CalendarCheck,
+  TrendingDown, BarChart2, UserCog, Wifi, WifiOff,
+  Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign, CalendarCheck, Bell,
 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import type { AppUser } from '@/types';
 import { UNAUTHORIZED_EVENT, type UnauthorizedEventDetail } from '@/lib/api-client';
-import ThemeToggle from '@/components/ui/ThemeToggle';
 
 const navItems = [
   { href: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard',    roles: ['owner','admin','seller','warehouse'] },
@@ -28,12 +27,12 @@ const navItems = [
   { href: '/dashboard/contabilidad', icon: DollarSign,     label: 'Contabilidad', roles: ['owner','admin'] },
   { href: '/dashboard/reportes',    icon: BarChart2,       label: 'Reportes',     roles: ['owner','admin'] },
   { href: '/dashboard/auditoria',   icon: Shield,          label: 'Auditoría',    roles: ['owner','admin'] },
+  { href: '/dashboard/notificaciones', icon: Bell,         label: 'Notificaciones', roles: ['owner','admin','warehouse','seller'] },
   { href: '/dashboard/usuarios',    icon: UserCog,         label: 'Usuarios',     roles: ['owner'] },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { user, setUser } = useAuthStore();
   const isOnline = useOnlineStatus();
   const [mounted, setMounted] = useState(false);
@@ -65,11 +64,6 @@ export default function Sidebar() {
 
   const allowedItems = navItems.filter(item => !user ? true : item.roles.includes(user.role));
 
-  async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    setUser(null); router.push('/auth/login');
-  }
-
   return (
     <aside className="hidden md:flex flex-col w-60 h-screen fixed left-0 top-0 z-40" style={{ backgroundColor: 'var(--bg-secondary)', borderRightColor: 'var(--border-primary)', borderRightWidth: '1px' }}>
       <div className="flex items-center gap-3 px-5 py-5" style={{ borderBottom: '1px solid var(--border-primary)' }}>
@@ -96,21 +90,10 @@ export default function Sidebar() {
           );
         })}
       </nav>
-      <div className="p-3 space-y-2" style={{ borderTop: '1px solid var(--border-primary)' }}>
-        <div className="flex items-center gap-3 px-2 py-2 rounded-lg">
-          <div className="w-8 h-8 bg-brand-600/30 rounded-full flex items-center justify-center flex-shrink-0">
-            <span className="text-brand-400 text-sm font-semibold">{user?.name?.charAt(0).toUpperCase() ?? '?'}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{user?.name ?? 'Cargando...'}</p>
-            <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{user ? classifyRole(user.role) : ''}</p>
-          </div>
-        </div>
-        <ThemeToggle showLabel />
-        <button onClick={handleLogout} className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-all duration-150 group hover:text-red-400 hover:bg-red-500/10" style={{ color: 'var(--text-secondary)' }}>
-          <LogOut className="w-4 h-4 flex-shrink-0 group-hover:text-red-400" style={{ color: 'var(--text-tertiary)' }} />
-          Cerrar sesión
-        </button>
+      <div className="p-3 flex items-center justify-center" style={{ borderTop: '1px solid var(--border-primary)' }}>
+        <p className="text-[10px] text-[var(--text-tertiary)] opacity-50 text-center">
+          TiendaMiBarrio MySQL Edition
+        </p>
       </div>
     </aside>
   );
