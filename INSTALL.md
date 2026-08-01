@@ -186,6 +186,9 @@ Variables disponibles:
 
 | Variable | Default | Descripción |
 |----------|---------|-------------|
+| `DB_HOST` | `localhost` | Host del servidor MySQL (`db` dentro de Docker Compose, lo sobreescribe docker-compose.yml) |
+| `DB_PORT` | `3307` | Puerto MySQL para la app fuera de Docker (`3306` dentro de Docker Compose) |
+| `DB_USER` | `root` | Usuario de MySQL |
 | `DB_PASSWORD` | `rootpassword` | Contraseña del usuario root de MySQL |
 | `DB_NAME` | `tienda_mi_barrio` | Nombre de la base de datos |
 | `DB_PORT_EXTERNAL` | `3307` | Puerto MySQL hacia el host (evita conflicto con MySQL local) |
