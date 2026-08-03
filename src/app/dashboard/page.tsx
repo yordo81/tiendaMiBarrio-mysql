@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
+import { apiFetch } from '@/lib/api-client';
 import { Clock, DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown, BarChart2, AlertTriangle, Calendar, Plus, ShoppingBag, ExternalLink, Check } from 'lucide-react';
 import StatCard from '@/components/ui/StatCard';
 import SaleModal from '@/components/sales/SaleModal';
@@ -52,15 +53,13 @@ export default function DashboardPage() {
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
 
   useEffect(() => {
-    // Fetch dashboard metrics
-    fetch('/api/reports?type=dashboard&days=30')
-      .then(r => { if (!r.ok) throw new Error('API error'); return r.json(); })
+    // Fetch dashboard metrics (apiFetch dispara el evento 401 → redirect al login)
+    apiFetch<DashData>('/api/reports?type=dashboard&days=30')
       .then(d => { setData(d); setLoading(false); })
       .catch(() => { setData(null); setLoading(false); });
 
     // Fetch pending reservations
-    fetch('/api/reservations?status=pending')
-      .then(r => { if (!r.ok) throw new Error('API error'); return r.json(); })
+    apiFetch<{ id: string; customer_name: string; product_name: string; quantity: number; created_at: string }[]>('/api/reservations?status=pending')
       .then(d => { setPendingReservations(Array.isArray(d) ? d.slice(0, 3) : []); setReservationsLoading(false); })
       .catch(() => { setPendingReservations([]); setReservationsLoading(false); });
   }, []);
@@ -310,8 +309,7 @@ export default function DashboardPage() {
         onClose={() => setShowSaleModal(false)}
         onSuccess={() => {
           // Refresh dashboard data after a sale
-          fetch('/api/reports?type=dashboard&days=30')
-            .then(r => { if (!r.ok) throw new Error('API error'); return r.json(); })
+          apiFetch<DashData>('/api/reports?type=dashboard&days=30')
             .then(d => setData(d))
             .catch(() => {});
         }}
@@ -320,8 +318,7 @@ export default function DashboardPage() {
         open={showPurchaseModal}
         onClose={() => setShowPurchaseModal(false)}
         onSuccess={() => {
-          fetch('/api/reports?type=dashboard&days=30')
-            .then(r => { if (!r.ok) throw new Error('API error'); return r.json(); })
+          apiFetch<DashData>('/api/reports?type=dashboard&days=30')
             .then(d => setData(d))
             .catch(() => {});
         }}

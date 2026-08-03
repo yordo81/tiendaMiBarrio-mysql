@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Bell, BellOff, X, AlertTriangle, Calendar, Info, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { timeAgo } from '@/lib/utils';
+import { apiFetch } from '@/lib/api-client';
 
 type Notification = {
   id: string;
@@ -34,9 +35,8 @@ export default function NotificationBell() {
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/notifications/check-expiration');
-      if (!res.ok) return;
-      const data = await res.json();
+      // apiFetch dispara el evento 401 → providers redirige al login
+      const data = await apiFetch<{ notifications: Notification[]; total_active: number }>('/api/notifications/check-expiration');
       setNotifications(data.notifications ?? []);
       setUnreadCount(data.total_active ?? 0);
     } catch { /* ignore */ }

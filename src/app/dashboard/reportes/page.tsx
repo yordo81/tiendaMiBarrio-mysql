@@ -6,7 +6,7 @@ import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshC
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import InfoTooltip from '@/components/ui/Tooltip';
 import { exportToCSV } from '@/lib/export';
-import { api } from '@/lib/api-client';
+import { api, apiFetch } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
 
 function exportCSV(data: R[], filename: string) { exportToCSV(data as Record<string, unknown>[], filename); }
@@ -130,16 +130,16 @@ export default function ReportesPage() {
     if (!pid) return;
     setLoading(true);
     try {
-      const d = await fetch(`/api/reports?type=price_history&product_id=${pid}`).then(r=>r.json());
-      setPriceHistory(Array.isArray(d) ? d as R[] : []);
+      const d = await apiFetch<R[]>(`/api/reports?type=price_history&product_id=${pid}`);
+      setPriceHistory(Array.isArray(d) ? d : []);
     } catch(e) { console.error('[loadPriceHistory]', e); }
     finally { setLoading(false); }
   }, []);
 
   const loadProducts = useCallback(async () => {
     try {
-      const d = await fetch('/api/products').then(r=>r.json());
-      const arr = Array.isArray(d) ? d as R[] : [];
+      const d = await apiFetch<R[]>('/api/products');
+      const arr = Array.isArray(d) ? d : [];
       setPriceProducts(arr);
       if (arr.length && !selectedPriceProduct) { setSelectedPriceProduct(String(arr[0].id)); loadPriceHistory(String(arr[0].id)); }
     } catch(e) { console.error('[loadProducts]', e); }
@@ -149,8 +149,8 @@ export default function ReportesPage() {
     setLoading(true);
     try {
       const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
-      const d = await fetch(`/api/reports?type=restock${locQ}`).then(r=>r.json());
-      setForecasts(Array.isArray(d) ? d as R[] : []);
+      const d = await apiFetch<R[]>(`/api/reports?type=restock${locQ}`);
+      setForecasts(Array.isArray(d) ? d : []);
     } catch(e) { console.error('[loadForecasts]', e); }
     finally { setLoading(false); }
   }, [locationFilter]);
@@ -158,8 +158,8 @@ export default function ReportesPage() {
   const loadDebts = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await fetch('/api/reports?type=debts').then(r=>r.json());
-      const arr = Array.isArray(d) ? d as R[] : [];
+      const d = await apiFetch<R[]>('/api/reports?type=debts');
+      const arr = Array.isArray(d) ? d : [];
       setDebts(arr);
       setTotalDebt(arr.reduce((a,r)=>a+Number(r.balance??0),0));
     } catch(e) { console.error('[loadDebts]', e); }
@@ -169,8 +169,8 @@ export default function ReportesPage() {
   const loadExpirations = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await fetch('/api/reports?type=expiration').then(r=>r.json());
-      const arr = Array.isArray(d) ? d as R[] : [];
+      const d = await apiFetch<R[]>('/api/reports?type=expiration');
+      const arr = Array.isArray(d) ? d : [];
       setExpirationData(arr);
     } catch(e) { console.error('[loadExpirations]', e); }
     finally { setLoading(false); }
