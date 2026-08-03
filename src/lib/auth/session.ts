@@ -1,7 +1,8 @@
 import { getIronSession, type IronSession } from 'iron-session';
 import { cookies } from 'next/headers';
 import type { AppUser, Permission } from '@/types';
-import { queryOne } from '@/lib/db/mysql';
+import { sessionOptions } from '@/lib/auth/config';
+import { findActiveUser } from '@/lib/auth/user-active';
 
 // ── Gestión de sesiones con iron-session ──────────────────────────
 // Las sesiones se almacenan en cookies cifradas del lado del servidor.
@@ -10,16 +11,6 @@ import { queryOne } from '@/lib/db/mysql';
 export interface SessionData {
   user?: Pick<AppUser, 'id' | 'name' | 'email' | 'role' | 'permissions' | 'active'>;
 }
-
-const sessionOptions = {
-  password: process.env.SESSION_SECRET ?? 'fallback_secret_change_in_production_32chars!!',
-  cookieName: 'tienda_session',
-  cookieOptions: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,   // No accesible desde JavaScript del navegador
-    maxAge: 60 * 60 * 24 * 7,  // 7 días
-  },
-};
 
 // Obtiene la sesión desde la cookie (servidor)
 export async function getSession(): Promise<IronSession<SessionData>> {
@@ -45,10 +36,7 @@ export async function requireAuth(): Promise<NonNullable<SessionData['user']>> {
 
   // Verificar que el usuario aún exista y esté activo en la BD
   // Esto previene errores de foreign key al eliminar usuarios
-  const dbUser = await queryOne<{ id: string; name: string; email: string; role: string; permissions: string; active: boolean }>(
-    'SELECT id, name, email, role, permissions, active FROM users WHERE id = ? AND active = 1 LIMIT 1',
-    [sessionUser.id]
-  );
+  const dbUser = await findActiveUser(sessionUser.id);
   if (!dbUser) {
     // El usuario fue eliminado o desactivado — limpiar sesión y rechazar
     const session = await getSession();

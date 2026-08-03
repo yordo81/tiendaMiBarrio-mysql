@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Toaster, toast } from '@/components/ui/toaster';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { UNAUTHORIZED_EVENT, type UnauthorizedEventDetail } from '@/lib/api-client';
+import { SESSION_COOKIE_NAME } from '@/lib/auth/config';
 
 // ── Providers globales de la aplicación ────────────────────────────
 // Configura React Query y el manejador de sesión expirada
@@ -35,8 +36,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
         } catch { /* ignorar errores de storage */ }
 
         // Redirigir automáticamente al login después de un breve delay
-        // para que el usuario alcance a ver el mensaje del toast
+        // para que el usuario alcance a ver el mensaje del toast.
+        // Antes de navegar se limpia la cookie de sesión para que el
+        // proxy no rebote de vuelta al dashboard.
         setTimeout(() => {
+          try {
+            document.cookie = `${SESSION_COOKIE_NAME}=; Max-Age=0; path=/`;
+          } catch { /* ignorar */ }
           window.location.href = '/auth/login';
         }, 1000);
 
