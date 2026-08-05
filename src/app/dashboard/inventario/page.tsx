@@ -9,7 +9,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
-import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Tag, History, ArrowRightLeft, ShoppingBag, Image as ImageIcon, Upload, X as XIcon } from 'lucide-react';
+import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Tag, History, ArrowRightLeft, ShoppingBag, Image as ImageIcon, Upload, X as XIcon, Barcode } from 'lucide-react';
 
 type Tab = 'productos' | 'categorias';
 type AnyRecord = Record<string,unknown>;
@@ -109,7 +109,7 @@ export default function InventarioPage() {
   // Cargar datos cada vez que cambie el filtro de ubicación
   useEffect(() => { load(locFilter || undefined); }, [load, locFilter]);
 
-  function openNew() { setEditProduct(null); setForm({ name:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', expiration_date:'', is_perishable: false, supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '', is_capital: false }); setImageFile(null); setImagePreview(null); setShowModal(true); }
+  function openNew() { setEditProduct(null); setForm({ name:'', barcode:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', expiration_date:'', is_perishable: false, supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '', is_capital: false }); setImageFile(null); setImagePreview(null); setShowModal(true); }
   function openEdit(p: AnyRecord) { setEditProduct(p); setForm({ ...p, is_perishable: Boolean(p.is_perishable), supplier_ids: (p.supplier_ids as string[]|undefined) ?? [] }); setImageFile(null); setImagePreview(String(p.image_url??'')); setShowModal(true); }
 
   async function handleSave() {
@@ -128,7 +128,7 @@ export default function InventarioPage() {
         imageUrl = uploadData.url;
         setImageUploading(false);
       }
-      const payload = { ...form, image_url: imageUrl || null };
+      const payload = { ...form, barcode: String(form.barcode ?? '').trim() || null, image_url: imageUrl || null };
       if (editProduct) await api.updateProduct(String(editProduct.id), payload);
       else await api.createProduct({
         ...payload,
@@ -254,7 +254,7 @@ export default function InventarioPage() {
   }
 
   const filtered = products.filter(p => {
-    const matchSearch = String(p.name ?? '').toLowerCase().includes(search.toLowerCase());
+    const matchSearch = String(p.name ?? '').toLowerCase().includes(search.toLowerCase()) || String(p.barcode ?? '').toLowerCase().includes(search.toLowerCase());
     const matchCat = catFilter ? p.category_id === catFilter : true;
     const matchStock = showZeroStock || Number(p.stock ?? 0) > 0;
     const matchExpiring = !showExpiringOnly || (() => {
@@ -465,7 +465,7 @@ export default function InventarioPage() {
             : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[var(--border-primary)]">{['img-col','Producto','Categoría','Proveedores','Ubicación','Stock','Vence','Precio','Costo','Margen','actions-col'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{['img-col','actions-col'].includes(h)?'':h}</th>)}</tr></thead>
+                  <thead><tr className="border-b border-[var(--border-primary)]">{['img-col','Código','Producto','Categoría','Ubicación','Stock','Vence','Precio','Costo','Margen','actions-col'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{['img-col','actions-col'].includes(h)?'':h}</th>)}</tr></thead>
                   <tbody>
                     {paginated.map(p => {
                       const lowS = Number(p.stock)<=Number(p.min_stock)&&Number(p.min_stock)>0;
@@ -486,9 +486,16 @@ export default function InventarioPage() {
                               )}
                             </div>
                           </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {String(p.barcode??'') ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-mono text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded-md px-2 py-1">
+                                <Barcode className="w-3.5 h-3.5 text-[var(--text-tertiary)]"/>
+                                {String(p.barcode)}
+                              </span>
+                            ) : <span className="text-[var(--text-tertiary)] text-xs">—</span>}
+                          </td>
                           <td className="px-4 py-3"><div className="font-medium text-[var(--text-primary)]">{String(p.name)}</div>{Boolean(p.description) ? <div className="text-xs text-[var(--text-tertiary)] truncate max-w-[140px]">{String(p.description)}</div> : null}</td>
                           <td className="px-4 py-3 text-[var(--text-secondary)]">{String(p.category_name??'—')}</td>
-                          <td className="px-4 py-3 text-[var(--text-secondary)] text-xs max-w-[120px] truncate">{(p.supplier_names as string[]|undefined)?.join(', ')||'—'}</td>
                           <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{String(p.location_name??'—')}</td>
                           <td className="px-4 py-3"><span className={cn('font-medium',lowS?'text-red-400':'text-[var(--text-primary)]')}>{formatNumber(Number(p.stock),1)} {String(p.unit)}</span>{lowS ? <span className="ml-1.5 badge-danger text-[10px]">Bajo</span> : null}</td>
                           <td className="px-4 py-3">{(() => {
@@ -559,6 +566,11 @@ export default function InventarioPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2"><label className="label">Nombre *</label><input className="input" value={String(form.name??'')} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></div>
           <div className="sm:col-span-2"><label className="label">Descripción</label><input className="input" value={String(form.description??'')} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></div>
+          <div className="sm:col-span-2">
+            <label className="label flex items-center gap-1.5"><Barcode className="w-3.5 h-3.5 text-[var(--text-tertiary)]"/>Código de barras</label>
+            <input className="input font-mono" placeholder="Ej: 7501055300004" value={String(form.barcode??'')} onChange={e=>setForm(f=>({...f,barcode:e.target.value}))}/>
+            <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Código único del producto — se puede escanear con la app móvil. Déjalo vacío si no aplica.</p>
+          </div>
           {/* Image upload with drag & drop */}
           <div className="sm:col-span-2">
             <label className="label">Imagen del producto</label>
