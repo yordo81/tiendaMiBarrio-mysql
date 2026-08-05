@@ -40,6 +40,13 @@ export function calcMargin(sale: number, cost: number) {
   return sale > 0 ? ((sale - cost) / sale) * 100 : 0;
 }
 
+// Busca un producto por coincidencia exacta de código de barras (ignorando mayúsculas)
+export function findProductByBarcode<T extends { barcode?: unknown }>(products: T[], code: string): T | undefined {
+  const normalized = code.trim().toLowerCase();
+  if (!normalized) return undefined;
+  return products.find(p => String(p.barcode ?? '').toLowerCase() === normalized);
+}
+
 export function calcDaysUntilEmpty(stock: number, avgDaily: number) {
   return avgDaily > 0 ? Math.floor(stock / avgDaily) : Infinity;
 }
