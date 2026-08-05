@@ -1,14 +1,37 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
-import { Search, X } from 'lucide-react';
+import { Search, X, Barcode } from 'lucide-react';
 
 type AnyRecord = Record<string, unknown>;
 type PayMethod = 'cash' | 'transfer' | 'mixed' | 'credit';
+
+// Sonido corto de confirmación al escanear un producto (Web Audio, sin archivos)
+let beepCtx: AudioContext | null = null;
+function playScanBeep() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    if (!beepCtx) beepCtx = new Ctx();
+    if (beepCtx.state === 'suspended') beepCtx.resume();
+    const ctx = beepCtx;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1318.5, now); // E6
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.22, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.13);
+  } catch { /* audio no disponible */ }
+}
 
 interface SaleModalProps {
   open: boolean;
@@ -21,6 +44,8 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
   const [customers, setCustomers] = useState<AnyRecord[]>([]);
   const [locations, setLocations] = useState<AnyRecord[]>([]);
   const [productSearch, setProductSearch] = useState('');
+  const [barcodeSearch, setBarcodeSearch] = useState('');
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
   const [cart, setCart] = useState<{ product: AnyRecord; quantity: number; unit_price: number }[]>([]);
   const [locationId, setLocationId] = useState('');
   const [customerId, setCustomerId] = useState('');
@@ -30,6 +55,11 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
   const [saleNotes, setSaleNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
+
+  // Enfocar el campo de código de barras al abrir el modal para escanear de inmediato
+  useEffect(() => {
+    if (open) barcodeInputRef.current?.focus();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +94,26 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
         : [...prev, { product: p, quantity: 1, unit_price: Number(p.sale_price) }];
     });
     setProductSearch('');
+    setBarcodeSearch('');
+  }
+
+  // Escaneo rápido: al presionar Enter busca coincidencia exacta y agrega al carrito
+  function handleBarcodeSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const code = barcodeSearch.trim();
+    if (!code) return;
+    const found = products.find(p => String(p.barcode ?? '').toLowerCase() === code.toLowerCase());
+    if (!found) {
+      toast.error(`No se encontró producto con el código ${code}`);
+      return;
+    }
+    if (getAvailableStock(found) <= 0) {
+      toast.error(`${String(found.name)} está agotado`);
+      return;
+    }
+    addToCart(found);
+    playScanBeep();
+    barcodeInputRef.current?.focus();
   }
 
   function resetForm() {
@@ -91,7 +141,13 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
   }, [locationId]);
 
   const filteredProducts = products
-    .filter(p => String(p.name).toLowerCase().includes(productSearch.toLowerCase()))
+    .filter(p => {
+      const qName = productSearch.trim().toLowerCase();
+      const qBarcode = barcodeSearch.trim().toLowerCase();
+      const nameMatch = qName && String(p.name).toLowerCase().includes(qName);
+      const barcodeMatch = qBarcode && String(p.barcode ?? '').toLowerCase().includes(qBarcode);
+      return nameMatch || barcodeMatch;
+    })
     .sort((a, b) => {
       const aOut = getAvailableStock(a) <= 0 ? 1 : 0;
       const bOut = getAvailableStock(b) <= 0 ? 1 : 0;
@@ -144,6 +200,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
   function handleClose() {
     resetForm();
     setProductSearch('');
+    setBarcodeSearch('');
     onClose();
   }
 
@@ -151,19 +208,36 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
     <Modal open={open} onClose={handleClose} title="Nueva venta" size="xl">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         <div className="space-y-3">
-          <div>
-            <label className="label">Buscar producto</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
-              <input
-                className="input pl-9"
-                placeholder="Nombre..."
-                value={productSearch}
-                onChange={e => setProductSearch(e.target.value)}
-              />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Buscar producto</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+                <input
+                  className="input pl-9"
+                  placeholder="Nombre..."
+                  value={productSearch}
+                  onChange={e => setProductSearch(e.target.value)}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="label">Código de barras</label>
+              <form onSubmit={handleBarcodeSubmit} className="relative">
+                <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+                <input
+                  ref={barcodeInputRef}
+                  className="input pl-9 font-mono"
+                  placeholder="Escanear..."
+                  value={barcodeSearch}
+                  onChange={e => setBarcodeSearch(e.target.value)}
+                  autoComplete="off"
+                />
+              </form>
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Escanea el código y presiona Enter para agregarlo al carrito</p>
             </div>
           </div>
-          {productSearch && (
+          {(productSearch.trim() || barcodeSearch.trim()) && (
             <div className="border border-[var(--border-secondary)] rounded-xl overflow-hidden bg-[var(--bg-primary)]">
               {filteredProducts.length === 0 ? (
                 <p className="text-center text-[var(--text-tertiary)] py-4 text-sm">Sin resultados</p>
@@ -172,6 +246,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                   <button
                     key={String(p.id)}
                     onClick={() => addToCart(p)}
+                    disabled={getAvailableStock(p) <= 0}
                     title={getAvailableStock(p) <= 0 ? 'Producto agotado' : undefined}
                     className={cn(
                       'w-full flex items-center justify-between px-4 py-2.5 hover:bg-[var(--bg-secondary)] text-left border-b border-[var(--border-primary)] last:border-0 transition-colors',
