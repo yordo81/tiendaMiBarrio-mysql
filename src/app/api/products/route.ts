@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
-import { query, execute } from '@/lib/db/mysql';
-import { handle, ok } from '@/lib/api-helpers';
+import { query, queryOne, execute } from '@/lib/db/mysql';
+import { handle, ok, err } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Productos ───────────────────────────────────────────────
@@ -92,11 +92,18 @@ export const POST = handle(async (request: Request) => {
   const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   const isCapital = body.is_capital === true;  // true = aporte de capital, false = reinversión
 
+  // Validar código de barras único
+  const barcode = String(body.barcode ?? '').trim() || null;
+  if (barcode) {
+    const existing = await queryOne<{id: string}>('SELECT id FROM products WHERE barcode = ? LIMIT 1', [barcode]);
+    if (existing) return err(`Ya existe un producto con el código de barras ${barcode}`);
+  }
+
   // Insertar producto
   await execute(
     `INSERT INTO products (id,barcode,name,description,category_id,sale_price,cost,stock,min_stock,unit,expiration_date,is_perishable,image_url,active,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
-    [id, body.barcode ?? null, body.name, body.description??null, body.category_id??null,
+    [id, barcode, body.name, body.description??null, body.category_id??null,
      Number(body.sale_price??0), Number(body.cost??0), Number(body.stock??0),
      Number(body.min_stock??0), body.unit??'unidad', body.expiration_date ?? null, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, ts]
   );

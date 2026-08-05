@@ -42,6 +42,13 @@ export const PUT = handle(async (request: Request, ctx) => {
   const body = await request.json();
   const ts = new Date().toISOString().slice(0,19).replace('T',' ');
 
+  // Validar código de barras único (excluyendo este producto)
+  const barcode = String(body.barcode ?? '').trim() || null;
+  if (barcode) {
+    const existing = await queryOne<{id: string}>('SELECT id FROM products WHERE barcode = ? AND id != ? LIMIT 1', [barcode, id]);
+    if (existing) return err(`Ya existe un producto con el código de barras ${barcode}`);
+  }
+
   const current = await queryOne<{stock: number}>('SELECT stock FROM products WHERE id=?', [id]);
   const oldStock = current?.stock ?? 0;
   const newStock = Number(body.stock);
@@ -49,7 +56,7 @@ export const PUT = handle(async (request: Request, ctx) => {
 
   await execute(
     `UPDATE products SET name=?,barcode=?,description=?,category_id=?,sale_price=?,cost=?,stock=?,min_stock=?,unit=?,expiration_date=?,is_perishable=?,image_url=?,updated_at=? WHERE id=?`,
-    [body.name, body.barcode ?? null, body.description??null, body.category_id??null, Number(body.sale_price), Number(body.cost),
+    [body.name, barcode, body.description??null, body.category_id??null, Number(body.sale_price), Number(body.cost),
      Number(body.stock), Number(body.min_stock), body.unit??'unidad', body.expiration_date ?? null, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, id]
   );
 
