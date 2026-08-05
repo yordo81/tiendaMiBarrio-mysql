@@ -1,11 +1,12 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { formatCurrency, formatNumber } from '@/lib/utils';
+import { useState, useEffect, useRef } from 'react';
+import { formatCurrency, formatNumber, findProductByBarcode } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
-import { ShoppingBag } from 'lucide-react';
+import { playScanBeep } from '@/lib/scan-beep';
+import { ShoppingBag, Barcode } from 'lucide-react';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -21,6 +22,9 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
   const [locations, setLocations] = useState<AnyRecord[]>([]);
   const [saving, setSaving] = useState(false);
   const [purchaseLocStockMap, setPurchaseLocStockMap] = useState<Record<string, number>>({});
+  const [barcodeSearch, setBarcodeSearch] = useState('');
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const quantityInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
     product_id: '',
     supplier_id: '',
@@ -31,6 +35,11 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
     is_capital: false,
     expiration_date: '',
   });
+
+  // Enfocar el campo de código de barras al abrir el modal para escanear de inmediato
+  useEffect(() => {
+    if (open) barcodeInputRef.current?.focus();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -65,7 +74,28 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
 
   function handleClose() {
     setForm({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', is_capital: false, expiration_date: '' });
+    setBarcodeSearch('');
     onClose();
+  }
+
+  // Escaneo rápido: al presionar Enter busca coincidencia exacta y selecciona el producto
+  function handleBarcodeSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const code = barcodeSearch.trim();
+    if (!code) return;
+    const found = findProductByBarcode(products, code);
+    if (!found) {
+      toast.error(`No se encontró producto con el código ${code}`);
+      return;
+    }
+    setForm(f => ({
+      ...f,
+      product_id: String(found.id),
+      expiration_date: found.expiration_date ? String(found.expiration_date) : '',
+    }));
+    setBarcodeSearch('');
+    playScanBeep();
+    quantityInputRef.current?.focus();
   }
 
   async function handleSave() {
@@ -101,6 +131,21 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
     <Modal open={open} onClose={handleClose} title="Registrar compra" size="md">
       <div className="space-y-4">
         <div>
+          <label className="label">Código de barras</label>
+          <form onSubmit={handleBarcodeSubmit} className="relative">
+            <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+            <input
+              ref={barcodeInputRef}
+              className="input pl-9 font-mono"
+              placeholder="Escanear..."
+              value={barcodeSearch}
+              onChange={e => setBarcodeSearch(e.target.value)}
+              autoComplete="off"
+            />
+          </form>
+          <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Escanea el código y presiona Enter para seleccionar el producto automáticamente</p>
+        </div>
+        <div>
           <label className="label">Producto *</label>
           <SearchableSelect
             options={products.map(p => {
@@ -110,7 +155,8 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
               const costLabel = `Costo: ${formatCurrency(Number(p.cost))}`;
               return {
                 value: String(p.id),
-                label: String(p.name),
+                // Incluir el código de barras para poder buscarlo también desde el selector
+                label: String(p.barcode) ? `${String(p.name)} — ${String(p.barcode)}` : String(p.name),
                 sublabel: lowS ? `${stockLabel} · ${costLabel} ⚠️` : `${stockLabel} · ${costLabel}`,
               };
             })}
@@ -171,6 +217,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
           <div>
             <label className="label">Cantidad *</label>
             <input
+              ref={quantityInputRef}
               type="number"
               min="1"
               step="1"
