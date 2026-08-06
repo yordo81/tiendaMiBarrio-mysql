@@ -29,21 +29,25 @@ CREATE TABLE IF NOT EXISTS categories (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS products (
-  id          CHAR(36)      NOT NULL PRIMARY KEY,
-  name        VARCHAR(255)  NOT NULL,
-  description TEXT          NULL,
-  category_id CHAR(36)      NULL,
-  sale_price  DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-  cost        DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-  stock       DECIMAL(12,3) NOT NULL DEFAULT 0.000,
-  min_stock   DECIMAL(12,3) NOT NULL DEFAULT 0.000,
-  unit        VARCHAR(50)   NOT NULL DEFAULT 'unidad',
-  image_url   VARCHAR(500)  NULL,
-  active      TINYINT(1)    NOT NULL DEFAULT 1,
-  created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  id              CHAR(36)      NOT NULL PRIMARY KEY,
+  barcode         VARCHAR(100)  NULL UNIQUE,
+  name            VARCHAR(255)  NOT NULL,
+  description     TEXT          NULL,
+  category_id     CHAR(36)      NULL,
+  sale_price      DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  cost            DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  stock           DECIMAL(12,3) NOT NULL DEFAULT 0.000,
+  min_stock       DECIMAL(12,3) NOT NULL DEFAULT 0.000,
+  unit            VARCHAR(50)   NOT NULL DEFAULT 'unidad',
+  expiration_date DATE          NULL,
+  is_perishable   TINYINT(1)    NOT NULL DEFAULT 0,
+  image_url       VARCHAR(500)  NULL,
+  active          TINYINT(1)    NOT NULL DEFAULT 1,
+  created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
-  INDEX idx_active (active), INDEX idx_name (name)
+  INDEX idx_active (active), INDEX idx_name (name),
+  INDEX idx_barcode (barcode), INDEX idx_expiration (expiration_date), INDEX idx_is_perishable (is_perishable)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS suppliers (
@@ -270,12 +274,13 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 -- ============================================================
 CREATE TABLE IF NOT EXISTS cash_register (
   id               CHAR(36)      NOT NULL PRIMARY KEY,
-  type             ENUM('initial','adjustment') NOT NULL DEFAULT 'adjustment',
+  type             ENUM('initial','adjustment','purchase','capital') NOT NULL DEFAULT 'adjustment',
   cash_amount      DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   transfer_amount  DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   notes            TEXT          NULL,
   date             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   user_id          CHAR(36)      NULL,
+  shift_id         CHAR(36)      NULL,
   created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_date (date)
@@ -297,4 +302,73 @@ CREATE TABLE IF NOT EXISTS location_movements (
   FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id)  REFERENCES products(id),
   FOREIGN KEY (user_id)     REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================
+-- RESERVATIONS (pedidos de clientes desde la landing page)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS reservations (
+  id             CHAR(36)      NOT NULL PRIMARY KEY,
+  product_id     CHAR(36)      NOT NULL,
+  customer_name  VARCHAR(255)  NOT NULL,
+  customer_phone VARCHAR(50)   NULL,
+  quantity       DECIMAL(12,3) NOT NULL DEFAULT 1.000,
+  status         ENUM('pending','confirmed','cancelled') NOT NULL DEFAULT 'pending',
+  notes          TEXT          NULL,
+  created_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  INDEX idx_status (status),
+  INDEX idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================
+-- NOTIFICATION LOGS (notificaciones internas)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS notification_logs (
+  id         VARCHAR(36) NOT NULL PRIMARY KEY,
+  type       VARCHAR(50) NOT NULL COMMENT 'Tipo: expiration_5d, expiration_15d, expiration_30d, low_stock, etc.',
+  product_id VARCHAR(36) DEFAULT NULL,
+  title      VARCHAR(255) NOT NULL,
+  message    TEXT NOT NULL,
+  severity   ENUM('critical','warning','info','success') NOT NULL DEFAULT 'info',
+  dismissed  TINYINT(1)  NOT NULL DEFAULT 0,
+  created_at DATETIME    NOT NULL,
+  read_at    DATETIME    DEFAULT NULL,
+  INDEX idx_notification_type (type),
+  INDEX idx_notification_product (product_id),
+  INDEX idx_notification_dismissed (dismissed, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================
+-- SETTINGS + SHIFTS (configuración del negocio y turnos de caja)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS settings (
+  id            VARCHAR(36) NOT NULL PRIMARY KEY,
+  business_name VARCHAR(120) NOT NULL DEFAULT 'TiendaMiBarrio',
+  logo_url      VARCHAR(255) DEFAULT NULL,
+  work_mode     ENUM('daily','shifts') NOT NULL DEFAULT 'daily' COMMENT 'daily = por días, shifts = por turnos',
+  updated_by    VARCHAR(36) DEFAULT NULL,
+  updated_at    DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO settings (id, business_name, logo_url, work_mode, updated_at)
+VALUES ('1', 'TiendaMiBarrio', NULL, 'daily', NOW())
+ON DUPLICATE KEY UPDATE id = id;
+
+CREATE TABLE IF NOT EXISTS shifts (
+  id            VARCHAR(36) NOT NULL PRIMARY KEY,
+  user_id       VARCHAR(36) NOT NULL COMMENT 'Quien abrió el turno',
+  opened_at     DATETIME NOT NULL,
+  closed_at     DATETIME DEFAULT NULL,
+  opening_cash  DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT 'Fondo inicial en caja',
+  closing_cash  DECIMAL(12,2) DEFAULT NULL COMMENT 'Efectivo contado al cerrar',
+  expected_cash DECIMAL(12,2) DEFAULT NULL COMMENT 'Efectivo esperado según movimientos',
+  difference    DECIMAL(12,2) DEFAULT NULL COMMENT 'Diferencia: contado - esperado',
+  notes         VARCHAR(500) DEFAULT NULL,
+  status        ENUM('open','closed') NOT NULL DEFAULT 'open',
+  closed_by     VARCHAR(36) DEFAULT NULL,
+  created_at    DATETIME NOT NULL,
+  KEY idx_shifts_status (status),
+  KEY idx_shifts_opened (opened_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

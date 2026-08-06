@@ -144,6 +144,11 @@ mysql -u root -p < mysql/migration-007-reservations.sql
 | `migration-006-accounting-module.sql` | Agrega `payment_method` a `expenses` y crea la tabla `cash_register` para saldo inicial y ajustes de caja. |
 | `migration-007-capital-management.sql` | Amplía `cash_register.type` para soportar `purchase` (compra de inventario como reinversión) y `capital` (aporte de capital del dueño). |
 | `migration-007-reservations.sql` | Crea la tabla `reservations` para gestionar pedidos de clientes con estados pendiente/confirmado/cancelado. |
+| `migration-008-barcode.sql` | Agrega la columna `barcode` a `products` para escaneo de código de barras. |
+| `migration-009-expiration.sql` | Agrega la columna `expiration_date` a `products`. |
+| `migration-010-is-perishable.sql` | Agrega la columna `is_perishable` a `products`. |
+| `migration-011-notification-logs.sql` | Crea la tabla `notification_logs` para notificaciones internas. |
+| `migration-012-settings-shifts.sql` | Crea las tablas `settings` (nombre/logo/modo de trabajo) y `shifts` (turnos de caja) y agrega `cash_register.shift_id`. |
 
 > **Nota:** Si usaste `npm run db:setup` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo necesitas ejecutarlas manualmente si actualizas una BD existente.
 

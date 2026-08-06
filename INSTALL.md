@@ -132,7 +132,14 @@ mysql -u root -p < mysql/migration-005-audit-logs.sql
 mysql -u root -p < mysql/migration-006-accounting-module.sql
 mysql -u root -p < mysql/migration-007-capital-management.sql
 mysql -u root -p < mysql/migration-007-reservations.sql
+mysql -u root -p < mysql/migration-008-barcode.sql
+mysql -u root -p < mysql/migration-009-expiration.sql
+mysql -u root -p < mysql/migration-010-is-perishable.sql
+mysql -u root -p < mysql/migration-011-notification-logs.sql
+mysql -u root -p < mysql/migration-012-settings-shifts.sql
 ```
+
+> 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` aplica la migración 012 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
 
 | Migración | Descripción |
 |-----------|-------------|
@@ -143,6 +150,11 @@ mysql -u root -p < mysql/migration-007-reservations.sql
 | `migration-006-accounting-module.sql` | Agrega `payment_method` a `expenses` y crea la tabla `cash_register`. |
 | `migration-007-capital-management.sql` | Amplía `cash_register.type` para soportar `purchase` (reinversión) y `capital` (aporte de capital). |
 | `migration-007-reservations.sql` | Crea la tabla `reservations` para gestionar pedidos de clientes. |
+| `migration-008-barcode.sql` | Agrega la columna `barcode` a `products` para escaneo de código de barras. |
+| `migration-009-expiration.sql` | Agrega la columna `expiration_date` a `products`. |
+| `migration-010-is-perishable.sql` | Agrega la columna `is_perishable` a `products`. |
+| `migration-011-notification-logs.sql` | Crea la tabla `notification_logs` para notificaciones internas. |
+| `migration-012-settings-shifts.sql` | Crea las tablas `settings` (nombre/logo/modo de trabajo) y `shifts` (turnos de caja) y agrega `cash_register.shift_id`. |
 
 > **Nota:** Si usaste `node scripts/setup-db.js` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo ejecútalas manualmente si actualizas una BD existente.
 
