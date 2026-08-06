@@ -160,12 +160,22 @@ export const api = {
   createCashRegisterEntry: (data: unknown) => apiFetch('/api/cash-register', { method: 'POST', body: JSON.stringify(data) }),
 
   // Upload
-  uploadImage: (file: File) => {
+  uploadImage: (file: File, folder: 'products' | 'logo' = 'products') => {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('folder', folder);
     return fetch('/api/upload', { method: 'POST', body: formData }).then(async r => {
       if (!r.ok) { const err = await r.json(); throw new Error(err.error ?? 'Error al subir imagen'); }
       return r.json() as Promise<{ url: string; filename: string }>;
     });
   },
+
+  // Settings / Configuración
+  getSettings: () => apiFetch<{ settings: { business_name: string; logo_url: string | null; work_mode: 'daily' | 'shifts' } }>('/api/settings'),
+  updateSettings: (data: unknown) => apiFetch<{ settings: { business_name: string; logo_url: string | null; work_mode: 'daily' | 'shifts' } }>('/api/settings', { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Shifts / Turnos de caja
+  getShifts: () => apiFetch<{ current: Record<string, unknown> | null; shifts: Record<string, unknown>[] }>('/api/shifts'),
+  openShift: (data: unknown) => apiFetch('/api/shifts', { method: 'POST', body: JSON.stringify(data) }),
+  closeShift: (id: string, data: unknown) => apiFetch(`/api/shifts/${id}/close`, { method: 'POST', body: JSON.stringify(data) }),
 };

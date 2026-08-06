@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute } from '@/lib/db/mysql';
 import { handle, ok, err } from '@/lib/api-helpers';
+import { getOpenShiftId } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Productos ───────────────────────────────────────────────
@@ -145,21 +146,23 @@ export const POST = handle(async (request: Request) => {
     // ── Registrar en contabilidad ──
     const totalCost = Math.round(initialStock * Number(body.cost ?? 0) * 100) / 100;
     if (totalCost > 0) {
+      // En modo turnos, vincular el registro al turno abierto
+      const shiftId = await getOpenShiftId();
       if (isCapital) {
         // Aporte de capital: ingresa dinero a la caja
         await execute(
-          `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
-           VALUES (?, 'capital', ?, 0, ?, ?, ?, ?)`,
+          `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, shift_id, created_at)
+           VALUES (?, 'capital', ?, 0, ?, ?, ?, ?, ?)`,
           [randomUUID(), totalCost,
-           `Aporte de capital para stock inicial: ${initialStock} × ${body.name}`, ts, sessionUser.id, ts]
+           `Aporte de capital para stock inicial: ${initialStock} × ${body.name}`, ts, sessionUser.id, shiftId, ts]
         );
       } else {
         // Reinversión: egreso de caja por compra de inventario
         await execute(
-          `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
-           VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?)`,
+          `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, shift_id, created_at)
+           VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?, ?)`,
           [randomUUID(), -totalCost,
-           `Compra por stock inicial: ${initialStock} × ${body.name}`, ts, sessionUser.id, ts]
+           `Compra por stock inicial: ${initialStock} × ${body.name}`, ts, sessionUser.id, shiftId, ts]
         );
       }
     }

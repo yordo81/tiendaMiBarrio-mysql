@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { pool, query, transaction, execute } from '@/lib/db/mysql';
 import { handle, ok, err, notFound } from '@/lib/api-helpers';
+import { getOpenShiftId } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Compras a Proveedores ───────────────────────────────────
@@ -65,6 +66,9 @@ export const POST = handle(async (req: Request) => {
   if (!preCheck[0]) {
     return notFound('Producto no encontrado o inactivo');
   }
+
+  // En modo turnos, vincular el egreso/ingreso al turno abierto
+  const shiftId = await getOpenShiftId();
 
   // Ejecutar toda la operación en una transacción
   const result = await transaction(async (conn) => {
@@ -148,16 +152,16 @@ export const POST = handle(async (req: Request) => {
     if (is_capital) {
       // Aporte de capital nuevo: ingresa dinero a la caja
       await conn.execute(
-        `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
-         VALUES (?, 'capital', ?, 0, ?, ?, ?, ?)`,
-        [randomUUID(), totalCost, `Aporte de capital para compra: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, ts]
+        `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, shift_id, created_at)
+         VALUES (?, 'capital', ?, 0, ?, ?, ?, ?, ?)`,
+        [randomUUID(), totalCost, `Aporte de capital para compra: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, shiftId, ts]
       );
     } else {
       // Reinversión: egreso de caja por compra de inventario
       await conn.execute(
-        `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
-         VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?)`,
-        [randomUUID(), -totalCost, `Compra de inventario: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, ts]
+        `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, shift_id, created_at)
+         VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?, ?)`,
+        [randomUUID(), -totalCost, `Compra de inventario: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, shiftId, ts]
       );
     }
 

@@ -7,11 +7,12 @@ import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
 import InfoTooltip from '@/components/ui/Tooltip';
+import { useSettingsStore } from '@/lib/stores/settings-store';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import {
   DollarSign, ArrowUpRight, ArrowDownRight,
   Wallet, Banknote, TrendingUp, TrendingDown,
-  Settings, Plus, History, Search, Info,
+  Settings, Plus, History, Search, Info, Clock3, Play, Square,
 } from 'lucide-react';
 
 type R = Record<string, unknown>;
@@ -41,6 +42,16 @@ export default function ContabilidadPage() {
   const [entries, setEntries] = useState<R[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [page, setPage] = useState(1);
+
+  // Turnos de caja (modo por turnos)
+  const workMode = useSettingsStore(s => s.settings?.work_mode ?? 'daily');
+  const loadSettings = useSettingsStore(s => s.load);
+  const [shiftsData, setShiftsData] = useState<{ current: R | null; shifts: R[] }>({ current: null, shifts: [] });
+  const [showOpenModal, setShowOpenModal] = useState(false);
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [openForm, setOpenForm] = useState({ opening_cash: 0, notes: '' });
+  const [closeForm, setCloseForm] = useState({ closing_cash: 0, notes: '' });
+  const [shiftBusy, setShiftBusy] = useState(false);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
   const [periodFilter, setPeriodFilter] = useState<'total' | 'week' | 'month' | '90days' | 'custom'>('total');
@@ -55,18 +66,23 @@ export default function ContabilidadPage() {
       const acctPromise = periodFilter === 'custom'
         ? api.getAccounting(`from=${fromDate}&to=${toDate}`)
         : api.getAccounting();
-      const [acct, reg] = await Promise.all([
+      const [acct, reg, shifts] = await Promise.all([
         acctPromise as Promise<R>,
         api.getCashRegister() as Promise<R[]>,
+        api.getShifts(),
       ]);
       setData(acct);
       setEntries(reg);
+      setShiftsData({ current: shifts.current, shifts: shifts.shifts });
     } catch (e) {
       if (e instanceof Error) toast.error(e.message);
     } finally {
       setLoading(false);
     }
   }, [periodFilter, fromDate, toDate]);
+
+  // Cargar la configuración para saber si el sistema trabaja por turnos
+  useEffect(() => { loadSettings(); }, [loadSettings]);
 
   useEffect(() => { load(); }, [load]);
   // Reset page when data or search changes
@@ -116,6 +132,38 @@ export default function ContabilidadPage() {
       load();
     } catch (e) {
       if (e instanceof Error) toast.error(e.message);
+    }
+  }
+
+  async function handleOpenShift() {
+    setShiftBusy(true);
+    try {
+      await api.openShift({ opening_cash: openForm.opening_cash, notes: openForm.notes });
+      toast.success('Turno abierto correctamente');
+      setShowOpenModal(false);
+      setOpenForm({ opening_cash: 0, notes: '' });
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al abrir el turno');
+    } finally {
+      setShiftBusy(false);
+    }
+  }
+
+  async function handleCloseShift() {
+    const cur = shiftsData.current;
+    if (!cur) return;
+    setShiftBusy(true);
+    try {
+      await api.closeShift(String(cur.id), { closing_cash: closeForm.closing_cash, notes: closeForm.notes });
+      toast.success('Turno cerrado con arqueo');
+      setShowCloseModal(false);
+      setCloseForm({ closing_cash: 0, notes: '' });
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al cerrar el turno');
+    } finally {
+      setShiftBusy(false);
     }
   }
 
@@ -253,6 +301,89 @@ export default function ContabilidadPage() {
           </button>
         </div>
       </div>
+
+      {/* ── Turno de caja (modo por turnos) ── */}
+      {workMode === 'shifts' && (
+        <div className="card p-5">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-brand-500/15 border border-brand-500/20 flex items-center justify-center">
+                <Clock3 className="w-5 h-5 text-brand-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Turno de caja</h3>
+                <p className="text-xs text-[var(--text-tertiary)]">
+                  {shiftsData.current ? (
+                    <span className="text-green-400">Abierto por {String(shiftsData.current.user_name ?? '—')} desde {formatDateTime(String(shiftsData.current.opened_at))}</span>
+                  ) : 'No hay un turno abierto'}
+                </p>
+              </div>
+            </div>
+            {shiftsData.current ? (
+              <button onClick={() => { setCloseForm({ closing_cash: 0, notes: '' }); setShowCloseModal(true); }} className="btn-primary flex items-center gap-1.5 text-sm">
+                <Square className="w-3.5 h-3.5" />Cerrar turno
+              </button>
+            ) : (
+              <button onClick={() => { setOpenForm({ opening_cash: 0, notes: '' }); setShowOpenModal(true); }} className="btn-primary flex items-center gap-1.5 text-sm">
+                <Play className="w-3.5 h-3.5" />Abrir turno
+              </button>
+            )}
+          </div>
+
+          {shiftsData.current && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+              <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-3">
+                <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Fondo inicial</p>
+                <p className="text-lg font-semibold text-[var(--text-primary)] mt-0.5">{formatCurrency(Number(shiftsData.current.opening_cash ?? 0))}</p>
+              </div>
+              <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-3">
+                <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Ventas + ingresos (efectivo)</p>
+                <p className="text-lg font-semibold text-green-400 mt-0.5">Se calcula al cerrar</p>
+              </div>
+              <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-3">
+                <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Egresos (efectivo)</p>
+                <p className="text-lg font-semibold text-red-400 mt-0.5">Se calcula al cerrar</p>
+              </div>
+            </div>
+          )}
+
+          {shiftsData.shifts.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">Últimos turnos cerrados</p>
+              <div className="space-y-2">
+                {shiftsData.shifts.slice(0, 4).map(s => {
+                  const hasArqueo = s.closing_cash != null;
+                  const diff = Number(s.difference ?? 0);
+                  return (
+                    <div key={String(s.id)} className="flex items-center justify-between gap-3 bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl px-3 py-2.5 text-sm">
+                      <div className="min-w-0">
+                        <p className="text-[var(--text-primary)] font-medium truncate">
+                          {formatDateTime(String(s.opened_at))} → {s.closed_at ? formatDateTime(String(s.closed_at)) : '—'}
+                        </p>
+                        <p className="text-xs text-[var(--text-tertiary)] truncate">
+                          Abierto por {String(s.user_name ?? '—')}{s.closed_by_name ? ` · Cerrado por ${String(s.closed_by_name)}` : ''}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs text-[var(--text-tertiary)]">
+                          Esperado: {s.expected_cash != null ? formatCurrency(Number(s.expected_cash)) : '—'}
+                        </p>
+                        <p className={cn('text-xs font-medium', !hasArqueo ? 'text-[var(--text-tertiary)]' : diff === 0 ? 'text-[var(--text-tertiary)]' : diff > 0 ? 'text-green-400' : 'text-red-400')}>
+                          {hasArqueo ? (
+                            <>Contado: {formatCurrency(Number(s.closing_cash))} · Dif: {diff > 0 ? '+' : ''}{formatCurrency(diff)}</>
+                          ) : (
+                            'Sin arqueo (cerrado automáticamente)'
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Warning: no initial balance */}
       {!hasInitialBalance && (
@@ -840,6 +971,86 @@ export default function ContabilidadPage() {
               </div>
             ))
           )}
+        </div>
+      </Modal>
+
+      {/* Modal: Abrir turno */}
+      <Modal open={showOpenModal} onClose={() => setShowOpenModal(false)} title="Abrir turno de caja">
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--text-secondary)]">
+            Registra el efectivo que se entrega como fondo inicial de este turno. Todos los movimientos
+            registrados mientras el turno esté abierto se considerarán parte de él.
+          </p>
+          <div>
+            <label className="label">Fondo inicial en efectivo</label>
+            <div className="relative">
+              <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+              <input type="number" min="0" step="1" className="input pl-9"
+                value={openForm.opening_cash || ''}
+                onChange={e => setOpenForm(f => ({ ...f, opening_cash: parseFloat(e.target.value) || 0 }))}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">Nota (opcional)</label>
+            <input type="text" className="input" placeholder="Ej: Turno mañana"
+              value={openForm.notes}
+              onChange={e => setOpenForm(f => ({ ...f, notes: e.target.value }))}
+            />
+          </div>
+          <div className="flex flex-col xs:flex-row gap-2 justify-end pt-2">
+            <button onClick={() => setShowOpenModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
+            <button onClick={handleOpenShift} disabled={shiftBusy} className="btn-primary flex-1 xs:flex-none disabled:opacity-50">
+              {shiftBusy ? 'Abriendo...' : 'Abrir turno'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Cerrar turno */}
+      <Modal open={showCloseModal} onClose={() => setShowCloseModal(false)} title="Cerrar turno — arqueo de caja">
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--text-secondary)]">
+            Cuenta el efectivo en caja y regístralo. El sistema calculará el efectivo esperado según los
+            movimientos del turno y la diferencia.
+          </p>
+          <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-3 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-[var(--text-tertiary)]">Fondo inicial</p>
+              <p className="font-medium text-[var(--text-primary)]">{formatCurrency(Number(shiftsData.current?.opening_cash ?? 0))}</p>
+            </div>
+            <div>
+              <p className="text-xs text-[var(--text-tertiary)]">Abierto por</p>
+              <p className="font-medium text-[var(--text-primary)] truncate">{String(shiftsData.current?.user_name ?? '—')}</p>
+            </div>
+          </div>
+          <div>
+            <label className="label">Efectivo contado en caja *</label>
+            <div className="relative">
+              <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+              <input type="number" min="0" step="1" className="input pl-9"
+                value={closeForm.closing_cash || ''}
+                onChange={e => setCloseForm(f => ({ ...f, closing_cash: parseFloat(e.target.value) || 0 }))}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">Nota (opcional)</label>
+            <input type="text" className="input" placeholder="Ej: Turno cerrado sin novedades"
+              value={closeForm.notes}
+              onChange={e => setCloseForm(f => ({ ...f, notes: e.target.value }))}
+            />
+          </div>
+          <div className="flex flex-col xs:flex-row gap-2 justify-end pt-2">
+            <button onClick={() => setShowCloseModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
+            <button
+              onClick={handleCloseShift}
+              disabled={shiftBusy || closeForm.closing_cash < 0}
+              className="btn-primary flex-1 xs:flex-none disabled:opacity-50"
+            >
+              {shiftBusy ? 'Cerrando...' : 'Cerrar turno'}
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

@@ -15,6 +15,13 @@ export const POST = handle(async (request: Request) => {
     return err('No se recibió ningún archivo');
   }
 
+  // Carpeta de destino (solo carpetas permitidas)
+  const folder = (formData.get('folder') as string | null) ?? 'products';
+  const allowedFolders = ['products', 'logo'];
+  if (!allowedFolders.includes(folder)) {
+    return err('Carpeta de destino no permitida');
+  }
+
   // Validar tipo de archivo
   const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
   if (!allowedTypes.includes(file.type)) {
@@ -31,7 +38,7 @@ export const POST = handle(async (request: Request) => {
 
     // ── Procesar con Sharp ──────────────────────────────────────────
   const isGif = file.type === 'image/gif';
-  const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'products');
+  const uploadDir = path.join(process.cwd(), 'public', 'uploads', folder);
   await mkdir(uploadDir, { recursive: true });
 
   if (isGif) {
@@ -50,7 +57,7 @@ export const POST = handle(async (request: Request) => {
     await writeFile(path.join(uploadDir, filename), await processed.toBuffer());
 
     return ok({
-      url: `/uploads/products/${filename}`,
+      url: `/uploads/${folder}/${filename}`,
       filename,
       original_size: file.size,
     });
@@ -82,7 +89,7 @@ export const POST = handle(async (request: Request) => {
   const savedRatio = file.size > 0 ? Math.max(0, ((1 - processedBuffer.length / file.size) * 100)).toFixed(0) : '0';
 
   return ok({
-    url: `/uploads/products/${filename}`,
+    url: `/uploads/${folder}/${filename}`,
     filename,
     original_size: file.size,
     compressed_size: processedBuffer.length,

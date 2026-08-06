@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, execute } from '@/lib/db/mysql';
 import { handle, ok, err } from '@/lib/api-helpers';
+import { getOpenShiftId } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Caja (Contabilidad) ─────────────────────────────────────
@@ -37,10 +38,13 @@ export const POST = handle(async (req: Request) => {
     ? new Date(date).toISOString().slice(0, 19).replace('T', ' ')
     : ts;
 
+  // En modo turnos, vincular la entrada al turno abierto
+  const shiftId = await getOpenShiftId();
+
   await execute(
-    `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, type, Number(cash_amount), Number(transfer_amount), notes ?? null, entryDate, sessionUser.id, ts]
+    `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, shift_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, type, Number(cash_amount), Number(transfer_amount), notes ?? null, entryDate, sessionUser.id, shiftId, ts]
   );
 
   return ok(
