@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import { useSettingsStore } from '@/lib/stores/settings-store';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import {
   LayoutDashboard,
@@ -32,6 +33,10 @@ import {
 
 export default function InicioPage() {
   const { user } = useAuthStore();
+  const settings = useSettingsStore(s => s.settings);
+  const loadSettings = useSettingsStore(s => s.load);
+  // Cargar la configuración del negocio para mostrar nombre y logotipo
+  useEffect(() => { loadSettings(); }, [loadSettings]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -167,12 +172,16 @@ export default function InicioPage() {
           <div className="flex items-center justify-between h-16 md:h-20">
             {/* Logo */}
             <Link href="/inicio" className="flex items-center gap-3 group">
-              <div className="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center shadow-md shadow-brand-600/30 group-hover:shadow-brand-600/50 transition-all duration-300">
-                <Store className="w-5 h-5 text-white" />
+              <div className="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center overflow-hidden shadow-md shadow-brand-600/30 group-hover:shadow-brand-600/50 transition-all duration-300">
+                {settings?.logo_url ? (
+                  <img src={settings.logo_url} alt="" className="w-full h-full object-contain p-0.5" />
+                ) : (
+                  <Store className="w-5 h-5 text-white" />
+                )}
               </div>
               <div>
                 <span className="font-display text-[var(--text-primary)] text-lg leading-tight block">
-                  TiendaMiBarrio
+                  {settings?.business_name ?? 'TiendaMiBarrio'}
                 </span>
                 <span className="text-[10px] text-brand-400 uppercase tracking-widest font-medium">
                   Sistema de Gestión
@@ -864,11 +873,15 @@ export default function InicioPage() {
             {/* Brand column */}
             <div className="col-span-2 md:col-span-1">
               <Link href="/inicio" className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-                  <Store className="w-4 h-4 text-white" />
+                <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center overflow-hidden">
+                  {settings?.logo_url ? (
+                    <img src={settings.logo_url} alt="" className="w-full h-full object-contain p-0.5" />
+                  ) : (
+                    <Store className="w-4 h-4 text-white" />
+                  )}
                 </div>
                 <span className="font-display text-[var(--text-primary)] text-base">
-                  TiendaMiBarrio
+                  {settings?.business_name ?? 'TiendaMiBarrio'}
                 </span>
               </Link>
               <p className="text-xs text-[var(--text-tertiary)] leading-relaxed max-w-xs">
@@ -933,7 +946,7 @@ export default function InicioPage() {
           {/* Bottom bar */}
           <div className="border-t border-[var(--border-primary)] mt-10 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-xs text-[var(--text-tertiary)]">
-              © {new Date().getFullYear()} TiendaMiBarrio. Todos los derechos
+              © {new Date().getFullYear()} {settings?.business_name ?? 'TiendaMiBarrio'}. Todos los derechos
               reservados.
             </p>
             <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">

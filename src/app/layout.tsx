@@ -2,13 +2,18 @@ import type { Metadata, Viewport } from 'next';
 import '@/styles/globals.css';
 import { Providers } from '@/components/providers';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
+import { getBusinessSettings } from '@/lib/settings-server';
 
-export const metadata: Metadata = {
-  title: 'TiendaMiBarrio',
-  description: 'Sistema de gestión para tu tienda',
-  manifest: '/manifest.json',
-  other: { 'mobile-web-app-capable': 'yes' },
-};
+// Título y descripción dinámicos según el nombre del negocio configurado
+export async function generateMetadata(): Promise<Metadata> {
+  const s = await getBusinessSettings();
+  return {
+    title: s.business_name,
+    description: `Sistema de gestión de ${s.business_name}`,
+    manifest: '/manifest.webmanifest',
+    other: { 'mobile-web-app-capable': 'yes' },
+  };
+}
 export const viewport: Viewport = { themeColor: '#0d1117', width: 'device-width', initialScale: 1 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

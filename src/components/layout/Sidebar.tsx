@@ -3,11 +3,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useCallback, useState } from 'react';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import { useSettingsStore } from '@/lib/stores/settings-store';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, Truck,
   TrendingDown, BarChart2, UserCog, Wifi, WifiOff,
-  Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign, CalendarCheck, Bell,
+  Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign, CalendarCheck, Bell, Settings,
 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import type { AppUser } from '@/types';
@@ -29,14 +30,20 @@ const navItems = [
   { href: '/dashboard/auditoria',   icon: Shield,          label: 'Auditoría',    roles: ['owner','admin'] },
   { href: '/dashboard/notificaciones', icon: Bell,         label: 'Notificaciones', roles: ['owner','admin','warehouse','seller'] },
   { href: '/dashboard/usuarios',    icon: UserCog,         label: 'Usuarios',     roles: ['owner'] },
+  { href: '/dashboard/configuracion', icon: Settings,      label: 'Configuración', roles: ['owner'] },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, setUser } = useAuthStore();
+  const settings = useSettingsStore(s => s.settings);
+  const loadSettings = useSettingsStore(s => s.load);
   const isOnline = useOnlineStatus();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+
+  // Cargar configuración del negocio (nombre/logo) una sola vez
+  useEffect(() => { loadSettings(); }, [loadSettings]);
 
   const loadUser = useCallback(async () => {
     try {
@@ -67,11 +74,15 @@ export default function Sidebar() {
   return (
     <aside className="hidden md:flex flex-col w-60 h-screen fixed left-0 top-0 z-40" style={{ backgroundColor: 'var(--bg-secondary)', borderRightColor: 'var(--border-primary)', borderRightWidth: '1px' }}>
       <div className="flex items-center gap-3 px-5 py-5" style={{ borderBottom: '1px solid var(--border-primary)' }}>
-        <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-md shadow-brand-600/30">
-          <ShoppingCart className="w-4 h-4 text-white" />
+        <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden shadow-md shadow-brand-600/30">
+          {settings?.logo_url ? (
+            <img src={settings.logo_url} alt="" className="w-full h-full object-contain p-0.5" />
+          ) : (
+            <ShoppingCart className="w-4 h-4 text-white" />
+          )}
         </div>
-        <div>
-          <span className="font-display text-base leading-tight block" style={{ color: 'var(--text-primary)' }}>TiendaMiBarrio</span>
+        <div className="min-w-0">
+          <span className="font-display text-base leading-tight block truncate" style={{ color: 'var(--text-primary)' }}>{settings?.business_name ?? 'TiendaMiBarrio'}</span>
           <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>MySQL Edition</span>
         </div>
       </div>

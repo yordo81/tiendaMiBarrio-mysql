@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { WifiOff, LogOut, ChevronDown, User } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import { useSettingsStore } from '@/lib/stores/settings-store';
 import { classifyRole, cn } from '@/lib/utils';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import NotificationBell from '@/components/notifications/NotificationBell';
@@ -14,6 +15,7 @@ const titles: Record<string,string> = {
   '/dashboard/reportes':'Reportes','/dashboard/usuarios':'Usuarios','/dashboard/almacenes':'Almacenes',
   '/dashboard/contabilidad':'Contabilidad','/dashboard/auditoria':'Auditoría','/dashboard/compras':'Compras',
   '/dashboard/movimientos':'Movimientos','/dashboard/reservaciones':'Reservaciones','/dashboard/notificaciones':'Notificaciones',
+  '/dashboard/configuracion':'Configuración',
 };
 
 export default function Topbar() {
@@ -21,12 +23,16 @@ export default function Topbar() {
   const router = useRouter();
   const isOnline = useOnlineStatus();
   const { user, setUser } = useAuthStore();
+  const settings = useSettingsStore(s => s.settings);
+  const loadSettings = useSettingsStore(s => s.load);
   const [mounted, setMounted] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { setMounted(true); }, []);
+  // Cargar la configuración del negocio para mostrar su nombre en el título
+  useEffect(() => { loadSettings(); }, [loadSettings]);
 
   // Cerrar menú al hacer clic fuera
   useEffect(() => {
@@ -50,7 +56,7 @@ export default function Topbar() {
 
   return (
     <header className="h-14 border-b backdrop-blur-sm flex items-center justify-between px-5 sticky top-0 z-20" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)' }}>
-      <h1 className="font-display text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{titles[pathname] ?? 'TiendaMiBarrio'}</h1>
+      <h1 className="font-display text-base font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{titles[pathname] ?? settings?.business_name ?? 'TiendaMiBarrio'}</h1>
       <div className="flex items-center gap-2">
         {mounted && !isOnline && (
           <div className="flex items-center gap-1.5 text-yellow-400 text-xs bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1 rounded-full">

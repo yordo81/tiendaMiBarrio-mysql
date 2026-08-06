@@ -1,17 +1,26 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import { useSettingsStore } from '@/lib/stores/settings-store';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import type { AppUser } from '@/types';
 
 export default function LoginPage() {
   const router = useRouter();
   const setUser = useAuthStore(s => s.setUser);
+  const settings = useSettingsStore(s => s.settings);
+  const loadSettings = useSettingsStore(s => s.load);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Cargar la configuración del negocio para mostrar su nombre y logotipo en el login
+  useEffect(() => { loadSettings(); }, [loadSettings]);
+
+  const businessName = settings?.business_name ?? 'TiendaMiBarrio';
+  const logoUrl = settings?.logo_url ?? null;
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -38,12 +47,16 @@ export default function LoginPage() {
 
       <div className="relative w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-brand-600 rounded-2xl mb-4 shadow-lg shadow-brand-600/30">
-            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-brand-600 rounded-2xl mb-4 overflow-hidden shadow-lg shadow-brand-600/30">
+            {logoUrl ? (
+              <img src={logoUrl} alt={businessName} className="w-full h-full object-contain p-1" />
+            ) : (
+              <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            )}
           </div>
-          <h1 className="font-display text-3xl" style={{ color: 'var(--text-primary)' }}>TiendaMiBarrio</h1>
+          <h1 className="font-display text-3xl" style={{ color: 'var(--text-primary)' }}>{businessName}</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Sistema de gestión · MySQL Edition</p>
         </div>
         <div className="card p-8">
@@ -63,7 +76,7 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-        <p className="text-center text-xs mt-6" style={{ color: 'var(--text-tertiary)' }}>TiendaMiBarrio v1.0 · MySQL Edition</p>
+        <p className="text-center text-xs mt-6" style={{ color: 'var(--text-tertiary)' }}>{businessName} v1.0 · MySQL Edition</p>
       </div>
     </div>
   );
