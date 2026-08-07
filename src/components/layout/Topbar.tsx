@@ -1,13 +1,17 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { WifiOff, LogOut, ChevronDown, User } from 'lucide-react';
+import { WifiOff, LogOut, ChevronDown, User, Clock3 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import { useAuthStore } from '@/lib/stores/auth-store';
-import { useSettingsStore } from '@/lib/stores/settings-store';
-import { classifyRole, cn } from '@/lib/utils';
+import { useSettingsStore, useWorkMode } from '@/lib/stores/settings-store';
+import { classifyRole, cn, formatDateTime } from '@/lib/utils';
+import { api } from '@/lib/api-client';
+import { SHIFT_CHANGED_EVENT } from '@/lib/shift-events';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import NotificationBell from '@/components/notifications/NotificationBell';
+import OpenShiftModal from '@/components/shifts/OpenShiftModal';
 
 const titles: Record<string,string> = {
   '/dashboard':'Dashboard','/dashboard/inventario':'Inventario','/dashboard/ventas':'Ventas',
@@ -30,9 +34,54 @@ export default function Topbar() {
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
+  // Indicador de turno abierto (solo en modo por turnos)
+  const workMode = useWorkMode();
+  const isManager = user?.role === 'owner' || user?.role === 'admin';
+  const isSellingRole = isManager || user?.role === 'seller';
+  const [openShifts, setOpenShifts] = useState<Record<string, unknown>[]>([]);
+  const [posList, setPosList] = useState<Record<string, unknown>[]>([]);
+  const [shiftsLoaded, setShiftsLoaded] = useState(false);
+  const shiftsFetching = useRef(false);
+  // Modal de apertura directa desde el Topbar
+  const [showOpenShift, setShowOpenShift] = useState(false);
+
   useEffect(() => { setMounted(true); }, []);
   // Cargar la configuración del negocio para mostrar su nombre en el título
   useEffect(() => { loadSettings(); }, [loadSettings]);
+
+  // Turno abierto: se actualiza al instante con el evento global y cada 60s
+  // como respaldo (cambios desde otra pestaña o por el reloj del servidor).
+  const refreshShifts = useCallback(() => {
+    if (workMode !== 'shifts') { setShiftsLoaded(true); setOpenShifts([]); setPosList([]); return; }
+    // Evita fetchs superpuestos (intervalo + evento): el que está en curso
+    // ya trae los datos más recientes al resolverse.
+    if (shiftsFetching.current) return;
+    shiftsFetching.current = true;
+    api.getShifts()
+      .then(d => {
+        setOpenShifts((d.open ?? []) as Record<string, unknown>[]);
+        setPosList((d.pos ?? []) as Record<string, unknown>[]);
+        setShiftsLoaded(true);
+      })
+      .catch(() => setShiftsLoaded(true))
+      .finally(() => { shiftsFetching.current = false; });
+  }, [workMode, user?.id]);
+
+  useEffect(() => {
+    refreshShifts();
+    const id = setInterval(refreshShifts, 60_000);
+    const onShiftChanged = () => refreshShifts();
+    window.addEventListener(SHIFT_CHANGED_EVENT, onShiftChanged);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener(SHIFT_CHANGED_EVENT, onShiftChanged);
+    };
+  }, [refreshShifts]);
+
+  const myOpenShift = openShifts.find(s => String(s.user_id) === user?.id) ?? null;
+  const openShiftCount = openShifts.length;
+  const openPosIds = new Set(openShifts.map(s => String(s.pos_id)));
+  const freeCajas = posList.filter(p => !openPosIds.has(String(p.id)));
 
   // Cerrar menú al hacer clic fuera
   useEffect(() => {
@@ -55,9 +104,62 @@ export default function Topbar() {
   };
 
   return (
+    <>
     <header className="h-14 border-b backdrop-blur-sm flex items-center justify-between px-5 sticky top-0 z-20" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)' }}>
       <h1 className="font-display text-base font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{titles[pathname] ?? settings?.business_name ?? 'TiendaMiBarrio'}</h1>
       <div className="flex items-center gap-2">
+        {/* Indicador de turno abierto (solo en modo por turnos) */}
+        {mounted && workMode === 'shifts' && isSellingRole && (
+          myOpenShift ? (
+            isManager ? (
+              <Link
+                href="/dashboard/turnos"
+                className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1 rounded-full hover:bg-green-500/15 transition-colors"
+                title={`Turno abierto en ${String(myOpenShift.pos_name ?? 'la caja')}${myOpenShift.opened_at ? ` desde ${formatDateTime(String(myOpenShift.opened_at))}` : ''}`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                <span className="truncate max-w-[110px]">Turno: {String(myOpenShift.pos_name ?? 'Caja')}</span>
+              </Link>
+            ) : (
+              <span
+                className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1 rounded-full"
+                title={`Turno abierto en ${String(myOpenShift.pos_name ?? 'la caja')}${myOpenShift.opened_at ? ` desde ${formatDateTime(String(myOpenShift.opened_at))}` : ''}`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                <span className="truncate max-w-[110px]">Turno: {String(myOpenShift.pos_name ?? 'Caja')}</span>
+              </span>
+            )
+          ) : shiftsLoaded && openShiftCount === 0 ? (
+            <button
+              onClick={() => setShowOpenShift(true)}
+              className="flex items-center gap-1.5 text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1 rounded-full hover:bg-yellow-500/15 transition-colors"
+              title="No hay turnos abiertos — pulsa para abrir un turno"
+            >
+              <Clock3 size={12} />
+              Sin turno
+            </button>
+          ) : shiftsLoaded ? (
+            freeCajas.length > 0 ? (
+            <button
+              onClick={() => setShowOpenShift(true)}
+                className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] bg-[var(--bg-muted)] border border-[var(--border-secondary)] px-2.5 py-1 rounded-full hover:bg-[var(--bg-hover)] transition-colors"
+                title="Hay turnos abiertos en otras cajas — pulsa para abrir otro"
+              >
+                <Clock3 size={12} />
+                {openShiftCount} turno(s) abierto(s)
+              </button>
+            ) : (
+              <span
+                className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] bg-[var(--bg-muted)] border border-[var(--border-secondary)] px-2.5 py-1 rounded-full"
+                title="Todas las cajas tienen un turno abierto"
+              >
+                <Clock3 size={12} />
+                {openShiftCount} turno(s) abierto(s)
+              </span>
+            )
+          ) : null
+        )}
+
         {mounted && !isOnline && (
           <div className="flex items-center gap-1.5 text-yellow-400 text-xs bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1 rounded-full">
             <WifiOff size={12}/>Sin conexión
@@ -126,5 +228,15 @@ export default function Topbar() {
         <ThemeToggle compact />
       </div>
     </header>
+
+    {/* Modal: Abrir turno (fuera del header: su backdrop-filter es containing block para fixed) */}
+    <OpenShiftModal
+      open={showOpenShift}
+      pos={posList}
+      openPosIds={openPosIds}
+      onClose={() => setShowOpenShift(false)}
+      onOpened={refreshShifts}
+    />
+    </>
   );
 }
