@@ -11,9 +11,16 @@ const randomUUID = () => crypto.randomUUID();
 
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { items, payment, customer_id, location_id, notes } = await req.json();
+  const { items, payment, customer_id, location_id, notes, pos_id } = await req.json();
 
   if (!items?.length) return err('La venta debe tener al menos un producto');
+
+  // Caja (punto de venta) opcional: atribuye la venta a la caja para el arqueo del turno
+  const posId = pos_id ? String(pos_id).trim() : '';
+  if (posId) {
+    const pos = await queryOne<{ id: string }>('SELECT id FROM pos WHERE id = ?', [posId]);
+    if (!pos) return err('La caja seleccionada no existe');
+  }
 
   // Si los items vienen con barcode en lugar de product_id, resolver a IDs
   const resolvedItems: {
@@ -86,9 +93,9 @@ export const POST = handle(async (req: Request) => {
   await transaction(async (conn) => {
     // Insertar encabezado
     await conn.execute(
-      `INSERT INTO sales (id,customer_id,user_id,date,total,status,notes,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [saleId, customer_id ?? null, sessionUser.id, saleDate, total, status, notes ?? null, ts, ts]
+      `INSERT INTO sales (id,customer_id,user_id,pos_id,date,total,status,notes,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [saleId, customer_id ?? null, sessionUser.id, posId || null, saleDate, total, status, notes ?? null, ts, ts]
     );
 
     for (const item of resolvedItems) {

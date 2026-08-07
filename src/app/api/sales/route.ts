@@ -16,7 +16,7 @@ export const GET = handle(async (req: Request) => {
   const from = searchParams.get('from'), to = searchParams.get('to');
   const limit = Math.max(1, Math.min(500, parseInt(searchParams.get('limit') ?? '50') || 50));
 
-  let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id`;
+  let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name,p.name AS pos_name FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id`;
   const params: unknown[] = [];
   const where: string[] = [];
   if (from) { where.push('s.date>=?'); params.push(from); }
@@ -29,9 +29,16 @@ export const GET = handle(async (req: Request) => {
 // ── POST: Crear nueva venta ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { items, payment, customer_id, location_id, notes, date } = await req.json();
+  const { items, payment, customer_id, location_id, notes, date, pos_id } = await req.json();
   if (!items?.length) return err('La venta debe tener al menos un producto');
   if (payment?.method === 'credit' && !customer_id) return err('Las ventas a crédito requieren cliente');
+
+  // Caja (punto de venta) opcional: atribuye la venta a la caja para el arqueo del turno
+  const posId = pos_id ? String(pos_id).trim() : '';
+  if (posId) {
+    const pos = await queryOne<{ id: string }>('SELECT id FROM pos WHERE id = ?', [posId]);
+    if (!pos) return err('La caja seleccionada no existe');
+  }
 
   const saleId = randomUUID();
   const ts = new Date().toISOString().slice(0,19).replace('T',' ');
@@ -73,8 +80,8 @@ export const POST = handle(async (req: Request) => {
   await transaction(async (conn) => {
     // Insertar encabezado de venta
     await conn.execute(
-      'INSERT INTO sales (id,customer_id,user_id,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
-      [saleId, customer_id??null, sessionUser.id, saleDate, total, status, notes??null, ts, ts]
+      'INSERT INTO sales (id,customer_id,user_id,pos_id,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [saleId, customer_id??null, sessionUser.id, posId || null, saleDate, total, status, notes??null, ts, ts]
     );
     for (const item of items) {
       // Insertar cada producto vendido

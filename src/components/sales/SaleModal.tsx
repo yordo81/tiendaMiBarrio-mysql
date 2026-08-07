@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
 import { playScanBeep } from '@/lib/scan-beep';
+import { usePosSelector } from '@/hooks/use-pos';
 import { Search, X, Barcode } from 'lucide-react';
 
 type AnyRecord = Record<string, unknown>;
@@ -33,6 +34,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
   const [saleNotes, setSaleNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
+  const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(open);
 
   // Enfocar el campo de código de barras al abrir el modal para escanear de inmediato
   useEffect(() => {
@@ -102,6 +104,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
     setAmountCash(0);
     setAmountTransfer(0);
     setSaleNotes('');
+    resetPos();
   }
 
   // Fetch location-specific stock when location changes
@@ -162,6 +165,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
         },
         customer_id: customerId || null,
         location_id: locationId || null,
+        pos_id: workMode === 'shifts' ? posId || null : null,
         notes: saleNotes || null,
       });
       toast.success('Venta registrada');
@@ -312,6 +316,25 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
           )}
         </div>
         <div className="space-y-4">
+          {workMode === 'shifts' && (
+            <div>
+              <label className="label">Caja (punto de venta)</label>
+              <SearchableSelect
+                options={posOptions.map(p => ({
+                  value: String(p.id),
+                  label: String(p.name),
+                  sublabel: hasOpenShift(String(p.id)) ? 'Turno abierto' : undefined,
+                }))}
+                value={posId}
+                onChange={setPosId}
+                placeholder="Selecciona la caja…"
+                noResultsMessage="No hay cajas creadas"
+              />
+              {posId && !hasOpenShift(posId) && (
+                <p className="text-[10px] text-yellow-400 mt-1">Esta caja no tiene un turno abierto. La venta no se incluirá en ningún arqueo.</p>
+              )}
+            </div>
+          )}
           <div>
             <label className="label">Almacén de salida *</label>
             <SearchableSelect

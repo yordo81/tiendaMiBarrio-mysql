@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatDateTime, generateId, cn, formatNumber } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import { usePosSelector } from '@/hooks/use-pos';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
@@ -41,6 +42,7 @@ export default function VentasPage() {
   const [saleNotes, setSaleNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
+  const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showNew);
   const { user } = useAuthStore();
 
   // Date range filter — default to current month
@@ -84,7 +86,7 @@ export default function VentasPage() {
     setCart(prev => { const ex = prev.find(i=>i.product.id===p.id); return ex ? prev.map(i=>i.product.id===p.id?{...i,quantity:i.quantity+1}:i) : [...prev,{product:p,quantity:1,unit_price:Number(p.sale_price)}]; });
     setProductSearch('');
   }
-  function resetForm() { setCart([]); setLocationId(locations.length > 0 ? String(locations[0].id) : ''); setCustomerId(''); setPayMethod('cash'); setAmountCash(0); setAmountTransfer(0); setSaleNotes(''); }
+  function resetForm() { setCart([]); setLocationId(locations.length > 0 ? String(locations[0].id) : ''); setCustomerId(''); setPayMethod('cash'); setAmountCash(0); setAmountTransfer(0); setSaleNotes(''); resetPos(); }
 
   async function openDetail(sale: AnyRecord) {
     const detail = await api.getSaleDetail(String(sale.id));
@@ -139,6 +141,7 @@ export default function VentasPage() {
         payment: { method: payMethod, amount_cash: payMethod==='cash'?total:payMethod==='mixed'?amountCash:0, amount_transfer: payMethod==='transfer'?total:payMethod==='mixed'?amountTransfer:0 },
         customer_id: customerId || null,
         location_id: locationId || null,
+        pos_id: workMode === 'shifts' ? posId || null : null,
         notes: saleNotes || null,
       });
       toast.success('Venta registrada'); setShowNew(false); resetForm(); load();
@@ -205,11 +208,12 @@ export default function VentasPage() {
         :paginatedSales.length===0?<EmptyState icon={ShoppingCart} title="Sin ventas" description="Registra tu primera venta" action={<button onClick={()=>setShowNew(true)} className="btn-primary">Nueva venta</button>}/>:(
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Cliente','Total','Tipo','Estado',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Cliente',...(workMode==='shifts'?['Caja']:[]),'Total','Tipo','Estado',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
               <tbody>{paginatedSales.map(s=>(
                 <tr key={String(s.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
                   <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{s.date?formatDateTime(String(s.date)):'—'}</td>
                   <td className="px-4 py-3 text-[var(--text-primary)]">{s.customer_name?String(s.customer_name):<span className="text-[var(--text-tertiary)] italic">Sin cliente</span>}</td>
+                  {workMode==='shifts'&&<td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{s.pos_name?String(s.pos_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>}
                   <td className="px-4 py-3 text-[var(--text-primary)] font-semibold">{formatCurrency(Number(s.total))}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{s.status==='pending'?'Crédito':'Contado'}</td>
                   <td className="px-4 py-3"><span className={statusClass[String(s.status)]??'badge-info'}>{statusLabel[String(s.status)]??String(s.status)}</span></td>
@@ -279,6 +283,25 @@ export default function VentasPage() {
             )}
           </div>
           <div className="space-y-4">
+            {workMode==='shifts'&&(
+              <div>
+                <label className="label">Caja (punto de venta)</label>
+                <SearchableSelect
+                  options={posOptions.map(p => ({
+                    value: String(p.id),
+                    label: String(p.name),
+                    sublabel: hasOpenShift(String(p.id)) ? 'Turno abierto' : undefined,
+                  }))}
+                  value={posId}
+                  onChange={setPosId}
+                  placeholder="Selecciona la caja…"
+                  noResultsMessage="No hay cajas creadas"
+                />
+                {posId && !hasOpenShift(posId) && (
+                  <p className="text-[10px] text-yellow-400 mt-1">Esta caja no tiene un turno abierto. La venta no se incluirá en ningún arqueo.</p>
+                )}
+              </div>
+            )}
             <div><label className="label">Almacén de salida *</label>
               <SearchableSelect
                 options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
