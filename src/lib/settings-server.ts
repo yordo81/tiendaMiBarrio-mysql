@@ -1,4 +1,4 @@
-import { queryOne } from '@/lib/db/mysql';
+import { query, queryOne } from '@/lib/db/mysql';
 
 // ── Configuración del negocio (lado servidor) ─────────────────────
 // Lee la tabla settings (fila única id='1'). Se usa en metadatos,
@@ -36,15 +36,25 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
   return DEFAULT_BUSINESS_SETTINGS;
 }
 
-// Devuelve el id del turno de caja abierto (solo en modo turnos), o null
-export async function getOpenShiftId(): Promise<string | null> {
+// Devuelve el id del turno de caja abierto (solo en modo turnos), o null.
+// Si se pasa posId, busca el turno abierto de ESA caja. Sin posId y con
+// VARIAS cajas abiertas a la vez, devuelve null: la vinculación sería
+// ambigua y es mejor no etiquetar el movimiento a un turno arbitrario.
+export async function getOpenShiftId(posId?: string | null): Promise<string | null> {
   const settings = await getBusinessSettings();
   if (settings.work_mode !== 'shifts') return null;
   try {
-    const row = await queryOne<{ id: string }>(
-      "SELECT id FROM shifts WHERE status = 'open' ORDER BY opened_at DESC LIMIT 1"
+    if (posId) {
+      const row = await queryOne<{ id: string }>(
+        "SELECT id FROM shifts WHERE status = 'open' AND pos_id = ? ORDER BY opened_at DESC LIMIT 1",
+        [posId]
+      );
+      return row?.id ?? null;
+    }
+    const rows = await query<{ id: string }>(
+      "SELECT id FROM shifts WHERE status = 'open' ORDER BY opened_at DESC LIMIT 2"
     );
-    return row?.id ?? null;
+    return rows.length === 1 ? rows[0].id : null;
   } catch {
     return null;
   }

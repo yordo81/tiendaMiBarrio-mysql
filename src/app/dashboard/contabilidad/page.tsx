@@ -7,12 +7,14 @@ import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
 import InfoTooltip from '@/components/ui/Tooltip';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { useSettingsStore } from '@/lib/stores/settings-store';
+import ShiftReportModal from '@/components/shifts/ShiftReportModal';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import {
   DollarSign, ArrowUpRight, ArrowDownRight,
   Wallet, Banknote, TrendingUp, TrendingDown,
-  Settings, Plus, History, Search, Info, Clock3, Play, Square,
+  Settings, Plus, History, Search, Info, Clock3, Play, Square, FileText,
 } from 'lucide-react';
 
 type R = Record<string, unknown>;
@@ -46,12 +48,17 @@ export default function ContabilidadPage() {
   // Turnos de caja (modo por turnos)
   const workMode = useSettingsStore(s => s.settings?.work_mode ?? 'daily');
   const loadSettings = useSettingsStore(s => s.load);
-  const [shiftsData, setShiftsData] = useState<{ current: R | null; shifts: R[] }>({ current: null, shifts: [] });
+  const [shiftsData, setShiftsData] = useState<{ open: R[]; shifts: R[]; pos: R[] }>({ open: [], shifts: [], pos: [] });
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
-  const [openForm, setOpenForm] = useState({ opening_cash: 0, notes: '' });
+  const [openForm, setOpenForm] = useState({ pos_id: '', opening_cash: 0, notes: '' });
+  const [closeShift, setCloseShift] = useState<R | null>(null);
   const [closeForm, setCloseForm] = useState({ closing_cash: 0, notes: '' });
+  const [newPosName, setNewPosName] = useState('');
+  const [showNewPos, setShowNewPos] = useState(false);
+  const [posBusy, setPosBusy] = useState(false);
   const [shiftBusy, setShiftBusy] = useState(false);
+  const [reportShiftId, setReportShiftId] = useState<string | null>(null);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
   const [periodFilter, setPeriodFilter] = useState<'total' | 'week' | 'month' | '90days' | 'custom'>('total');
@@ -73,7 +80,11 @@ export default function ContabilidadPage() {
       ]);
       setData(acct);
       setEntries(reg);
-      setShiftsData({ current: shifts.current, shifts: shifts.shifts });
+      setShiftsData({
+        open: (shifts.open ?? []) as R[],
+        shifts: (shifts.shifts ?? []) as R[],
+        pos: (shifts.pos ?? []) as R[],
+      });
     } catch (e) {
       if (e instanceof Error) toast.error(e.message);
     } finally {
@@ -136,12 +147,16 @@ export default function ContabilidadPage() {
   }
 
   async function handleOpenShift() {
+    if (!openForm.pos_id) {
+      toast.error('Selecciona la caja donde abrirás el turno');
+      return;
+    }
     setShiftBusy(true);
     try {
-      await api.openShift({ opening_cash: openForm.opening_cash, notes: openForm.notes });
+      await api.openShift({ pos_id: openForm.pos_id, opening_cash: openForm.opening_cash, notes: openForm.notes });
       toast.success('Turno abierto correctamente');
       setShowOpenModal(false);
-      setOpenForm({ opening_cash: 0, notes: '' });
+      setOpenForm({ pos_id: '', opening_cash: 0, notes: '' });
       load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al abrir el turno');
@@ -151,19 +166,41 @@ export default function ContabilidadPage() {
   }
 
   async function handleCloseShift() {
-    const cur = shiftsData.current;
-    if (!cur) return;
+    if (!closeShift) return;
     setShiftBusy(true);
     try {
-      await api.closeShift(String(cur.id), { closing_cash: closeForm.closing_cash, notes: closeForm.notes });
+      await api.closeShift(String(closeShift.id), { closing_cash: closeForm.closing_cash, notes: closeForm.notes });
       toast.success('Turno cerrado con arqueo');
       setShowCloseModal(false);
+      setCloseShift(null);
       setCloseForm({ closing_cash: 0, notes: '' });
       load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al cerrar el turno');
     } finally {
       setShiftBusy(false);
+    }
+  }
+
+  async function handleCreatePos() {
+    const name = newPosName.trim();
+    if (!name) {
+      toast.error('Escribe el nombre de la nueva caja');
+      return;
+    }
+    setPosBusy(true);
+    try {
+      const created = await api.createPos({ name });
+      toast.success('Caja creada');
+      setNewPosName('');
+      setShowNewPos(false);
+      // Seleccionar la caja recién creada y refrescar la lista
+      setOpenForm(f => ({ ...f, pos_id: String(created.id ?? '') }));
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al crear la caja');
+    } finally {
+      setPosBusy(false);
     }
   }
 
@@ -246,6 +283,9 @@ export default function ContabilidadPage() {
     : movements;
   const paginatedMovements = pageSize === 0 ? filteredMovements : filteredMovements.slice((page - 1) * pageSize, page * pageSize);
 
+  // Cajas que ya tienen un turno abierto (para marcarlas al abrir uno nuevo)
+  const openPosIds = new Set(shiftsData.open.map(s => String(s.pos_id)));
+
   const chartLabelMap: Record<string, string> = { running_cash: 'Efectivo', running_transfer: 'Transferencia' };
 
   const ChartTip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
@@ -302,7 +342,7 @@ export default function ContabilidadPage() {
         </div>
       </div>
 
-      {/* ── Turno de caja (modo por turnos) ── */}
+      {/* ── Turnos de caja por punto de venta (modo por turnos) ── */}
       {workMode === 'shifts' && (
         <div className="card p-5">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
@@ -311,39 +351,71 @@ export default function ContabilidadPage() {
                 <Clock3 className="w-5 h-5 text-brand-400" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Turno de caja</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Turnos de caja por punto de venta</h3>
                 <p className="text-xs text-[var(--text-tertiary)]">
-                  {shiftsData.current ? (
-                    <span className="text-green-400">Abierto por {String(shiftsData.current.user_name ?? '—')} desde {formatDateTime(String(shiftsData.current.opened_at))}</span>
-                  ) : 'No hay un turno abierto'}
+                  {shiftsData.open.length > 0 ? (
+                    <span className="text-green-400">{shiftsData.open.length} caja(s) con turno abierto</span>
+                  ) : 'No hay turnos abiertos'}
                 </p>
               </div>
             </div>
-            {shiftsData.current ? (
-              <button onClick={() => { setCloseForm({ closing_cash: 0, notes: '' }); setShowCloseModal(true); }} className="btn-primary flex items-center gap-1.5 text-sm">
-                <Square className="w-3.5 h-3.5" />Cerrar turno
-              </button>
-            ) : (
-              <button onClick={() => { setOpenForm({ opening_cash: 0, notes: '' }); setShowOpenModal(true); }} className="btn-primary flex items-center gap-1.5 text-sm">
-                <Play className="w-3.5 h-3.5" />Abrir turno
-              </button>
-            )}
+            <button
+              onClick={() => {
+                const freePos = shiftsData.pos.find(p => !openPosIds.has(String(p.id)));
+                setOpenForm({ pos_id: freePos ? String(freePos.id) : '', opening_cash: 0, notes: '' });
+                setShowOpenModal(true);
+              }}
+              className="btn-primary flex items-center gap-1.5 text-sm"
+            >
+              <Play className="w-3.5 h-3.5" />Abrir turno
+            </button>
           </div>
 
-          {shiftsData.current && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-              <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-3">
-                <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Fondo inicial</p>
-                <p className="text-lg font-semibold text-[var(--text-primary)] mt-0.5">{formatCurrency(Number(shiftsData.current.opening_cash ?? 0))}</p>
-              </div>
-              <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-3">
-                <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Ventas + ingresos (efectivo)</p>
-                <p className="text-lg font-semibold text-green-400 mt-0.5">Se calcula al cerrar</p>
-              </div>
-              <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-3">
-                <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Egresos (efectivo)</p>
-                <p className="text-lg font-semibold text-red-400 mt-0.5">Se calcula al cerrar</p>
-              </div>
+          {/* Turnos abiertos: uno por caja */}
+          {shiftsData.open.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+              {shiftsData.open.map(s => (
+                <div key={String(s.id)} className="bg-[var(--bg-primary)] border border-green-500/20 rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-brand-500/15 text-brand-400 border border-brand-500/25 truncate">
+                        {String(s.pos_name ?? 'Caja')}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-green-500/10 text-green-400 border border-green-500/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />Abierto
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => setReportShiftId(String(s.id))}
+                        className="p-2 rounded-lg border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-brand-400 hover:border-brand-500/40 transition-colors"
+                        title="Ver reporte del turno"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => { setCloseShift(s); setCloseForm({ closing_cash: 0, notes: '' }); setShowCloseModal(true); }}
+                        className="btn-primary flex items-center gap-1.5 text-xs px-3 py-2"
+                      >
+                        <Square className="w-3 h-3" />Cerrar turno
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-[var(--text-tertiary)] truncate">
+                    Abierto por <span className="text-[var(--text-secondary)] font-medium">{String(s.user_name ?? '—')}</span> desde {formatDateTime(String(s.opened_at))}
+                  </p>
+                  <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-[var(--border-primary)]">
+                    <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Fondo inicial</span>
+                    <span className="text-sm font-semibold text-[var(--text-primary)]">{formatCurrency(Number(s.opening_cash ?? 0))}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-[var(--bg-primary)] border border-dashed border-[var(--border-secondary)] rounded-xl px-4 py-5 text-center mb-4">
+              <p className="text-sm text-[var(--text-tertiary)]">
+                Sin turnos abiertos. Abre un turno en una de tus cajas para operar en modo turnos.
+              </p>
             </div>
           )}
 
@@ -361,20 +433,29 @@ export default function ContabilidadPage() {
                           {formatDateTime(String(s.opened_at))} → {s.closed_at ? formatDateTime(String(s.closed_at)) : '—'}
                         </p>
                         <p className="text-xs text-[var(--text-tertiary)] truncate">
-                          Abierto por {String(s.user_name ?? '—')}{s.closed_by_name ? ` · Cerrado por ${String(s.closed_by_name)}` : ''}
+                          {String(s.pos_name ?? 'Caja')}{' · '}Abierto por {String(s.user_name ?? '—')}{s.closed_by_name ? ` · Cerrado por ${String(s.closed_by_name)}` : ''}
                         </p>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-xs text-[var(--text-tertiary)]">
-                          Esperado: {s.expected_cash != null ? formatCurrency(Number(s.expected_cash)) : '—'}
-                        </p>
-                        <p className={cn('text-xs font-medium', !hasArqueo ? 'text-[var(--text-tertiary)]' : diff === 0 ? 'text-[var(--text-tertiary)]' : diff > 0 ? 'text-green-400' : 'text-red-400')}>
-                          {hasArqueo ? (
-                            <>Contado: {formatCurrency(Number(s.closing_cash))} · Dif: {diff > 0 ? '+' : ''}{formatCurrency(diff)}</>
-                          ) : (
-                            'Sin arqueo (cerrado automáticamente)'
-                          )}
-                        </p>
+                      <div className="flex items-center gap-2 text-right shrink-0">
+                        <div>
+                          <p className="text-xs text-[var(--text-tertiary)]">
+                            Esperado: {s.expected_cash != null ? formatCurrency(Number(s.expected_cash)) : '—'}
+                          </p>
+                          <p className={cn('text-xs font-medium', !hasArqueo ? 'text-[var(--text-tertiary)]' : diff === 0 ? 'text-[var(--text-tertiary)]' : diff > 0 ? 'text-green-400' : 'text-red-400')}>
+                            {hasArqueo ? (
+                              <>Contado: {formatCurrency(Number(s.closing_cash))} · Dif: {diff > 0 ? '+' : ''}{formatCurrency(diff)}</>
+                            ) : (
+                              'Sin arqueo (cerrado automáticamente)'
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setReportShiftId(String(s.id))}
+                          className="p-2 rounded-lg border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-brand-400 hover:border-brand-500/40 transition-colors"
+                          title="Ver reporte del turno"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   );
@@ -978,9 +1059,51 @@ export default function ContabilidadPage() {
       <Modal open={showOpenModal} onClose={() => setShowOpenModal(false)} title="Abrir turno de caja">
         <div className="space-y-4">
           <p className="text-sm text-[var(--text-secondary)]">
-            Registra el efectivo que se entrega como fondo inicial de este turno. Todos los movimientos
-            registrados mientras el turno esté abierto se considerarán parte de él.
+            Elige la caja, registra el efectivo que se entrega como fondo inicial y abre el turno.
+            Solo puede haber un turno abierto por caja.
           </p>
+          <div>
+            <label className="label">Caja (punto de venta)</label>
+            <SearchableSelect
+              options={shiftsData.pos.map(p => ({
+                value: String(p.id),
+                label: String(p.name),
+                sublabel: openPosIds.has(String(p.id)) ? 'Turno abierto' : undefined,
+              }))}
+              value={openForm.pos_id}
+              onChange={v => setOpenForm(f => ({ ...f, pos_id: v }))}
+              placeholder="Selecciona la caja…"
+              noResultsMessage="No hay cajas creadas"
+              disabled={shiftsData.pos.length === 0}
+            />
+            <button
+              type="button"
+              onClick={() => setShowNewPos(!showNewPos)}
+              className="mt-2 text-xs text-brand-400 hover:text-brand-300 flex items-center gap-1 transition-colors"
+            >
+              <Plus className="w-3 h-3" />{showNewPos ? 'Ocultar nueva caja' : 'Agregar nueva caja'}
+            </button>
+            {showNewPos && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="text"
+                  className="input py-1.5 text-sm"
+                  placeholder="Nombre de la caja (ej: Caja 2)"
+                  value={newPosName}
+                  onChange={e => setNewPosName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleCreatePos(); }}
+                />
+                <button
+                  type="button"
+                  onClick={handleCreatePos}
+                  disabled={posBusy}
+                  className="btn-secondary text-xs px-3 py-2 shrink-0 disabled:opacity-50"
+                >
+                  {posBusy ? 'Creando…' : 'Crear'}
+                </button>
+              </div>
+            )}
+          </div>
           <div>
             <label className="label">Fondo inicial en efectivo</label>
             <div className="relative">
@@ -1016,12 +1139,20 @@ export default function ContabilidadPage() {
           </p>
           <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-3 grid grid-cols-2 gap-3 text-sm">
             <div>
-              <p className="text-xs text-[var(--text-tertiary)]">Fondo inicial</p>
-              <p className="font-medium text-[var(--text-primary)]">{formatCurrency(Number(shiftsData.current?.opening_cash ?? 0))}</p>
+              <p className="text-xs text-[var(--text-tertiary)]">Caja</p>
+              <p className="font-medium text-[var(--text-primary)] truncate">{String(closeShift?.pos_name ?? '—')}</p>
             </div>
             <div>
               <p className="text-xs text-[var(--text-tertiary)]">Abierto por</p>
-              <p className="font-medium text-[var(--text-primary)] truncate">{String(shiftsData.current?.user_name ?? '—')}</p>
+              <p className="font-medium text-[var(--text-primary)] truncate">{String(closeShift?.user_name ?? '—')}</p>
+            </div>
+            <div>
+              <p className="text-xs text-[var(--text-tertiary)]">Fondo inicial</p>
+              <p className="font-medium text-[var(--text-primary)]">{formatCurrency(Number(closeShift?.opening_cash ?? 0))}</p>
+            </div>
+            <div>
+              <p className="text-xs text-[var(--text-tertiary)]">Abierto desde</p>
+              <p className="font-medium text-[var(--text-primary)] truncate">{closeShift?.opened_at ? formatDateTime(String(closeShift.opened_at)) : '—'}</p>
             </div>
           </div>
           <div>
@@ -1053,6 +1184,13 @@ export default function ContabilidadPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Modal: Reporte del turno */}
+      <ShiftReportModal
+        open={reportShiftId !== null}
+        shiftId={reportShiftId}
+        onClose={() => setReportShiftId(null)}
+      />
     </div>
   );
 }

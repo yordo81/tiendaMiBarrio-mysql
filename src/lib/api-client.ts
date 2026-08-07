@@ -175,7 +175,12 @@ export const api = {
   updateSettings: (data: unknown) => apiFetch<{ settings: { business_name: string; logo_url: string | null; work_mode: 'daily' | 'shifts' } }>('/api/settings', { method: 'PUT', body: JSON.stringify(data) }),
 
   // Shifts / Turnos de caja
-  getShifts: () => apiFetch<{ current: Record<string, unknown> | null; shifts: Record<string, unknown>[] }>('/api/shifts'),
+  getShifts: () => apiFetch<{ pos: Record<string, unknown>[]; open: Record<string, unknown>[]; shifts: Record<string, unknown>[] }>('/api/shifts'),
   openShift: (data: unknown) => apiFetch('/api/shifts', { method: 'POST', body: JSON.stringify(data) }),
   closeShift: (id: string, data: unknown) => apiFetch(`/api/shifts/${id}/close`, { method: 'POST', body: JSON.stringify(data) }),
+  getShiftReport: (id: string) => apiFetch<Record<string, unknown>>(`/api/shifts/${id}/report`),
+
+  // POS / Cajas (puntos de venta)
+  getPos: () => apiFetch<Record<string, unknown>[]>('/api/pos'),
+  createPos: (data: unknown) => apiFetch<{ id: string; name: string; active: boolean }>('/api/pos', { method: 'POST', body: JSON.stringify(data) }),
 };
