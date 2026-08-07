@@ -8,13 +8,14 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, Truck,
   TrendingDown, BarChart2, UserCog, Wifi, WifiOff,
-  Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign, CalendarCheck, Bell, Settings,
+  Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign, CalendarCheck, Bell, Settings, Clock3,
+  type LucideIcon,
 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import type { AppUser } from '@/types';
 import { UNAUTHORIZED_EVENT, type UnauthorizedEventDetail } from '@/lib/api-client';
 
-const navItems = [
+const navItems: { href: string; icon: LucideIcon; label: string; roles: string[]; workMode?: 'shifts' }[] = [
   { href: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard',    roles: ['owner','admin','seller','warehouse'] },
   { href: '/dashboard/ventas',      icon: ShoppingCart,    label: 'Ventas',       roles: ['owner','admin','seller'] },
   { href: '/dashboard/reservaciones', icon: CalendarCheck,   label: 'Reservaciones', roles: ['owner','admin','seller'] },
@@ -26,6 +27,7 @@ const navItems = [
   { href: '/dashboard/proveedores', icon: Truck,           label: 'Proveedores',  roles: ['owner','admin','warehouse'] },
   { href: '/dashboard/gastos',      icon: TrendingDown,    label: 'Gastos',       roles: ['owner','admin'] },
   { href: '/dashboard/contabilidad', icon: DollarSign,     label: 'Contabilidad', roles: ['owner','admin'] },
+  { href: '/dashboard/turnos',      icon: Clock3,          label: 'Turnos',       roles: ['owner','admin'], workMode: 'shifts' },
   { href: '/dashboard/reportes',    icon: BarChart2,       label: 'Reportes',     roles: ['owner','admin'] },
   { href: '/dashboard/auditoria',   icon: Shield,          label: 'Auditoría',    roles: ['owner','admin'] },
   { href: '/dashboard/notificaciones', icon: Bell,         label: 'Notificaciones', roles: ['owner','admin','warehouse','seller'] },
@@ -69,7 +71,11 @@ export default function Sidebar() {
 
   useEffect(() => { loadUser(); }, [loadUser]);
 
-  const allowedItems = navItems.filter(item => !user ? true : item.roles.includes(user.role));
+  // Solo se muestra 'Turnos' cuando el modo de operación es por turnos
+  const allowedItems = navItems.filter(item =>
+    (!user ? true : item.roles.includes(user.role)) &&
+    (!item.workMode || settings?.work_mode === item.workMode)
+  );
 
   return (
     <aside className="hidden md:flex flex-col w-60 h-screen fixed left-0 top-0 z-40" style={{ backgroundColor: 'var(--bg-secondary)', borderRightColor: 'var(--border-primary)', borderRightWidth: '1px' }}>

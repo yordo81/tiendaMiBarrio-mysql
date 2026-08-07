@@ -13,7 +13,7 @@ const titles: Record<string,string> = {
   '/dashboard':'Dashboard','/dashboard/inventario':'Inventario','/dashboard/ventas':'Ventas',
   '/dashboard/clientes':'Clientes','/dashboard/proveedores':'Proveedores','/dashboard/gastos':'Gastos',
   '/dashboard/reportes':'Reportes','/dashboard/usuarios':'Usuarios','/dashboard/almacenes':'Almacenes',
-  '/dashboard/contabilidad':'Contabilidad','/dashboard/auditoria':'Auditoría','/dashboard/compras':'Compras',
+  '/dashboard/contabilidad':'Contabilidad','/dashboard/turnos':'Turnos','/dashboard/auditoria':'Auditoría','/dashboard/compras':'Compras',
   '/dashboard/movimientos':'Movimientos','/dashboard/reservaciones':'Reservaciones','/dashboard/notificaciones':'Notificaciones',
   '/dashboard/configuracion':'Configuración',
 };

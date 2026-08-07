@@ -253,7 +253,7 @@ export default function ConfiguracionPage() {
         {form.work_mode === 'shifts' && (
           <div className="mt-4 bg-brand-500/5 border border-brand-500/20 rounded-xl px-4 py-3 text-xs text-brand-300">
             <p className="font-medium">Modo por turnos activado</p>
-            <p className="text-[var(--text-secondary)] mt-0.5">Desde el módulo <b>Contabilidad</b> podrás abrir y cerrar turnos con arqueo de caja (efectivo esperado vs. contado).</p>
+            <p className="text-[var(--text-secondary)] mt-0.5">Aparecerá el módulo <b>Turnos</b> en el menú, donde podrás abrir y cerrar turnos con arqueo de caja (efectivo esperado vs. contado).</p>
           </div>
         )}
       </div>
