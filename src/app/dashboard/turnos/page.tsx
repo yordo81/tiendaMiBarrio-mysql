@@ -5,9 +5,10 @@ import { api } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
-import SearchableSelect from '@/components/ui/SearchableSelect';
 import { useSettingsStore } from '@/lib/stores/settings-store';
+import { notifyShiftChanged } from '@/lib/shift-events';
 import ShiftReportModal from '@/components/shifts/ShiftReportModal';
+import OpenShiftModal from '@/components/shifts/OpenShiftModal';
 import { Clock3, Play, Square, FileText, Banknote, Settings } from 'lucide-react';
 
 type R = Record<string, unknown>;
@@ -25,7 +26,6 @@ export default function TurnosPage() {
   const [loading, setLoading] = useState(true);
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
-  const [openForm, setOpenForm] = useState({ pos_id: '', opening_cash: 0, notes: '' });
   const [closeShift, setCloseShift] = useState<R | null>(null);
   const [closeForm, setCloseForm] = useState({ closing_cash: 0, notes: '' });
   const [shiftBusy, setShiftBusy] = useState(false);
@@ -50,25 +50,6 @@ export default function TurnosPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  async function handleOpenShift() {
-    if (!openForm.pos_id) {
-      toast.error('Selecciona la caja donde abrirás el turno');
-      return;
-    }
-    setShiftBusy(true);
-    try {
-      await api.openShift({ pos_id: openForm.pos_id, opening_cash: openForm.opening_cash, notes: openForm.notes });
-      toast.success('Turno abierto correctamente');
-      setShowOpenModal(false);
-      setOpenForm({ pos_id: '', opening_cash: 0, notes: '' });
-      load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al abrir el turno');
-    } finally {
-      setShiftBusy(false);
-    }
-  }
-
   async function handleCloseShift() {
     if (!closeShift) return;
     setShiftBusy(true);
@@ -79,6 +60,7 @@ export default function TurnosPage() {
       setCloseShift(null);
       setCloseForm({ closing_cash: 0, notes: '' });
       load();
+      notifyShiftChanged();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al cerrar el turno');
     } finally {
@@ -153,11 +135,7 @@ export default function TurnosPage() {
             </div>
           </div>
           <button
-            onClick={() => {
-              const freePos = shiftsData.pos.find(p => !openPosIds.has(String(p.id)));
-              setOpenForm({ pos_id: freePos ? String(freePos.id) : '', opening_cash: 0, notes: '' });
-              setShowOpenModal(true);
-            }}
+            onClick={() => setShowOpenModal(true)}
             className="btn-primary flex items-center gap-1.5 text-sm"
           >
             <Play className="w-3.5 h-3.5" />Abrir turno
@@ -258,61 +236,14 @@ export default function TurnosPage() {
         )}
       </div>
 
-      {/* Modal: Abrir turno */}
-      <Modal open={showOpenModal} onClose={() => setShowOpenModal(false)} title="Abrir turno de caja">
-        <div className="space-y-4">
-          <p className="text-sm text-[var(--text-secondary)]">
-            Elige la caja, registra el efectivo que se entrega como fondo inicial y abre el turno.
-            Solo puede haber un turno abierto por caja.
-          </p>
-          <div>
-            <label className="label">Caja (punto de venta)</label>
-            <SearchableSelect
-              options={shiftsData.pos.map(p => ({
-                value: String(p.id),
-                label: String(p.name),
-                sublabel: openPosIds.has(String(p.id))
-                  ? (p.location_name ? `Turno abierto · ${String(p.location_name)}` : 'Turno abierto')
-                  : (p.location_name ? String(p.location_name) : undefined),
-              }))}
-              value={openForm.pos_id}
-              onChange={v => setOpenForm(f => ({ ...f, pos_id: v }))}
-              placeholder="Selecciona la caja…"
-              noResultsMessage="No hay cajas creadas"
-              disabled={shiftsData.pos.length === 0}
-            />
-            <p className="mt-2 text-xs text-[var(--text-tertiary)]">
-              ¿Necesitas otra caja? Créala en{' '}
-              <a href="/dashboard/almacenes?tab=cajas" className="text-brand-400 hover:text-brand-300 underline underline-offset-2 transition-colors">
-                Almacenes → Cajas
-              </a>
-            </p>
-          </div>
-          <div>
-            <label className="label">Fondo inicial en efectivo</label>
-            <div className="relative">
-              <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
-              <input type="number" min="0" step="1" className="input pl-9"
-                value={openForm.opening_cash || ''}
-                onChange={e => setOpenForm(f => ({ ...f, opening_cash: parseFloat(e.target.value) || 0 }))}
-              />
-            </div>
-          </div>
-          <div>
-            <label className="label">Nota (opcional)</label>
-            <input type="text" className="input" placeholder="Ej: Turno mañana"
-              value={openForm.notes}
-              onChange={e => setOpenForm(f => ({ ...f, notes: e.target.value }))}
-            />
-          </div>
-          <div className="flex flex-col xs:flex-row gap-2 justify-end pt-2">
-            <button onClick={() => setShowOpenModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
-            <button onClick={handleOpenShift} disabled={shiftBusy} className="btn-primary flex-1 xs:flex-none disabled:opacity-50">
-              {shiftBusy ? 'Abriendo...' : 'Abrir turno'}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {/* Modal: Abrir turno (compartido) */}
+      <OpenShiftModal
+        open={showOpenModal}
+        pos={shiftsData.pos}
+        openPosIds={openPosIds}
+        onClose={() => setShowOpenModal(false)}
+        onOpened={load}
+      />
 
       {/* Modal: Cerrar turno */}
       <Modal open={showCloseModal} onClose={() => setShowCloseModal(false)} title="Cerrar turno — arqueo de caja">
