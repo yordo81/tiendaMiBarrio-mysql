@@ -36,6 +36,7 @@ Sistema de gestión integral para tienda retail. **Sin Supabase.** Todo corre en
 | **Gastos** | Consumo interno, gastos operativos con método de pago (efectivo/transferencia), categorías personalizables |
 | **Reservaciones** 📋 | Gestión de pedidos de clientes (pendiente/confirmada/cancelada), edición inline de cantidad y notas, estadísticas por estado |
 | **Contabilidad** 💰 | Libro de caja completo: saldos en efectivo y transferencia, flujo del día, aportes de capital, ajustes manuales, gráfico de evolución histórica, filtro por periodo (todo/semana/mes/90 días/personalizado) |
+| **Turnos** ⏱️ | Módulo independiente de turnos de caja por punto de venta: apertura, cierre y arqueo (efectivo esperado vs. contado). Se activa con el modo por turnos en Configuración |
 | **Reportes** | Ventas, rentabilidad, variación de precios, proyección de reabastecimiento, cuentas por cobrar |
 | **Auditoría** 🛡️ | Registro detallado de eliminaciones y ajustes críticos: quién, qué, cuándo y detalles del cambio |
 | **Usuarios** | Roles (Dueño, Admin, Vendedor, Bodeguero) + permisos granulares por módulo |
@@ -45,7 +46,7 @@ Sistema de gestión integral para tienda retail. **Sin Supabase.** Todo corre en
 | Rol | Módulos accesibles |
 |-----|-------------------|
 | **Dueño** | Todos los módulos |
-| **Administrador** | Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Reportes, Auditoría |
+| **Administrador** | Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Turnos, Reportes, Auditoría |
 | **Vendedor** | Dashboard, Ventas, Reservaciones, Clientes |
 | **Bodeguero** | Dashboard, Inventario, Compras, Movimientos, Almacenes, Proveedores |
 
@@ -345,6 +346,7 @@ src/
 │       ├── proveedores/        # Gestión de proveedores
 │       ├── gastos/             # Gastos operativos
 │       ├── contabilidad/       # Libro de caja
+│       ├── turnos/             # Turnos de caja por punto de venta
 │       ├── reservaciones/      # Pedidos de clientes
 │       ├── reportes/           # Reportes y análisis
 │       ├── auditoria/          # Registro de cambios
@@ -392,7 +394,7 @@ scripts/
 | Rol | Módulos |
 |-----|---------|
 | **Dueño** | Todos (Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Reportes, Auditoría, Usuarios) |
-| **Administrador** | Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Reportes, Auditoría |
+| **Administrador** | Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Turnos, Reportes, Auditoría |
 | **Vendedor** | Dashboard, Ventas, Reservaciones, Clientes |
 | **Bodeguero** | Dashboard, Inventario, Compras, Movimientos, Almacenes, Proveedores |
 

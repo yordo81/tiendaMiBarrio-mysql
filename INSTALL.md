@@ -38,6 +38,7 @@
 | **Gastos** | Gastos operativos con método de pago (efectivo/transferencia), categorías personalizables |
 | **Reservaciones** | Gestión de pedidos de clientes (pendiente/confirmada/cancelada) |
 | **Contabilidad** | Libro de caja: saldos efectivo/transferencia, aportes de capital, ajustes, gráfico de evolución, filtro por periodo |
+| **Turnos** | Turnos de caja por punto de venta con arqueo; módulo independiente que se activa con el modo por turnos en Configuración |
 | **Reportes** | Ventas, rentabilidad, variación de precios, proyección de reabastecimiento, cuentas |
 | **Auditoría** | Registro de eliminaciones y ajustes críticos con detalles de quién, qué y cuándo |
 | **Usuarios** | Roles (Dueño, Admin, Vendedor, Bodeguero) + permisos granulares |
