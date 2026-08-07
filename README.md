@@ -141,6 +141,7 @@ mysql -u root -p < mysql/migration-012-settings-shifts.sql
 mysql -u root -p < mysql/migration-013-pos-shifts.sql
 mysql -u root -p < mysql/migration-014-sales-pos.sql
 mysql -u root -p < mysql/migration-015-pos-gastos-compras.sql
+mysql -u root -p < mysql/migration-016-pos-locations.sql
 ```
 
 | Migración | Descripción |
@@ -160,6 +161,7 @@ mysql -u root -p < mysql/migration-015-pos-gastos-compras.sql
 | `migration-013-pos-shifts.sql` | Crea la tabla `pos` (puntos de venta/cajas), agrega `shifts.pos_id` y una guardia de BD (columna generada + índice único) que impide dos turnos abiertos en la misma caja. Aplicable con `node scripts/apply-migration-013.js`. |
 | `migration-014-sales-pos.sql` | Agrega `sales.pos_id` para registrar la caja en cada venta; el arqueo y el reporte de cada turno suman solo las ventas de su caja. Aplicable con `node scripts/apply-migration-014.js`. |
 | `migration-015-pos-gastos-compras.sql` | Agrega `expenses.pos_id` y `purchases.pos_id` para atribuir gastos y compras a la caja de su turno. Aplicable con `node scripts/apply-migration-015.js`. |
+| `migration-016-pos-locations.sql` | Asocia cada caja (`pos`) a un punto de venta (`locations` tipo `store`) con FK; habilita crear, editar y activar/desactivar cajas desde la pestaña **Cajas** de Almacenes. Aplicable con `node scripts/apply-migration-016.js`. |
 
 > **Nota:** Si usaste `npm run db:setup` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo necesitas ejecutarlas manualmente si actualizas una BD existente.
 

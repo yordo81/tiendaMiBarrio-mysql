@@ -56,8 +56,8 @@ export const POST = handle(async (req: Request) => {
   // Caja (punto de venta) opcional: atribuye la compra a la caja para el arqueo del turno
   const posId = pos_id ? String(pos_id).trim() : '';
   if (posId) {
-    const pos = await queryOne<{ id: string }>('SELECT id FROM pos WHERE id = ?', [posId]);
-    if (!pos) return err('La caja seleccionada no existe');
+    const pos = await queryOne<{ id: string }>('SELECT id FROM pos WHERE id = ? AND active = 1', [posId]);
+    if (!pos) return err('La caja seleccionada no existe o está desactivada');
   }
 
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');

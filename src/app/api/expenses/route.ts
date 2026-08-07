@@ -28,8 +28,8 @@ export const POST = handle(async (req: Request) => {
   // Caja (punto de venta) opcional: atribuye el gasto a la caja para el arqueo del turno
   const posId = body.pos_id ? String(body.pos_id).trim() : '';
   if (posId) {
-    const pos = await queryOne<{ id: string }>('SELECT id FROM pos WHERE id = ?', [posId]);
-    if (!pos) return err('La caja seleccionada no existe');
+    const pos = await queryOne<{ id: string }>('SELECT id FROM pos WHERE id = ? AND active = 1', [posId]);
+    if (!pos) return err('La caja seleccionada no existe o está desactivada');
   }
 
   await transaction(async (conn) => {

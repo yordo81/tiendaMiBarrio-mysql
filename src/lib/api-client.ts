@@ -180,7 +180,9 @@ export const api = {
   closeShift: (id: string, data: unknown) => apiFetch(`/api/shifts/${id}/close`, { method: 'POST', body: JSON.stringify(data) }),
   getShiftReport: (id: string) => apiFetch<Record<string, unknown>>(`/api/shifts/${id}/report`),
 
-  // POS / Cajas (puntos de venta)
+  // POS / Cajas (puntos de venta, asociadas a almacenes tipo 'store')
   getPos: () => apiFetch<Record<string, unknown>[]>('/api/pos'),
-  createPos: (data: unknown) => apiFetch<{ id: string; name: string; active: boolean }>('/api/pos', { method: 'POST', body: JSON.stringify(data) }),
+  createPos: (data: unknown) => apiFetch<Record<string, unknown>>('/api/pos', { method: 'POST', body: JSON.stringify(data) }),
+  updatePos: (data: unknown) => apiFetch<Record<string, unknown>>('/api/pos', { method: 'PUT', body: JSON.stringify(data) }),
+  deletePos: (id: string) => apiFetch('/api/pos', { method: 'DELETE', body: JSON.stringify({ id }) }),
 };

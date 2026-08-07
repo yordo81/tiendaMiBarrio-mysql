@@ -23,7 +23,15 @@ function canManageShifts(role: string) {
 
 export const GET = handle(async () => {
   await requireAuth();
-  const pos = await query('SELECT id, name, active FROM pos ORDER BY name');
+  // Solo cajas activas: las desactivadas no pueden abrir turnos ni deben
+  // aparecer en los selectores de ventas, gastos y compras.
+  const pos = await query(
+    `SELECT p.id, p.name, p.active, l.name AS location_name
+     FROM pos p
+     LEFT JOIN locations l ON l.id = p.location_id
+     WHERE p.active = 1
+     ORDER BY p.name`
+  );
   // Turnos abiertos: puede haber uno por caja (el resto ya está validado)
   const open = await query(
     `SELECT s.*, u.name AS user_name, p.name AS pos_name
@@ -70,9 +78,9 @@ export const POST = handle(async (req: Request) => {
   // aperturas de la MISMA caja (dos peticiones simultáneas no pueden
   // pasar ambas la comprobación) y valida fecha y turno abierto.
   const outcome = await transaction<{ error?: string }>(async (conn) => {
-    const [posRows] = await conn.execute('SELECT id, name FROM pos WHERE id = ? FOR UPDATE', [posId]);
+    const [posRows] = await conn.execute('SELECT id, name FROM pos WHERE id = ? AND active = 1 FOR UPDATE', [posId]);
     const pos = (posRows as { id: string; name: string }[])[0];
-    if (!pos) return { error: 'La caja seleccionada no existe' };
+    if (!pos) return { error: 'La caja seleccionada no existe o está desactivada' };
 
     // A) No abrir dos turnos a la vez en la misma caja
     const [openRows] = await conn.execute(
