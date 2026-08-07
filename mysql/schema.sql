@@ -99,14 +99,12 @@ CREATE TABLE IF NOT EXISTS customers (
 CREATE TABLE IF NOT EXISTS pos (
   id            VARCHAR(36) NOT NULL PRIMARY KEY,
   name          VARCHAR(60) NOT NULL,
+  location_id   CHAR(36)    NOT NULL COMMENT 'Punto de venta (almacén tipo store) al que pertenece la caja',
   active        TINYINT(1) NOT NULL DEFAULT 1,
   created_at    DATETIME NOT NULL,
-  UNIQUE KEY uq_pos_name (name)
+  UNIQUE KEY uq_pos_name (name),
+  KEY idx_pos_location (location_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-INSERT INTO pos (id, name, active, created_at)
-SELECT 'POS-1', 'Caja principal', 1, NOW()
-WHERE NOT EXISTS (SELECT 1 FROM pos WHERE id = 'POS-1');
 
 CREATE TABLE IF NOT EXISTS sales (
   id          CHAR(36)      NOT NULL PRIMARY KEY,
@@ -270,6 +268,15 @@ INSERT IGNORE INTO expense_categories (id,name) VALUES
   (UUID(),'Electricidad y servicios'),(UUID(),'Gastos operativos varios');
 INSERT IGNORE INTO categories (id,name) VALUES (UUID(),'Sin categoría');
 INSERT IGNORE INTO locations (id,name,type) VALUES (UUID(),'Almacén Principal','warehouse');
+INSERT IGNORE INTO locations (id,name,type) VALUES (UUID(),'Punto de venta principal','store');
+
+-- Caja principal asociada al punto de venta por defecto
+INSERT INTO pos (id, name, location_id, active, created_at)
+SELECT 'POS-1', 'Caja principal', l.id, 1, NOW()
+FROM locations l
+WHERE l.type = 'store' AND l.active = 1
+  AND NOT EXISTS (SELECT 1 FROM pos WHERE id = 'POS-1')
+LIMIT 1;
 
 -- ============================================================
 -- AUDIT LOGS
@@ -397,3 +404,6 @@ CREATE TABLE IF NOT EXISTS shifts (
   UNIQUE KEY uq_shifts_open_per_pos (open_guard),
   CONSTRAINT fk_shifts_pos FOREIGN KEY (pos_id) REFERENCES pos(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Las cajas (pos) pertenecen a un punto de venta (locations type='store')
+ALTER TABLE pos ADD CONSTRAINT fk_pos_location FOREIGN KEY (location_id) REFERENCES locations(id);
