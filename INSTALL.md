@@ -137,9 +137,12 @@ mysql -u root -p < mysql/migration-009-expiration.sql
 mysql -u root -p < mysql/migration-010-is-perishable.sql
 mysql -u root -p < mysql/migration-011-notification-logs.sql
 mysql -u root -p < mysql/migration-012-settings-shifts.sql
+mysql -u root -p < mysql/migration-013-pos-shifts.sql
+mysql -u root -p < mysql/migration-014-sales-pos.sql
+mysql -u root -p < mysql/migration-015-pos-gastos-compras.sql
 ```
 
-> 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` aplica la migración 012 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
+> 💡 **Aplicación automática:** `node scripts/apply-migration-012.js`, `node scripts/apply-migration-013.js`, `node scripts/apply-migration-014.js` y `node scripts/apply-migration-015.js` aplican las migraciones 012-015 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
 
 | Migración | Descripción |
 |-----------|-------------|
@@ -155,6 +158,9 @@ mysql -u root -p < mysql/migration-012-settings-shifts.sql
 | `migration-010-is-perishable.sql` | Agrega la columna `is_perishable` a `products`. |
 | `migration-011-notification-logs.sql` | Crea la tabla `notification_logs` para notificaciones internas. |
 | `migration-012-settings-shifts.sql` | Crea las tablas `settings` (nombre/logo/modo de trabajo) y `shifts` (turnos de caja) y agrega `cash_register.shift_id`. |
+| `migration-013-pos-shifts.sql` | Crea la tabla `pos` (puntos de venta/cajas), agrega `shifts.pos_id` y una guardia de BD que impide dos turnos abiertos en la misma caja. |
+| `migration-014-sales-pos.sql` | Agrega `sales.pos_id` para registrar la caja en cada venta; el arqueo y el reporte de cada turno suman solo las ventas de su caja. |
+| `migration-015-pos-gastos-compras.sql` | Agrega `expenses.pos_id` y `purchases.pos_id` para atribuir gastos y compras a la caja de su turno. |
 
 > **Nota:** Si usaste `node scripts/setup-db.js` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo ejecútalas manualmente si actualizas una BD existente.
 

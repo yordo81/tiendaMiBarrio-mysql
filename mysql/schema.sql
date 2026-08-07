@@ -96,10 +96,23 @@ CREATE TABLE IF NOT EXISTS customers (
   INDEX idx_balance (balance)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS pos (
+  id            VARCHAR(36) NOT NULL PRIMARY KEY,
+  name          VARCHAR(60) NOT NULL,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME NOT NULL,
+  UNIQUE KEY uq_pos_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO pos (id, name, active, created_at)
+SELECT 'POS-1', 'Caja principal', 1, NOW()
+WHERE NOT EXISTS (SELECT 1 FROM pos WHERE id = 'POS-1');
+
 CREATE TABLE IF NOT EXISTS sales (
   id          CHAR(36)      NOT NULL PRIMARY KEY,
   customer_id CHAR(36)      NULL,
   user_id     CHAR(36)      NULL,
+  pos_id      VARCHAR(36)   NULL COMMENT 'Punto de venta / caja donde se realizó la venta',
   date        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   total       DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   status      ENUM('completed','partial','pending','cancelled') NOT NULL DEFAULT 'completed',
@@ -108,7 +121,8 @@ CREATE TABLE IF NOT EXISTS sales (
   updated_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id)     REFERENCES users(id) ON DELETE SET NULL,
-  INDEX idx_date (date), INDEX idx_status (status)
+  FOREIGN KEY (pos_id)      REFERENCES pos(id) ON DELETE SET NULL,
+  INDEX idx_date (date), INDEX idx_status (status), INDEX idx_sales_pos (pos_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS sale_items (
@@ -165,11 +179,14 @@ CREATE TABLE IF NOT EXISTS expenses (
   product_quantity DECIMAL(12,3) NULL,
   date             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   user_id          CHAR(36)      NULL,
+  pos_id           VARCHAR(36)   NULL COMMENT 'Punto de venta / caja donde se registró el gasto',
   created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (category_id) REFERENCES expense_categories(id) ON DELETE SET NULL,
   FOREIGN KEY (product_id)  REFERENCES products(id)           ON DELETE SET NULL,
-  FOREIGN KEY (user_id)     REFERENCES users(id) ON DELETE SET NULL
+  FOREIGN KEY (user_id)     REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (pos_id)      REFERENCES pos(id)   ON DELETE SET NULL,
+  INDEX idx_expenses_pos (pos_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS stock_movements (
@@ -234,14 +251,17 @@ CREATE TABLE IF NOT EXISTS purchases (
   location_id CHAR(36)      NULL,
   notes       TEXT          NULL,
   user_id     CHAR(36)      NULL,
+  pos_id      VARCHAR(36)   NULL COMMENT 'Punto de venta / caja donde se registró la compra',
   created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (product_id)  REFERENCES products(id)  ON DELETE CASCADE,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
   FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id)     REFERENCES users(id)     ON DELETE SET NULL,
+  FOREIGN KEY (pos_id)      REFERENCES pos(id)       ON DELETE SET NULL,
   INDEX idx_product (product_id),
   INDEX idx_supplier (supplier_id),
-  INDEX idx_date (created_at)
+  INDEX idx_date (created_at),
+  INDEX idx_purchases_pos (pos_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Datos semilla
@@ -359,6 +379,7 @@ ON DUPLICATE KEY UPDATE id = id;
 CREATE TABLE IF NOT EXISTS shifts (
   id            VARCHAR(36) NOT NULL PRIMARY KEY,
   user_id       VARCHAR(36) NOT NULL COMMENT 'Quien abrió el turno',
+  pos_id        VARCHAR(36) NOT NULL COMMENT 'Punto de venta / caja',
   opened_at     DATETIME NOT NULL,
   closed_at     DATETIME DEFAULT NULL,
   opening_cash  DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT 'Fondo inicial en caja',
@@ -369,6 +390,10 @@ CREATE TABLE IF NOT EXISTS shifts (
   status        ENUM('open','closed') NOT NULL DEFAULT 'open',
   closed_by     VARCHAR(36) DEFAULT NULL,
   created_at    DATETIME NOT NULL,
+  open_guard    VARCHAR(36) GENERATED ALWAYS AS (IF(status = 'open', pos_id, NULL)) STORED COMMENT 'Guardia: máximo un turno abierto por caja',
   KEY idx_shifts_status (status),
-  KEY idx_shifts_opened (opened_at)
+  KEY idx_shifts_opened (opened_at),
+  KEY idx_shifts_pos_opened (pos_id, opened_at),
+  UNIQUE KEY uq_shifts_open_per_pos (open_guard),
+  CONSTRAINT fk_shifts_pos FOREIGN KEY (pos_id) REFERENCES pos(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

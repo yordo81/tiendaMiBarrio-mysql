@@ -133,6 +133,14 @@ mysql -u root -p < mysql/migration-005-audit-logs.sql
 mysql -u root -p < mysql/migration-006-accounting-module.sql
 mysql -u root -p < mysql/migration-007-capital-management.sql
 mysql -u root -p < mysql/migration-007-reservations.sql
+mysql -u root -p < mysql/migration-008-barcode.sql
+mysql -u root -p < mysql/migration-009-expiration.sql
+mysql -u root -p < mysql/migration-010-is-perishable.sql
+mysql -u root -p < mysql/migration-011-notification-logs.sql
+mysql -u root -p < mysql/migration-012-settings-shifts.sql
+mysql -u root -p < mysql/migration-013-pos-shifts.sql
+mysql -u root -p < mysql/migration-014-sales-pos.sql
+mysql -u root -p < mysql/migration-015-pos-gastos-compras.sql
 ```
 
 | Migración | Descripción |
@@ -149,6 +157,9 @@ mysql -u root -p < mysql/migration-007-reservations.sql
 | `migration-010-is-perishable.sql` | Agrega la columna `is_perishable` a `products`. |
 | `migration-011-notification-logs.sql` | Crea la tabla `notification_logs` para notificaciones internas. |
 | `migration-012-settings-shifts.sql` | Crea las tablas `settings` (nombre/logo/modo de trabajo) y `shifts` (turnos de caja) y agrega `cash_register.shift_id`. |
+| `migration-013-pos-shifts.sql` | Crea la tabla `pos` (puntos de venta/cajas), agrega `shifts.pos_id` y una guardia de BD (columna generada + índice único) que impide dos turnos abiertos en la misma caja. Aplicable con `node scripts/apply-migration-013.js`. |
+| `migration-014-sales-pos.sql` | Agrega `sales.pos_id` para registrar la caja en cada venta; el arqueo y el reporte de cada turno suman solo las ventas de su caja. Aplicable con `node scripts/apply-migration-014.js`. |
+| `migration-015-pos-gastos-compras.sql` | Agrega `expenses.pos_id` y `purchases.pos_id` para atribuir gastos y compras a la caja de su turno. Aplicable con `node scripts/apply-migration-015.js`. |
 
 > **Nota:** Si usaste `npm run db:setup` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo necesitas ejecutarlas manualmente si actualizas una BD existente.
 
