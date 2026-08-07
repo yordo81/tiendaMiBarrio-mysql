@@ -2,12 +2,16 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
-import { apiFetch } from '@/lib/api-client';
-import { Clock, DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown, BarChart2, AlertTriangle, Calendar, Plus, ShoppingBag, ExternalLink, Check } from 'lucide-react';
+import { api, apiFetch } from '@/lib/api-client';
+import { Clock, DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown, BarChart2, AlertTriangle, Calendar, Plus, ShoppingBag, ExternalLink, Check, Clock3, Play } from 'lucide-react';
 import StatCard from '@/components/ui/StatCard';
 import SaleModal from '@/components/sales/SaleModal';
 import PurchaseModal from '@/components/purchases/PurchaseModal';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useAuthStore } from '@/lib/stores/auth-store';
+import { useWorkMode } from '@/lib/stores/settings-store';
+import { SHIFT_CHANGED_EVENT } from '@/lib/shift-events';
+import SellerDashboard from '@/components/dashboard/SellerDashboard';
 
 interface DashData {
   salesToday: number; salesWeek: number; salesMonth: number;
@@ -42,7 +46,7 @@ function fmtInTz(date: Date, tz: string, options: Intl.DateTimeFormatOptions): s
   return new Intl.DateTimeFormat('es-DO', { timeZone: tz, ...options }).format(date);
 }
 
-export default function DashboardPage() {
+function GeneralDashboard() {
   const [data, setData] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState<Date | null>(null);
@@ -51,6 +55,32 @@ export default function DashboardPage() {
   const [reservationsLoading, setReservationsLoading] = useState(true);
   const [showSaleModal, setShowSaleModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+
+  // Modo por turnos: aviso cuando no hay turno abierto (las ventas están bloqueadas)
+  const workMode = useWorkMode();
+  const { user } = useAuthStore();
+  const isManager = user?.role === 'owner' || user?.role === 'admin';
+  const [openShifts, setOpenShifts] = useState<Record<string, unknown>[]>([]);
+  const [shiftsLoaded, setShiftsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (workMode !== 'shifts') { setShiftsLoaded(true); setOpenShifts([]); return; }
+    api.getShifts()
+      .then(d => { setOpenShifts((d.open ?? []) as Record<string, unknown>[]); setShiftsLoaded(true); })
+      .catch(() => setShiftsLoaded(true));
+  }, [workMode]);
+
+  // Mantener el aviso al día si un turno se abre o cierra desde otro punto
+  // de entrada (píldora del Topbar, módulo Turnos o dashboard del vendedor)
+  useEffect(() => {
+    const onShiftChanged = () => {
+      api.getShifts()
+        .then(d => setOpenShifts((d.open ?? []) as Record<string, unknown>[]))
+        .catch(() => {});
+    };
+    window.addEventListener(SHIFT_CHANGED_EVENT, onShiftChanged);
+    return () => window.removeEventListener(SHIFT_CHANGED_EVENT, onShiftChanged);
+  }, []);
 
   useEffect(() => {
     // Fetch dashboard metrics (apiFetch dispara el evento 401 → redirect al login)
@@ -123,6 +153,22 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Aviso modo turnos (owner/admin) ── */}
+      {isManager && workMode === 'shifts' && shiftsLoaded && openShifts.length === 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-yellow-500/10 border border-yellow-500/25 rounded-xl px-4 py-3">
+          <div className="flex items-start gap-3 flex-1">
+            <Clock3 className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              <span className="text-[var(--text-primary)] font-medium">Modo por turnos activo.</span>{' '}
+              Para registrar ventas necesitas un turno abierto en alguna caja.
+            </p>
+          </div>
+          <Link href="/dashboard/turnos" className="btn-secondary flex items-center gap-1.5 text-xs shrink-0">
+            <Play className="w-3.5 h-3.5" />Abrir turno
+          </Link>
+        </div>
+      )}
 
       {/* ── Quick actions ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -325,4 +371,33 @@ export default function DashboardPage() {
       />
     </div>
   );
+}
+
+// ── Router por rol ────────────────────────────────────────────────
+// Los vendedores ven un dashboard personalizado y optimizado para su
+// jornada; el resto de roles ve el dashboard general de gestión.
+// El gate de `mounted` evita el parpadeo y el mismatch de hidratación
+// (el usuario se restaura de localStorage en el cliente).
+export default function DashboardPage() {
+  const { user } = useAuthStore();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  if (!mounted) {
+    return (
+      <div className="space-y-6">
+        <div className="card p-6">
+          <div className="h-8 w-64 bg-[var(--bg-muted)] rounded animate-pulse mb-3" />
+          <div className="h-4 w-40 bg-[var(--bg-muted)] rounded animate-pulse" />
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="card p-5 h-28 animate-pulse" style={{ backgroundColor: 'var(--bg-muted)' }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return user?.role === 'seller' ? <SellerDashboard /> : <GeneralDashboard />;
 }

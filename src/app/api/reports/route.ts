@@ -1,10 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query } from '@/lib/db/mysql';
-import { handle, ok, err } from '@/lib/api-helpers';
+import { handle, ok, err, forbidden } from '@/lib/api-helpers';
 
 export const GET = handle(async (req: Request) => {
-  await requireAuth();
+  const user = await requireAuth();
   const { searchParams } = new URL(req.url);
   const type = searchParams.get('type') ?? 'dashboard';
   const days = parseInt(searchParams.get('days') ?? '30');
@@ -20,6 +20,8 @@ export const GET = handle(async (req: Request) => {
   function locParams(): unknown[] { return locationId ? [locationId] : []; }
 
   if (type === 'dashboard') {
+    // El reporte general (ganancia neta, gastos, deudas) es solo para roles de gestión
+    if (user.role === 'seller') return forbidden('Este reporte no está disponible para vendedores');
     const lw = (base: string, lp: unknown[] = []) => {
       if (!locationId) return { sql: base, params: lp };
       return {
@@ -66,6 +68,44 @@ export const GET = handle(async (req: Request) => {
       lowStockCount: lowStock[0]?.count??0,
       salesChart: chart, topProducts: top,
       timezone,
+    });
+  }
+
+  // ── Dashboard del vendedor ──────────────────────────────────────
+  // Métricas personalizadas: lo que el vendedor necesita para su jornada
+  // (sus propias ventas, reservas pendientes, deudores, stock bajo y
+  // productos más vendidos). No incluye datos financieros sensibles como
+  // ganancia neta o gastos.
+  if (type === 'seller') {
+    const uid = user.id;
+    const [myToday, myCountToday, myWeek, myMonth, chart, top, debtors, lowStock] = await Promise.all([
+      query<{ total: number }>(`SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE user_id=? AND DATE(date)=CURDATE() AND status!='cancelled'`, [uid]),
+      query<{ count: number }>(`SELECT COUNT(*) AS count FROM sales WHERE user_id=? AND DATE(date)=CURDATE() AND status!='cancelled'`, [uid]),
+      query<{ total: number }>(`SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE user_id=? AND date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) AND status!='cancelled'`, [uid]),
+      query<{ total: number }>(`SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE user_id=? AND date>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND status!='cancelled'`, [uid]),
+      query<{ date: string; total: number }>(`SELECT DATE_FORMAT(date,'%d/%m') AS date,COALESCE(SUM(total),0) AS total FROM sales WHERE user_id=? AND date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND status!='cancelled' GROUP BY DATE(date),DATE_FORMAT(date,'%d/%m') ORDER BY DATE(date) ASC`, [uid, days]),
+      query<{ name: string; total: number }>(`SELECT p.name,COALESCE(SUM(si.quantity*si.unit_price),0) AS total FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id WHERE si.created_at>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND s.status!='cancelled' GROUP BY p.id,p.name ORDER BY total DESC LIMIT 5`),
+      query<{ count: number }>(`SELECT COUNT(*) AS count FROM customers WHERE balance>0`),
+      query<{ count: number }>(`SELECT COUNT(*) AS count FROM products p WHERE p.active=1 AND (SELECT COALESCE(SUM(quantity),0) FROM location_stock WHERE product_id=p.id) <= p.min_stock`),
+    ]);
+    const recent = await query<{ id: string; total: number; date: string; payment_method: string; customer_name: string | null }>(`
+      SELECT s.id,s.total,s.date,
+        (SELECT p.method FROM payments p WHERE p.sale_id=s.id ORDER BY p.created_at ASC LIMIT 1) AS payment_method,
+        c.name AS customer_name
+      FROM sales s LEFT JOIN customers c ON c.id=s.customer_id
+      WHERE s.user_id=? AND s.status!='cancelled'
+      ORDER BY s.date DESC LIMIT 8`, [uid]);
+    return ok({
+      mySalesToday: myToday[0]?.total ?? 0,
+      mySalesCountToday: myCountToday[0]?.count ?? 0,
+      mySalesWeek: myWeek[0]?.total ?? 0,
+      mySalesMonth: myMonth[0]?.total ?? 0,
+      salesChart: chart,
+      topProducts: top,
+      debtorsCount: debtors[0]?.count ?? 0,
+      lowStockCount: lowStock[0]?.count ?? 0,
+      recentSales: recent,
+      timezone: process.env.TIMEZONE ?? 'America/Havana',
     });
   }
 
