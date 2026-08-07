@@ -13,11 +13,11 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export const POST = handle(async (req: Request, ctx) => {
   const user = await requireAuth();
-  if (user.role !== 'owner' && user.role !== 'admin') return forbidden('Solo el dueño o administrador pueden cerrar turnos');
 
   const { id } = await ctx.params;
   const shift = await queryOne<{
     id: string;
+    user_id: string;
     pos_id: string | null;
     opened_at: string;
     opened_at_raw: string;
@@ -32,6 +32,12 @@ export const POST = handle(async (req: Request, ctx) => {
 
   if (!shift) return notFound('Turno no encontrado');
   if (shift.status !== 'open') return err('Este turno ya está cerrado');
+
+  // El dueño/administrador puede cerrar cualquier turno; un vendedor
+  // solo puede cerrar el turno que él mismo abrió (arqueo de su jornada).
+  if (user.role !== 'owner' && user.role !== 'admin' && shift.user_id !== user.id) {
+    return forbidden('Solo puedes cerrar el turno que tú mismo abriste');
+  }
 
   const body = await req.json();
   const closingCash = Number(body.closing_cash);

@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, transaction } from '@/lib/db/mysql';
 import { validatePaymentMethodOrDefault } from '@/lib/validate';
 import { handle, ok, err } from '@/lib/api-helpers';
+import { getBusinessSettings } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Ventas (POS) ────────────────────────────────────────────
@@ -44,6 +45,15 @@ export const POST = handle(async (req: Request) => {
   if (posId) {
     const pos = await queryOne<{ id: string }>('SELECT id FROM pos WHERE id = ? AND active = 1', [posId]);
     if (!pos) return err('La caja seleccionada no existe o está desactivada');
+  }
+
+  // En modo por turnos, las ventas requieren un turno abierto en la caja:
+  // se bloquea la venta hasta que el vendedor abra el turno desde su dashboard.
+  const settings = await getBusinessSettings();
+  if (settings.work_mode === 'shifts') {
+    if (!posId) return err('Estás en modo por turnos: abre un turno en una caja para poder vender');
+    const openShift = await queryOne<{ id: string }>("SELECT id FROM shifts WHERE status='open' AND pos_id=? LIMIT 1", [posId]);
+    if (!openShift) return err('No hay un turno abierto en la caja seleccionada. Abre un turno antes de vender.');
   }
 
   const saleId = randomUUID();

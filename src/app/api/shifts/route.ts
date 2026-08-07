@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, transaction } from '@/lib/db/mysql';
-import { handle, ok, err, forbidden } from '@/lib/api-helpers';
+import { handle, ok, err } from '@/lib/api-helpers';
 import { getBusinessSettings } from '@/lib/settings-server';
 import { nowUtc } from '@/lib/shift-time';
 const randomUUID = () => crypto.randomUUID();
@@ -16,10 +16,6 @@ const randomUUID = () => crypto.randomUUID();
 //   B) No puede existir ningún turno de la caja con opened_at igual o
 //      posterior al nuevo (evita abrir un turno "hacia atrás" cuando
 //      se atrasa el reloj del servidor o se reutiliza una fecha vieja).
-
-function canManageShifts(role: string) {
-  return role === 'owner' || role === 'admin';
-}
 
 export const GET = handle(async () => {
   await requireAuth();
@@ -56,7 +52,8 @@ export const GET = handle(async () => {
 
 export const POST = handle(async (req: Request) => {
   const user = await requireAuth();
-  if (!canManageShifts(user.role)) return forbidden('Solo el dueño o administrador pueden gestionar turnos');
+  // Cualquier usuario autenticado puede abrir un turno en una caja:
+  // el vendedor lo necesita para poder vender en modo turnos.
 
   const settings = await getBusinessSettings();
   if (settings.work_mode !== 'shifts') {
