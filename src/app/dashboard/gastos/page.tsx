@@ -133,7 +133,7 @@ export default function GastosPage() {
             <div>
               <label className="label">Caja (punto de venta)</label>
               <SearchableSelect
-                options={posOptions.map(p => ({ value: String(p.id), label: String(p.name), sublabel: hasOpenShift(String(p.id)) ? 'Turno abierto' : undefined }))}
+                options={posOptions.map(p => ({ value: String(p.id), label: String(p.name), sublabel: hasOpenShift(String(p.id)) ? (p.location_name ? `Turno abierto · ${String(p.location_name)}` : 'Turno abierto') : (p.location_name ? String(p.location_name) : undefined) }))}
                 value={posId}
                 onChange={setPosId}
                 placeholder="Selecciona la caja…"

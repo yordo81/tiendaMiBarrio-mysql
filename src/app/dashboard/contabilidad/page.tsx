@@ -14,7 +14,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import {
   DollarSign, ArrowUpRight, ArrowDownRight,
   Wallet, Banknote, TrendingUp, TrendingDown,
-  Settings, Plus, History, Search, Info, Clock3, Play, Square, FileText,
+  Settings, History, Search, Info, Clock3, Play, Square, FileText,
 } from 'lucide-react';
 
 type R = Record<string, unknown>;
@@ -54,9 +54,6 @@ export default function ContabilidadPage() {
   const [openForm, setOpenForm] = useState({ pos_id: '', opening_cash: 0, notes: '' });
   const [closeShift, setCloseShift] = useState<R | null>(null);
   const [closeForm, setCloseForm] = useState({ closing_cash: 0, notes: '' });
-  const [newPosName, setNewPosName] = useState('');
-  const [showNewPos, setShowNewPos] = useState(false);
-  const [posBusy, setPosBusy] = useState(false);
   const [shiftBusy, setShiftBusy] = useState(false);
   const [reportShiftId, setReportShiftId] = useState<string | null>(null);
   const [pageSize, setPageSize] = useState(10);
@@ -179,28 +176,6 @@ export default function ContabilidadPage() {
       toast.error(e instanceof Error ? e.message : 'Error al cerrar el turno');
     } finally {
       setShiftBusy(false);
-    }
-  }
-
-  async function handleCreatePos() {
-    const name = newPosName.trim();
-    if (!name) {
-      toast.error('Escribe el nombre de la nueva caja');
-      return;
-    }
-    setPosBusy(true);
-    try {
-      const created = await api.createPos({ name });
-      toast.success('Caja creada');
-      setNewPosName('');
-      setShowNewPos(false);
-      // Seleccionar la caja recién creada y refrescar la lista
-      setOpenForm(f => ({ ...f, pos_id: String(created.id ?? '') }));
-      load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al crear la caja');
-    } finally {
-      setPosBusy(false);
     }
   }
 
@@ -1068,7 +1043,9 @@ export default function ContabilidadPage() {
               options={shiftsData.pos.map(p => ({
                 value: String(p.id),
                 label: String(p.name),
-                sublabel: openPosIds.has(String(p.id)) ? 'Turno abierto' : undefined,
+                sublabel: openPosIds.has(String(p.id))
+                  ? (p.location_name ? `Turno abierto · ${String(p.location_name)}` : 'Turno abierto')
+                  : (p.location_name ? String(p.location_name) : undefined),
               }))}
               value={openForm.pos_id}
               onChange={v => setOpenForm(f => ({ ...f, pos_id: v }))}
@@ -1076,33 +1053,12 @@ export default function ContabilidadPage() {
               noResultsMessage="No hay cajas creadas"
               disabled={shiftsData.pos.length === 0}
             />
-            <button
-              type="button"
-              onClick={() => setShowNewPos(!showNewPos)}
-              className="mt-2 text-xs text-brand-400 hover:text-brand-300 flex items-center gap-1 transition-colors"
-            >
-              <Plus className="w-3 h-3" />{showNewPos ? 'Ocultar nueva caja' : 'Agregar nueva caja'}
-            </button>
-            {showNewPos && (
-              <div className="mt-2 flex items-center gap-2">
-                <input
-                  type="text"
-                  className="input py-1.5 text-sm"
-                  placeholder="Nombre de la caja (ej: Caja 2)"
-                  value={newPosName}
-                  onChange={e => setNewPosName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleCreatePos(); }}
-                />
-                <button
-                  type="button"
-                  onClick={handleCreatePos}
-                  disabled={posBusy}
-                  className="btn-secondary text-xs px-3 py-2 shrink-0 disabled:opacity-50"
-                >
-                  {posBusy ? 'Creando…' : 'Crear'}
-                </button>
-              </div>
-            )}
+            <p className="mt-2 text-xs text-[var(--text-tertiary)]">
+              ¿Necesitas otra caja? Créala en{' '}
+              <a href="/dashboard/almacenes?tab=cajas" className="text-brand-400 hover:text-brand-300 underline underline-offset-2 transition-colors">
+                Almacenes → Cajas
+              </a>
+            </p>
           </div>
           <div>
             <label className="label">Fondo inicial en efectivo</label>

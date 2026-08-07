@@ -323,7 +323,9 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                 options={posOptions.map(p => ({
                   value: String(p.id),
                   label: String(p.name),
-                  sublabel: hasOpenShift(String(p.id)) ? 'Turno abierto' : undefined,
+                  sublabel: hasOpenShift(String(p.id))
+                  ? (p.location_name ? `Turno abierto · ${String(p.location_name)}` : 'Turno abierto')
+                  : (p.location_name ? String(p.location_name) : undefined),
                 }))}
                 value={posId}
                 onChange={setPosId}

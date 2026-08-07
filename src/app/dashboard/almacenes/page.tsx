@@ -8,7 +8,8 @@ import EmptyState from '@/components/ui/EmptyState';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
 import Pagination from '@/components/ui/Pagination';
-import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw, Package, DollarSign, Layers, Search } from 'lucide-react';
+import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw, Package, DollarSign, Layers, Search, Banknote, Power, Store } from 'lucide-react';
+import { useAuthStore } from '@/lib/stores/auth-store';
 type R = Record<string,unknown>;
 
 const movLabel:Record<string,string> = { entrada:'Entrada', salida:'Salida', traslado_out:'Traslado (salida)', traslado_in:'Traslado (entrada)', venta:'Venta', ajuste:'Ajuste' };
@@ -17,8 +18,16 @@ const typeLabel:Record<string,string> = { warehouse:'Almacén', store:'Punto de 
 const typeColor:Record<string,string> = { warehouse:'badge-info', store:'badge-success' };
 
 export default function AlmacenesPage() {
-  const [tab, setTab] = useState<'almacenes'|'transferencias'>('almacenes');
+  const [tab, setTab] = useState<'almacenes'|'transferencias'|'cajas'>('almacenes');
   const [locations, setLocations] = useState<R[]>([]);
+  const [posList, setPosList] = useState<R[]>([]);
+  const [openShifts, setOpenShifts] = useState<R[]>([]);
+  const [showPosModal, setShowPosModal] = useState(false);
+  const [editPos, setEditPos] = useState<R|null>(null);
+  const [posForm, setPosForm] = useState({name:'',location_id:'',active:true});
+  const [posDelTarget, setPosDelTarget] = useState<R|null>(null);
+  const { user } = useAuthStore();
+  const canManage = user?.role === 'owner' || user?.role === 'admin';
   const [products, setProducts] = useState<R[]>([]);
   const [transfers, setTransfers] = useState<R[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,13 +69,26 @@ export default function AlmacenesPage() {
   const paginatedMoves = movPageSize === 0
     ? locMoves
     : locMoves.slice((movPage - 1) * movPageSize, movPage * movPageSize);
+  // Puntos de venta (almacenes tipo store) disponibles para asociar cajas
+  const storeLocations = locations.filter(l => String(l.type) === 'store');
+  const openPosIds = new Set(openShifts.map(s => String(s.pos_id)));
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [locs, prods, trans, summary] = await Promise.all([api.getLocations(), api.getProducts(), api.getTransfers(), api.getLocationStockSummary()]);
-    setLocations(locs); setProducts(prods); setTransfers(trans); setStockSummary(summary); setLoading(false);
+    const [locs, prods, trans, summary, pos, shifts] = await Promise.all([
+      api.getLocations(), api.getProducts(), api.getTransfers(), api.getLocationStockSummary(), api.getPos(), api.getShifts(),
+    ]);
+    setLocations(locs); setProducts(prods); setTransfers(trans); setStockSummary(summary);
+    setPosList(pos); setOpenShifts((shifts.open ?? []) as R[]);
+    setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Deep-link: /dashboard/almacenes?tab=cajas (enlaces desde otros módulos)
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t === 'cajas') setTab('cajas');
+  }, []);
 
   // Fetch location-specific stock whenever location changes in the movement form
   useEffect(() => {
@@ -105,6 +127,33 @@ export default function AlmacenesPage() {
     toast.success('Eliminado'); setSaving(false); setDelTarget(null); load();
   }
 
+  async function handleSavePos() {
+    if (!posForm.location_id) { toast.error('Selecciona el punto de venta (tienda) de la caja'); return; }
+    if (!posForm.name.trim()) { toast.error('Escribe el nombre de la caja'); return; }
+    setSaving(true);
+    try {
+      const payload = { name: posForm.name.trim(), location_id: posForm.location_id, active: posForm.active };
+      if (editPos) await api.updatePos({ id: editPos.id, ...payload });
+      else await api.createPos(payload);
+      toast.success(editPos ? 'Caja actualizada' : 'Caja creada'); setShowPosModal(false); load();
+    } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
+  }
+
+  async function handleDelPos() {
+    if (!posDelTarget) return; setSaving(true);
+    try {
+      await api.deletePos(String(posDelTarget.id));
+      toast.success('Caja desactivada'); setPosDelTarget(null); load();
+    } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
+  }
+
+  async function handleReactivatePos(p: R) {
+    try {
+      await api.updatePos({ id: String(p.id), name: String(p.name), location_id: String(p.location_id??''), active: true });
+      toast.success('Caja activada'); load();
+    } catch(e) { toast.error(e instanceof Error?e.message:'Error'); }
+  }
+
   async function handleMovement() {
     const { location_id, product_id, type, quantity, notes } = movForm;
     if (!location_id||!product_id||quantity<=0) { toast.error('Completa todos los campos'); return; }
@@ -133,8 +182,8 @@ export default function AlmacenesPage() {
     <div className="space-y-5">
       {/* Tabs */}
       <div className="flex gap-1 border-b border-[var(--border-primary)] pb-0">
-        {([['almacenes','Almacenes / Puntos de venta',Warehouse],['transferencias','Traslados',ArrowRightLeft]] as const).map(([key,label,Icon])=>(
-          <button key={key} onClick={()=>setTab(key as 'almacenes'|'transferencias')} className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',tab===key?'border-brand-500 text-brand-400':'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]')}>
+        {([['almacenes','Almacenes / Puntos de venta',Warehouse],['transferencias','Traslados',ArrowRightLeft],['cajas','Cajas',Banknote]] as const).map(([key,label,Icon])=>(
+          <button key={key} onClick={()=>setTab(key as 'almacenes'|'transferencias'|'cajas')} className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',tab===key?'border-brand-500 text-brand-400':'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]')}>
             <Icon className="w-4 h-4"/>{label}
           </button>
         ))}
@@ -207,6 +256,72 @@ export default function AlmacenesPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab==='cajas'&&(
+        <>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <p className="text-sm text-[var(--text-secondary)]">{posList.length} caja(s) asociadas a puntos de venta</p>
+            {canManage&&(
+              <button onClick={()=>{setEditPos(null);setPosForm({name:'',location_id:'',active:true});setShowPosModal(true);}} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4"/>Nueva caja</button>
+            )}
+          </div>
+
+          {storeLocations.length===0&&(
+            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-4 py-4 flex items-start gap-3">
+              <Store className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-yellow-300 font-medium">No hay puntos de venta creados</p>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">Cada caja se asocia a un almacén tipo <b>Punto de venta</b>. Crea uno primero para poder registrar cajas.</p>
+                {canManage&&(
+                  <button onClick={()=>{setEditLoc(null);setLocForm({name:'',type:'store',address:'',notes:''});setShowLocModal(true);}} className="btn-secondary text-xs mt-3 flex items-center gap-1.5"><Plus className="w-3.5 h-3.5"/>Crear punto de venta</button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {loading?<div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"/></div>
+          :posList.length===0?<EmptyState icon={Banknote} title="Sin cajas" description="Crea tu primera caja asociada a un punto de venta" action={canManage?<button onClick={()=>{setEditPos(null);setPosForm({name:'',location_id:'',active:true});setShowPosModal(true);}} className="btn-primary">Nueva caja</button>:undefined}/>:(
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {posList.map(p=>{
+                const posActive = Number(p.active)===1;
+                const hasOpen = openPosIds.has(String(p.id));
+                return (
+                  <div key={String(p.id)} className={cn('card p-5 flex flex-col gap-3',!posActive&&'opacity-60')}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-[var(--text-primary)] truncate">{String(p.name)}</p>
+                        <p className="text-xs text-[var(--text-tertiary)] mt-0.5 truncate flex items-center gap-1">
+                          <Store className="w-3 h-3 shrink-0" />{String(p.location_name??'—')}
+                        </p>
+                      </div>
+                      <span className={posActive?'badge-success':'badge-danger'}>{posActive?'Activa':'Inactiva'}</span>
+                    </div>
+                    {hasOpen&&(
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-green-500/10 text-green-400 border border-green-500/20 w-fit">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />Turno abierto
+                      </span>
+                    )}
+                    <div className="flex items-center gap-2 pt-1 border-t border-[var(--border-primary)]">
+                      {canManage?(
+                        <>
+                          <button onClick={()=>{setEditPos(p);setPosForm({name:String(p.name),location_id:String(p.location_id??''),active:posActive});setShowPosModal(true);}} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors" title="Editar caja"><Edit2 className="w-3.5 h-3.5"/></button>
+                          {posActive?(
+                            <button onClick={()=>setPosDelTarget(p)} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Desactivar caja"><Power className="w-3.5 h-3.5"/></button>
+                          ):(
+                            <button onClick={()=>handleReactivatePos(p)} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Activar caja"><Power className="w-3.5 h-3.5"/></button>
+                          )}
+                        </>
+                      ):(
+                        <span className="text-[10px] text-[var(--text-tertiary)]">Solo el dueño o administrador pueden gestionar cajas</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </>
@@ -443,7 +558,49 @@ export default function AlmacenesPage() {
         </div>
       </Modal>
 
+      {/* Pos/Caja CRUD Modal */}
+      <Modal open={showPosModal} onClose={()=>setShowPosModal(false)} title={editPos?'Editar caja':'Nueva caja'} size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="label">Punto de venta (tienda) *</label>
+            <SearchableSelect
+              options={storeLocations.map(l=>({ value: String(l.id), label: String(l.name) }))}
+              value={posForm.location_id}
+              onChange={v => {
+                const prevLoc = storeLocations.find(l => String(l.id) === posForm.location_id);
+                const newLoc = storeLocations.find(l => String(l.id) === v);
+                const prevName = prevLoc ? String(prevLoc.name) : '';
+                const auto = !posForm.name.trim() || posForm.name === prevName;
+                setPosForm(f => ({ ...f, location_id: v, name: auto && newLoc ? String(newLoc.name) : f.name }));
+              }}
+              placeholder="Seleccionar punto de venta…"
+              noResultsMessage="No hay puntos de venta. Créalos en esta misma página."
+              disabled={storeLocations.length===0}
+            />
+            {storeLocations.length===0&&(
+              <button type="button" onClick={()=>{setShowPosModal(false);setEditLoc(null);setLocForm({name:'',type:'store',address:'',notes:''});setShowLocModal(true);}} className="mt-2 text-xs text-brand-400 hover:text-brand-300 transition-colors">
+                + Crear punto de venta primero
+              </button>
+            )}
+          </div>
+          <div>
+            <label className="label">Nombre de la caja *</label>
+            <input className="input" placeholder="Ej: Caja principal" maxLength={60} value={posForm.name} onChange={e=>setPosForm(f=>({...f,name:e.target.value}))}/>
+          </div>
+          <div>
+            <label className="label">Estado</label>
+            <button type="button" onClick={()=>setPosForm(f=>({...f,active:!f.active}))} className={cn('w-full px-3 py-2.5 rounded-lg text-sm border font-medium transition-colors flex items-center justify-center gap-2',posForm.active?'bg-green-500/10 border-green-500/30 text-green-400':'bg-[var(--bg-primary)] border-[var(--border-secondary)] text-[var(--text-secondary)]')}>
+              <span className={cn('w-2 h-2 rounded-full',posForm.active?'bg-green-400':'bg-[var(--text-tertiary)]')} />
+              {posForm.active?'Activa':'Inactiva'}
+            </button>
+            <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Las cajas inactivas no aparecen en los selectores ni pueden abrir turnos.</p>
+          </div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowPosModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSavePos} disabled={saving||!posForm.location_id||!posForm.name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':editPos?'Actualizar':'Crear caja'}</button></div>
+        </div>
+      </Modal>
+
       <ConfirmDialog open={!!delTarget} onClose={()=>setDelTarget(null)} onConfirm={handleDelLoc} title="Eliminar ubicación" message={`¿Eliminar "${String(delTarget?.name??'')}"?`} loading={saving}/>
+      <ConfirmDialog open={!!posDelTarget} onClose={()=>setPosDelTarget(null)} onConfirm={handleDelPos} title="Desactivar caja" confirmLabel="Desactivar" message={`¿Desactivar la caja "${String(posDelTarget?.name??'')}"? No aparecerá en los selectores ni podrá abrir turnos hasta reactivarla.`} loading={saving}/>
     </div>
   );
 }
