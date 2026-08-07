@@ -14,6 +14,7 @@ export const GET = handle(async (req: Request) => {
   await requireAuth();
   const { searchParams } = new URL(req.url);
   const from = searchParams.get('from'), to = searchParams.get('to');
+  const posId = searchParams.get('pos_id');
   const limit = Math.max(1, Math.min(500, parseInt(searchParams.get('limit') ?? '50') || 50));
 
   let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name,p.name AS pos_name FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id`;
@@ -21,6 +22,11 @@ export const GET = handle(async (req: Request) => {
   const where: string[] = [];
   if (from) { where.push('s.date>=?'); params.push(from); }
   if (to)   { where.push('s.date<=?'); params.push(to + ' 23:59:59'); }
+  // Filtro por caja (punto de venta); 'none' = ventas sin caja asignada
+  if (posId) {
+    if (posId === 'none') where.push('s.pos_id IS NULL');
+    else { where.push('s.pos_id = ?'); params.push(posId); }
+  }
   if (where.length) sql += ' WHERE ' + where.join(' AND ');
   sql += ' ORDER BY s.date DESC LIMIT ' + Math.floor(limit);
   return ok(await query(sql, params));

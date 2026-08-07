@@ -52,22 +52,32 @@ export default function VentasPage() {
   const [fromDate, setFromDate] = useState(fmtDate(firstOfMonth));
   const [toDate, setToDate] = useState(fmtDate(today));
 
+  // Filtro por caja (punto de venta); '' = todas, 'none' = sin caja asignada
+  const [posFilter, setPosFilter] = useState('');
+  const [posList, setPosList] = useState<AnyRecord[]>([]);
+
   // Pagination
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
   const load = useCallback(async () => {
     try {
-      const params = `from=${fromDate}&to=${toDate}&limit=200`;
-      const [s, p, c, l] = await Promise.all([api.getSales(params), api.getProducts(), api.getCustomers(), api.getLocations()]);
+      const qs = new URLSearchParams({ from: fromDate, to: toDate, limit: '200' });
+      if (posFilter) qs.set('pos_id', posFilter);
+      const [s, p, c, l] = await Promise.all([api.getSales(qs.toString()), api.getProducts(), api.getCustomers(), api.getLocations()]);
       setSales(s); setProducts(p); setCustomers(c); setLocations(l);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al cargar los datos');
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, posFilter]);
   useEffect(() => { load(); }, [load]);
+
+  // Cajas para el filtro: se cargan aparte para no bloquear el historial si falla
+  useEffect(() => {
+    api.getPos().then(setPosList).catch(() => setPosList([]));
+  }, []);
 
   const cartTotal = cart.reduce((a,i) => a + i.quantity * i.unit_price, 0);
 
@@ -151,8 +161,8 @@ export default function VentasPage() {
   const filteredSales = sales.filter(s => String(s.customer_name??'').toLowerCase().includes(search.toLowerCase()));
   const paginatedSales = pageSize === 0 ? filteredSales : filteredSales.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
-  // Reset page when search changes
-  useEffect(() => { setPage(1); }, [search]);
+  // Reset page when search or caja filter changes
+  useEffect(() => { setPage(1); }, [search, posFilter]);
 
   // Fetch location-specific stock when location changes
   useEffect(() => {
@@ -199,6 +209,25 @@ export default function VentasPage() {
               onChange={e => { setToDate(e.target.value); setPage(1); }}
             />
           </div>
+          {posList.length > 0 && (
+            <div className="w-44">
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Todas las cajas' },
+                  ...posList.map(p => ({
+                    value: String(p.id),
+                    label: String(p.name),
+                    sublabel: p.location_name ? String(p.location_name) : undefined,
+                  })),
+                  { value: 'none', label: 'Sin caja asignada' },
+                ]}
+                value={posFilter}
+                onChange={v => { setPosFilter(v); setPage(1); }}
+                placeholder="Filtrar por caja"
+                noResultsMessage="Sin cajas"
+              />
+            </div>
+          )}
         </div>
         <button onClick={()=>{resetForm();setShowNew(true);}} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nueva venta</button>
       </div>
@@ -290,7 +319,9 @@ export default function VentasPage() {
                   options={posOptions.map(p => ({
                     value: String(p.id),
                     label: String(p.name),
-                    sublabel: hasOpenShift(String(p.id)) ? 'Turno abierto' : undefined,
+                    sublabel: hasOpenShift(String(p.id))
+                    ? (p.location_name ? `Turno abierto · ${String(p.location_name)}` : 'Turno abierto')
+                    : (p.location_name ? String(p.location_name) : undefined),
                   }))}
                   value={posId}
                   onChange={setPosId}
