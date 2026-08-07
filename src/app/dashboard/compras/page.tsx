@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { api } from '@/lib/api-client';
+import { useWorkMode } from '@/lib/stores/settings-store';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
@@ -20,6 +21,7 @@ export default function ComprasPage() {
   const [dateTo, setDateTo] = useState('');
   const [products, setProducts] = useState<AnyRecord[]>([]);
   const [suppliers, setSuppliers] = useState<AnyRecord[]>([]);
+  const workMode = useWorkMode();
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -172,7 +174,7 @@ export default function ComprasPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--border-primary)]">
-                  {['Fecha', 'Producto', 'Proveedor', 'Cantidad', 'P. Unitario', 'Total', 'Almacén', 'Usuario'].map(h => (
+                  {['Fecha', 'Producto', 'Proveedor', ...(workMode === 'shifts' ? ['Caja'] : []), 'Cantidad', 'P. Unitario', 'Total', 'Almacén', 'Usuario'].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -195,6 +197,11 @@ export default function ComprasPage() {
                         <span className="text-[var(--text-secondary)]">{String(p.supplier_name ?? '—')}</span>
                       </div>
                     </td>
+                    {workMode === 'shifts' && (
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-nowrap">
+                        {p.pos_name ? String(p.pos_name) : <span className="text-[var(--text-tertiary)] italic">—</span>}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-[var(--text-primary)] font-medium">
                       {formatNumber(Number(p.quantity), 2)}
                     </td>

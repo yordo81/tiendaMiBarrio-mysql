@@ -10,7 +10,7 @@ export const GET = handle(async (req: Request) => {
   await requireAuth();
   const { searchParams } = new URL(req.url);
   const from = searchParams.get('from'), to = searchParams.get('to');
-  let sql = `SELECT e.*,ec.name AS category_name,p.name AS product_name,u.name AS user_name FROM expenses e LEFT JOIN expense_categories ec ON ec.id=e.category_id LEFT JOIN products p ON p.id=e.product_id LEFT JOIN users u ON u.id=e.user_id`;
+  let sql = `SELECT e.*,ec.name AS category_name,p.name AS product_name,u.name AS user_name,po.name AS pos_name FROM expenses e LEFT JOIN expense_categories ec ON ec.id=e.category_id LEFT JOIN products p ON p.id=e.product_id LEFT JOIN users u ON u.id=e.user_id LEFT JOIN pos po ON po.id=e.pos_id`;
   const params: unknown[] = []; const where: string[] = [];
   if (from) { where.push('e.date>=?'); params.push(from); }
   if (to)   { where.push('e.date<=?'); params.push(to + ' 23:59:59'); }
@@ -25,13 +25,20 @@ export const POST = handle(async (req: Request) => {
   const id = randomUUID(); const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   const date = body.date ? new Date(body.date).toISOString().slice(0,19).replace('T',' ') : ts;
 
+  // Caja (punto de venta) opcional: atribuye el gasto a la caja para el arqueo del turno
+  const posId = body.pos_id ? String(body.pos_id).trim() : '';
+  if (posId) {
+    const pos = await queryOne<{ id: string }>('SELECT id FROM pos WHERE id = ?', [posId]);
+    if (!pos) return err('La caja seleccionada no existe');
+  }
+
   await transaction(async (conn) => {
     const paymentMethod = body.payment_method
       ? validateExpensePaymentMethodOrDefault(body.payment_method)
       : null;
     await conn.execute(
-      'INSERT INTO expenses (id,category_id,description,amount,payment_method,product_id,product_quantity,date,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      [id,body.category_id??null,body.description,Number(body.amount??0),paymentMethod,body.product_id??null,body.product_quantity??null,date,sessionUser.id,ts,ts]
+      'INSERT INTO expenses (id,category_id,description,amount,payment_method,product_id,product_quantity,pos_id,date,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      [id,body.category_id??null,body.description,Number(body.amount??0),paymentMethod,body.product_id??null,body.product_quantity??null,posId||null,date,sessionUser.id,ts,ts]
     );
     if (body.product_id && body.product_quantity) {
       const productId = body.product_id;

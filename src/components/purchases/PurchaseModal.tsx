@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
 import { playScanBeep } from '@/lib/scan-beep';
+import { usePosSelector } from '@/hooks/use-pos';
 import { ShoppingBag, Barcode } from 'lucide-react';
 
 type AnyRecord = Record<string, unknown>;
@@ -22,6 +23,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
   const [locations, setLocations] = useState<AnyRecord[]>([]);
   const [saving, setSaving] = useState(false);
   const [purchaseLocStockMap, setPurchaseLocStockMap] = useState<Record<string, number>>({});
+  const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(open);
   const [barcodeSearch, setBarcodeSearch] = useState('');
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
@@ -75,6 +77,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
   function handleClose() {
     setForm({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', is_capital: false, expiration_date: '' });
     setBarcodeSearch('');
+    resetPos();
     onClose();
   }
 
@@ -114,6 +117,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
         notes: form.notes,
         is_capital: form.is_capital,
         expiration_date: form.expiration_date || null,
+        pos_id: workMode === 'shifts' ? posId || null : null,
       });
       toast.success(`Compra registrada — costo promedio: $${Number((res as any).cost_after).toFixed(2)}`);
       handleClose();
@@ -130,6 +134,25 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
   return (
     <Modal open={open} onClose={handleClose} title="Registrar compra" size="md">
       <div className="space-y-4">
+        {workMode === 'shifts' && (
+          <div>
+            <label className="label">Caja (punto de venta)</label>
+            <SearchableSelect
+              options={posOptions.map(p => ({
+                value: String(p.id),
+                label: String(p.name),
+                sublabel: hasOpenShift(String(p.id)) ? 'Turno abierto' : undefined,
+              }))}
+              value={posId}
+              onChange={setPosId}
+              placeholder="Selecciona la caja…"
+              noResultsMessage="No hay cajas creadas"
+            />
+            {posId && !hasOpenShift(posId) && (
+              <p className="text-[10px] text-yellow-400 mt-1">Esta caja no tiene un turno abierto. La compra no se incluirá en ningún arqueo.</p>
+            )}
+          </div>
+        )}
         <div>
           <label className="label">Código de barras</label>
           <form onSubmit={handleBarcodeSubmit} className="relative">

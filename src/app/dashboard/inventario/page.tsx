@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { formatCurrency, formatNumber, calcMargin, cn, generateId, formatDateTime } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import { usePosSelector } from '@/hooks/use-pos';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -30,6 +31,7 @@ export default function InventarioPage() {
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [purchaseForm, setPurchaseForm] = useState({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', is_capital: false, expiration_date: '' });
   const [purchaseSaving, setPurchaseSaving] = useState(false);
+  const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showPurchaseModal);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [editProduct, setEditProduct] = useState<AnyRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AnyRecord | null>(null);
@@ -165,6 +167,7 @@ export default function InventarioPage() {
       expiration_date: product?.expiration_date ? String(product.expiration_date) : '',
     });
     setPurchaseLocStockMap({});
+    resetPos();
     setShowPurchaseModal(true);
   }
 
@@ -215,6 +218,7 @@ export default function InventarioPage() {
         notes: purchaseForm.notes,
         is_capital: purchaseForm.is_capital,
         expiration_date: purchaseForm.expiration_date || null,
+        pos_id: workMode === 'shifts' ? posId || null : null,
       });
       toast.success(`Compra registrada — costo promedio: $${Number((res as any).cost_after).toFixed(2)}`);
       setShowPurchaseModal(false);
@@ -811,6 +815,25 @@ export default function InventarioPage() {
       {/* Purchase Modal */}
       <Modal open={showPurchaseModal} onClose={() => setShowPurchaseModal(false)} title="Registrar compra" size="md">
         <div className="space-y-4">
+          {workMode === 'shifts' && (
+            <div>
+              <label className="label">Caja (punto de venta)</label>
+              <SearchableSelect
+                options={posOptions.map(p => ({
+                  value: String(p.id),
+                  label: String(p.name),
+                  sublabel: hasOpenShift(String(p.id)) ? 'Turno abierto' : undefined,
+                }))}
+                value={posId}
+                onChange={setPosId}
+                placeholder="Selecciona la caja…"
+                noResultsMessage="No hay cajas creadas"
+              />
+              {posId && !hasOpenShift(posId) && (
+                <p className="text-[10px] text-yellow-400 mt-1">Esta caja no tiene un turno abierto. La compra no se incluirá en ningún arqueo.</p>
+              )}
+            </div>
+          )}
           <div><label className="label">Producto *</label>
             <SearchableSelect
               options={products.map(p => {

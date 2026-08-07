@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
-import { pool, query, transaction, execute } from '@/lib/db/mysql';
+import { pool, query, queryOne, transaction, execute } from '@/lib/db/mysql';
 import { handle, ok, err, notFound } from '@/lib/api-helpers';
 import { getOpenShiftId } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
@@ -19,12 +19,13 @@ export const GET = handle(async (req: Request) => {
   const to = searchParams.get('to');
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '100'), 500);
 
-  let sql = `SELECT p.*, pr.name AS product_name, s.name AS supplier_name, u.name AS user_name, l.name AS location_name
+  let sql = `SELECT p.*, pr.name AS product_name, s.name AS supplier_name, u.name AS user_name, l.name AS location_name, po.name AS pos_name
              FROM purchases p
              LEFT JOIN products pr ON pr.id = p.product_id
              LEFT JOIN suppliers s ON s.id = p.supplier_id
              LEFT JOIN users u ON u.id = p.user_id
-             LEFT JOIN locations l ON l.id = p.location_id`;
+             LEFT JOIN locations l ON l.id = p.location_id
+             LEFT JOIN pos po ON po.id = p.pos_id`;
   const params: unknown[] = [];
   const conditions: string[] = [];
 
@@ -46,10 +47,17 @@ export const GET = handle(async (req: Request) => {
 // ── POST: Registrar nueva compra ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital, expiration_date } = await req.json();
+  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital, expiration_date, pos_id } = await req.json();
 
   if (!product_id || !supplier_id || !quantity || quantity <= 0 || price == null || price < 0) {
     return err('Faltan datos: producto, proveedor, cantidad (>0) y precio requeridos');
+  }
+
+  // Caja (punto de venta) opcional: atribuye la compra a la caja para el arqueo del turno
+  const posId = pos_id ? String(pos_id).trim() : '';
+  if (posId) {
+    const pos = await queryOne<{ id: string }>('SELECT id FROM pos WHERE id = ?', [posId]);
+    if (!pos) return err('La caja seleccionada no existe');
   }
 
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -67,8 +75,8 @@ export const POST = handle(async (req: Request) => {
     return notFound('Producto no encontrado o inactivo');
   }
 
-  // En modo turnos, vincular el egreso/ingreso al turno abierto
-  const shiftId = await getOpenShiftId();
+  // En modo turnos, vincular el egreso/ingreso al turno abierto de la caja
+  const shiftId = await getOpenShiftId(posId || null);
 
   // Ejecutar toda la operación en una transacción
   const result = await transaction(async (conn) => {
@@ -144,8 +152,8 @@ export const POST = handle(async (req: Request) => {
     const purchaseId = randomUUID();
     const totalCost = Math.round(purchaseQty * purchasePrice * 100) / 100;
     await conn.execute(
-      'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, purchaseNotes, sessionUser.id, ts]
+      'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,pos_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, ts]
     );
 
     // ── Registrar en contabilidad ──

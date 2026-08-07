@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatDate, cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import { usePosSelector } from '@/hooks/use-pos';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -29,6 +30,7 @@ export default function GastosPage() {
   const [form, setForm] = useState({ category_id:'', description:'', amount:0, payment_method:'cash', product_id:'', product_quantity:0, location_id:'', date:'' });
 
   const canDelete = user?.role === 'owner' || user?.role === 'admin';
+  const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showModal);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -57,8 +59,8 @@ export default function GastosPage() {
     setSaving(true);
     try {
       const pm = form.payment_method === 'cash' ? 'cash' : form.payment_method === 'transfer' ? 'transfer' : form.payment_method === 'mixed' ? 'mixed' : null;
-      await api.createExpense({ ...form, category_id: form.category_id || null, payment_method: pm, product_id: form.product_id || null, product_quantity: form.product_quantity || null, location_id: form.location_id || null, date: form.date || undefined });
-      toast.success('Gasto registrado'); setShowModal(false);
+      await api.createExpense({ ...form, category_id: form.category_id || null, payment_method: pm, product_id: form.product_id || null, product_quantity: form.product_quantity || null, location_id: form.location_id || null, pos_id: workMode === 'shifts' ? posId || null : null, date: form.date || undefined });
+      toast.success('Gasto registrado'); setShowModal(false); resetPos();
       setForm({ category_id:'', description:'', amount:0, payment_method:'cash', product_id:'', product_quantity:0, location_id:'', date:'' }); load();
     } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
   }
@@ -98,7 +100,7 @@ export default function GastosPage() {
         :paginated.length===0?<EmptyState icon={TrendingDown} title="Sin gastos" description="Registra el primer gasto" action={<button onClick={()=>setShowModal(true)} className="btn-primary">Registrar</button>}/>:(
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Categoría','Descripción','Producto','Método','Monto',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Categoría','Descripción','Producto',...(workMode==='shifts'?['Caja']:[]),'Método','Monto',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
               <tbody>{paginated.map(e=>{
                 const pm = String(e.payment_method??'');
                 const pmLabel = pm==='cash'?'Efectivo':pm==='transfer'?'Transferencia':pm==='mixed'?'Mixto':'';
@@ -109,6 +111,7 @@ export default function GastosPage() {
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{String(e.category_name??'—')}</td>
                   <td className="px-4 py-3 text-[var(--text-primary)]">{String(e.description??'—')}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{e.product_name?`${String(e.product_name)} x${Number(e.product_quantity??0)}`:'—'}</td>
+                  {workMode==='shifts'&&<td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{e.pos_name?String(e.pos_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>}
                   <td className="px-4 py-3">{pmLabel ? <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border', pmColor)}>{pmLabel}</span> : <span className="text-[var(--text-tertiary)] text-xs">—</span>}</td>
                   <td className="px-4 py-3 text-red-400 font-medium">{formatCurrency(Number(e.amount??0))}</td>
                   <td className="px-4 py-3">{canDelete && (
@@ -126,6 +129,21 @@ export default function GastosPage() {
 
       <Modal open={showModal} onClose={()=>setShowModal(false)} title="Registrar gasto" size="md">
         <div className="space-y-4">
+          {workMode==='shifts'&&(
+            <div>
+              <label className="label">Caja (punto de venta)</label>
+              <SearchableSelect
+                options={posOptions.map(p => ({ value: String(p.id), label: String(p.name), sublabel: hasOpenShift(String(p.id)) ? 'Turno abierto' : undefined }))}
+                value={posId}
+                onChange={setPosId}
+                placeholder="Selecciona la caja…"
+                noResultsMessage="No hay cajas creadas"
+              />
+              {posId && !hasOpenShift(posId) && (
+                <p className="text-[10px] text-yellow-400 mt-1">Esta caja no tiene un turno abierto. El gasto no se incluirá en ningún arqueo.</p>
+              )}
+            </div>
+          )}
           <div><label className="label">Categoría</label>
             <SearchableSelect
               options={[
