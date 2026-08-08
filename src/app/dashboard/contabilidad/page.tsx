@@ -649,6 +649,9 @@ export default function ContabilidadPage() {
               const transferAmt = Number(m.transfer_amount ?? 0);
               const isInflow = type === 'Venta' || type === 'Abono cliente' || type === 'Saldo inicial' || type === 'Aporte de capital';
               const isOutflow = type.startsWith('Gasto') || type === 'Compra inventario';
+              // El signo se antepone según el tipo; los montos de caja (compras)
+              // pueden venir negativos, así que se muestra la magnitud.
+              const displayAmount = isInflow || isOutflow ? Math.abs(totalAmount) : totalAmount;
 
               const TypeIcon = isInflow ? TrendingUp : isOutflow ? TrendingDown : Settings;
               let typeColor = isInflow ? 'text-green-400 bg-green-500/10' :
@@ -689,7 +692,7 @@ export default function ContabilidadPage() {
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className={cn('text-sm font-semibold', isInflow ? 'text-green-400' : isOutflow ? 'text-red-400' : 'text-[var(--text-primary)]')}>
-                        {isInflow ? '+' : isOutflow ? '-' : ''}{formatCurrency(totalAmount)}
+                        {isInflow ? '+' : isOutflow ? '-' : ''}{formatCurrency(displayAmount)}
                       </p>
                       <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
                         {m.date ? formatDateTime(String(m.date)) : '—'}
@@ -821,7 +824,7 @@ export default function ContabilidadPage() {
               <div key={String(e.id)} className="bg-[#161b22] rounded-xl p-4 border border-[var(--border-primary)]">
                 <div className="flex items-center justify-between mb-2">
                   <span className={cn('badge', String(e.type) === 'initial' ? 'badge-info' : String(e.type) === 'capital' ? 'badge-success' : 'badge-warning')}>
-                    {String(e.type) === 'initial' ? 'Saldo inicial' : String(e.type) === 'capital' ? 'Aporte capital' : 'Ajuste'}
+                    {String(e.type) === 'initial' ? 'Saldo inicial' : String(e.type) === 'capital' ? 'Aporte capital' : String(e.type) === 'purchase' ? 'Compra inventario' : 'Ajuste'}
                   </span>
                   <span className="text-xs text-[var(--text-tertiary)]">
                     {e.created_at ? formatDateTime(String(e.created_at)) : '—'}
@@ -831,13 +834,13 @@ export default function ContabilidadPage() {
                   <div>
                     <span className="text-[var(--text-tertiary)] text-xs">Efectivo</span>
                     <p className={cn('font-medium', Number(e.cash_amount) >= 0 ? 'text-green-400' : 'text-red-400')}>
-                      {Number(e.cash_amount) >= 0 ? '+' : ''}{formatCurrency(Number(e.cash_amount))}
+                      {Number(e.cash_amount) > 0 ? '+' : Number(e.cash_amount) < 0 ? '-' : ''}{formatCurrency(Math.abs(Number(e.cash_amount)))}
                     </p>
                   </div>
                   <div>
                     <span className="text-[var(--text-tertiary)] text-xs">Transferencia</span>
                     <p className={cn('font-medium', Number(e.transfer_amount) >= 0 ? 'text-blue-400' : 'text-red-400')}>
-                      {Number(e.transfer_amount) >= 0 ? '+' : ''}{formatCurrency(Number(e.transfer_amount))}
+                      {Number(e.transfer_amount) > 0 ? '+' : Number(e.transfer_amount) < 0 ? '-' : ''}{formatCurrency(Math.abs(Number(e.transfer_amount)))}
                     </p>
                   </div>
                 </div>
