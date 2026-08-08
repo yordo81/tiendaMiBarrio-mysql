@@ -4,6 +4,7 @@ import { query, queryOne, transaction } from '@/lib/db/mysql';
 import { handle, ok, err } from '@/lib/api-helpers';
 import { getBusinessSettings } from '@/lib/settings-server';
 import { nowUtc } from '@/lib/shift-time';
+import { getOpenShiftLiveSummary } from '@/lib/shift-summary';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Turnos de caja (por punto de venta) ───────────────────
@@ -30,12 +31,26 @@ export const GET = handle(async () => {
   );
   // Turnos abiertos: puede haber uno por caja (el resto ya está validado)
   const open = await query(
-    `SELECT s.*, u.name AS user_name, p.name AS pos_name
+    `SELECT s.*, u.name AS user_name, p.name AS pos_name,
+            DATE_FORMAT(s.opened_at, '%Y-%m-%d %H:%i:%s') AS opened_at_raw
      FROM shifts s
      LEFT JOIN users u ON u.id = s.user_id
      LEFT JOIN pos p ON p.id = s.pos_id
      WHERE s.status = 'open'
      ORDER BY s.opened_at DESC`
+  );
+
+  // Acumulado en vivo de cada turno abierto (ventas, efectivo y esperado)
+  // para mostrarlo en el Topbar y en los widgets de turnos sin recargar.
+  // Un fallo en el resumen no debe romper el listado de turnos abiertos.
+  const openWithSummary = await Promise.all(
+    open.map(async (s) => {
+      try {
+        return { ...s, summary: await getOpenShiftLiveSummary(s) };
+      } catch {
+        return { ...s, summary: null };
+      }
+    })
   );
   // Historial: solo turnos cerrados (los abiertos ya van en `open`)
   const shifts = await query(
@@ -47,7 +62,7 @@ export const GET = handle(async () => {
      WHERE s.status = 'closed'
      ORDER BY s.opened_at DESC LIMIT 20`
   );
-  return ok({ pos, open, shifts });
+  return ok({ pos, open: openWithSummary, shifts });
 });
 
 export const POST = handle(async (req: Request) => {

@@ -6,7 +6,7 @@ import { WifiOff, LogOut, ChevronDown, User, Clock3 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSettingsStore, useWorkMode } from '@/lib/stores/settings-store';
-import { classifyRole, cn, formatDateTime } from '@/lib/utils';
+import { classifyRole, cn, formatCurrency, formatDateTime } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import { SHIFT_CHANGED_EVENT } from '@/lib/shift-events';
 import ThemeToggle from '@/components/ui/ThemeToggle';
@@ -83,6 +83,23 @@ export default function Topbar() {
   const openPosIds = new Set(openShifts.map(s => String(s.pos_id)));
   const freeCajas = posList.filter(p => !openPosIds.has(String(p.id)));
 
+  // Acumulado en vivo del turno propio (lo adjunta el GET /api/shifts)
+  const myShiftSummary = (myOpenShift?.summary ?? null) as { total_sales: number; total_cash: number; expected_cash: number } | null;
+  const shiftPillTitle = `Turno abierto en ${String(myOpenShift?.pos_name ?? 'la caja')}${myOpenShift?.opened_at ? ` desde ${formatDateTime(String(myOpenShift.opened_at))}` : ''}${myShiftSummary ? ` · Ventas ${formatCurrency(myShiftSummary.total_sales)} · Efectivo ${formatCurrency(myShiftSummary.total_cash)} · Esperado ${formatCurrency(myShiftSummary.expected_cash)}` : ''}`;
+  const shiftPillContent = (
+    <>
+      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+      <span className="flex flex-col min-w-0 leading-tight">
+        <span className="truncate max-w-[150px]">Turno: {String(myOpenShift?.pos_name ?? 'Caja')}</span>
+        {myShiftSummary && (
+          <span className="text-[10px] font-normal text-green-400/90 truncate max-w-[180px]">
+            Ventas {formatCurrency(myShiftSummary.total_sales)} · Ef. {formatCurrency(myShiftSummary.total_cash)} · Esp. {formatCurrency(myShiftSummary.expected_cash)}
+          </span>
+        )}
+      </span>
+    </>
+  );
+
   // Cerrar menú al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -114,19 +131,17 @@ export default function Topbar() {
             isManager ? (
               <Link
                 href="/dashboard/turnos"
-                className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1 rounded-full hover:bg-green-500/15 transition-colors"
-                title={`Turno abierto en ${String(myOpenShift.pos_name ?? 'la caja')}${myOpenShift.opened_at ? ` desde ${formatDateTime(String(myOpenShift.opened_at))}` : ''}`}
+                className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 rounded-full hover:bg-green-500/15 transition-colors"
+                title={shiftPillTitle}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-                <span className="truncate max-w-[110px]">Turno: {String(myOpenShift.pos_name ?? 'Caja')}</span>
+                {shiftPillContent}
               </Link>
             ) : (
               <span
-                className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1 rounded-full"
-                title={`Turno abierto en ${String(myOpenShift.pos_name ?? 'la caja')}${myOpenShift.opened_at ? ` desde ${formatDateTime(String(myOpenShift.opened_at))}` : ''}`}
+                className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 rounded-full"
+                title={shiftPillTitle}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-                <span className="truncate max-w-[110px]">Turno: {String(myOpenShift.pos_name ?? 'Caja')}</span>
+                {shiftPillContent}
               </span>
             )
           ) : shiftsLoaded && openShiftCount === 0 ? (
