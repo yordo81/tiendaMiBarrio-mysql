@@ -152,7 +152,9 @@ export const GET = handle(async (_req: Request, ctx) => {
   const totalSales = completedSales.reduce((acc, s) => acc + Number(s.total ?? 0), 0);
   const totalCustomerPayments = customerPayments.reduce((acc, cp) => acc + Number(cp.amount ?? 0), 0);
   const totalExpenses = expenses.reduce((acc, e) => acc + Number(e.amount ?? 0), 0);
-  const totalPurchases = purchases.reduce((acc, p) => acc + Number(p.cash_amount ?? 0) + Number(p.transfer_amount ?? 0), 0);
+  // Las compras se almacenan como negativas en cash_register; Math.abs las
+  // convierte en egresos positivos (misma convención que la API de contabilidad).
+  const totalPurchases = Math.abs(purchases.reduce((acc, p) => acc + Number(p.cash_amount ?? 0) + Number(p.transfer_amount ?? 0), 0));
   const registerNet = registerMovements.reduce((acc, m) => acc + Number(m.cash_amount ?? 0) + Number(m.transfer_amount ?? 0), 0);
 
   // Costo de lo vendido (COGS) y ganancia del turno

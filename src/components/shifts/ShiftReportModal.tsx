@@ -171,7 +171,7 @@ export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReport
         body: purchases.map(p => [
           formatDateTime(String(p.date ?? '')),
           String(p.notes ?? '—'),
-          formatCurrency(Number(p.cash_amount ?? 0) + Number(p.transfer_amount ?? 0)),
+          formatCurrency(Math.abs(Number(p.cash_amount ?? 0) + Number(p.transfer_amount ?? 0))),
         ]),
         theme: 'striped',
         headStyles: { fillColor: [220, 38, 38], fontSize: 8 },
