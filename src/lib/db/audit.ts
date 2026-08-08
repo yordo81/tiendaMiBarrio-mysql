@@ -7,8 +7,8 @@ import { execute } from './mysql';
 interface AuditEntry {
   user_id: string;       // ID del usuario que realizó la acción
   user_name: string;     // Nombre del usuario (para consultas rápidas)
-  action: string;        // Tipo de acción: delete | cancel | adjust | adjust_increase | adjust_decrease
-  entity_type: string;   // Tipo de entidad: expense | product | sale | customer | supplier | stock_movement
+  action: string;        // Tipo de acción: delete | cancel | adjust | adjust_increase | adjust_decrease | open | close
+  entity_type: string;   // Tipo de entidad: expense | product | sale | customer | supplier | stock_movement | shift
   entity_id: string;     // ID del registro afectado
   entity_name?: string | null;  // Nombre descriptivo de la entidad
   details?: Record<string, unknown> | null;  // Detalles adicionales en JSON

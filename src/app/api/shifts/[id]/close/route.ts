@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute } from '@/lib/db/mysql';
 import { handle, ok, err, forbidden, notFound } from '@/lib/api-helpers';
 import { utcToLocal, utcToDb, nowLocal, nowUtc } from '@/lib/shift-time';
+import { logAudit } from '@/lib/db/audit';
 
 // ── Cierre de turno con arqueo ─────────────────────────────────────
 // Calcula el efectivo esperado del turno (fondo inicial + ingresos en
@@ -24,9 +25,12 @@ export const POST = handle(async (req: Request, ctx) => {
     opening_cash: number;
     status: string;
     notes: string | null;
+    pos_name: string | null;
   }>(
-    `SELECT s.*, DATE_FORMAT(s.opened_at, '%Y-%m-%d %H:%i:%s') AS opened_at_raw
-     FROM shifts s WHERE s.id = ?`,
+    `SELECT s.*, p.name AS pos_name, DATE_FORMAT(s.opened_at, '%Y-%m-%d %H:%i:%s') AS opened_at_raw
+     FROM shifts s
+     LEFT JOIN pos p ON p.id = s.pos_id
+     WHERE s.id = ?`,
     [id]
   );
 
@@ -105,6 +109,23 @@ export const POST = handle(async (req: Request, ctx) => {
     `UPDATE shifts SET status='closed', closed_at=?, closing_cash=?, expected_cash=?, difference=?, notes=?, closed_by=? WHERE id=?`,
     [ts, closingCash, expected, difference, notes, user.id, id]
   );
+
+  // ── Auditoría: cierre de turno con arqueo (best-effort: el turno ya
+  // ── quedó cerrado y no se puede reintentar; un fallo aquí no debe
+  // ── ocultar el éxito del cierre) ──
+  try {
+    await logAudit({
+      user_id: user.id,
+      user_name: user.name,
+      action: 'close',
+      entity_type: 'shift',
+      entity_id: id,
+      entity_name: shift.pos_name ?? 'Turno',
+      details: { pos_id: shift.pos_id ?? null, pos_name: shift.pos_name ?? null, expected_cash: expected, closing_cash: closingCash, difference },
+    });
+  } catch (e) {
+    console.error('[audit] cierre de turno', e);
+  }
 
   return ok({
     id,

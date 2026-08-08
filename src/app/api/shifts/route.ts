@@ -5,6 +5,7 @@ import { handle, ok, err } from '@/lib/api-helpers';
 import { getBusinessSettings } from '@/lib/settings-server';
 import { nowUtc } from '@/lib/shift-time';
 import { getOpenShiftLiveSummary } from '@/lib/shift-summary';
+import { logAudit } from '@/lib/db/audit';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Turnos de caja (por punto de venta) ───────────────────
@@ -122,6 +123,23 @@ export const POST = handle(async (req: Request) => {
   });
 
   if (outcome.error) return err(outcome.error);
+
+  // ── Auditoría: apertura de turno (best-effort: un fallo aquí no debe
+  // ── ocultar el éxito de la apertura, que ya no se puede reintentar) ──
+  try {
+    const posName = (await query<{ name: string }>('SELECT name FROM pos WHERE id = ?', [posId]))[0]?.name ?? posId;
+    await logAudit({
+      user_id: user.id,
+      user_name: user.name,
+      action: 'open',
+      entity_type: 'shift',
+      entity_id: id,
+      entity_name: posName,
+      details: { pos_id: posId, pos_name: posName, opening_cash: openingCash, notes },
+    });
+  } catch (e) {
+    console.error('[audit] apertura de turno', e);
+  }
 
   return ok({ shift: await queryOne('SELECT * FROM shifts WHERE id = ?', [id]) }, 201);
 });
