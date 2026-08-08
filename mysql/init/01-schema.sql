@@ -250,6 +250,7 @@ CREATE TABLE IF NOT EXISTS purchases (
   notes       TEXT          NULL,
   user_id     CHAR(36)      NULL,
   pos_id      VARCHAR(36)   NULL COMMENT 'Punto de venta / caja donde se registró la compra',
+  invoice_number VARCHAR(100) NULL COMMENT 'Número de factura de compra',
   created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (product_id)  REFERENCES products(id)  ON DELETE CASCADE,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
@@ -259,7 +260,8 @@ CREATE TABLE IF NOT EXISTS purchases (
   INDEX idx_product (product_id),
   INDEX idx_supplier (supplier_id),
   INDEX idx_date (created_at),
-  INDEX idx_purchases_pos (pos_id)
+  INDEX idx_purchases_pos (pos_id),
+  INDEX idx_invoice_number (invoice_number)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS audit_logs (

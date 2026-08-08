@@ -4,7 +4,7 @@ import { formatDateTime, formatNumber, cn } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
-import { List, Filter, X, RefreshCw, Calendar, Package, Warehouse, MoveHorizontal, ArrowRightLeft } from 'lucide-react';
+import { List, Filter, X, RefreshCw, Calendar, Package, Warehouse, MoveHorizontal, ArrowRightLeft, Receipt } from 'lucide-react';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 type R = Record<string,unknown>;
 
@@ -35,9 +35,10 @@ export default function MovimientosPage() {
   const [prodFilter, setProdFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [invoiceFilter, setInvoiceFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
-  const hasActiveFilters = typeFilter || locFilter || prodFilter || fromDate || toDate;
+  const hasActiveFilters = typeFilter || locFilter || prodFilter || fromDate || toDate || invoiceFilter;
 
   // Client-side type filter
   const filteredMovements = typeFilter ? movements.filter(m => String(m.type) === typeFilter) : movements;
@@ -48,15 +49,16 @@ export default function MovimientosPage() {
   const paginated = pageSize === 0 ? filteredMovements : filteredMovements.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [typeFilter, locFilter, prodFilter, fromDate, toDate]);
+  useEffect(() => { setPage(1); }, [typeFilter, locFilter, prodFilter, fromDate, toDate, invoiceFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params: { location_id?: string; product_id?: string; from?: string; to?: string } = {};
+    const params: { location_id?: string; product_id?: string; from?: string; to?: string; q?: string } = {};
     if (locFilter) params.location_id = locFilter;
     if (prodFilter) params.product_id = prodFilter;
     if (fromDate) params.from = fromDate;
     if (toDate) params.to = toDate;
+    if (invoiceFilter.trim()) params.q = invoiceFilter.trim();
     try {
       const [moves, locs, prods] = await Promise.all([
         api.getMovementsFiltered(params),
@@ -71,7 +73,7 @@ export default function MovimientosPage() {
     } finally {
       setLoading(false);
     }
-  }, [locFilter, prodFilter, fromDate, toDate]);
+  }, [locFilter, prodFilter, fromDate, toDate, invoiceFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -81,6 +83,7 @@ export default function MovimientosPage() {
     setProdFilter('');
     setFromDate('');
     setToDate('');
+    setInvoiceFilter('');
   }
 
   return (
@@ -230,6 +233,21 @@ export default function MovimientosPage() {
                 onChange={e => setToDate(e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Invoice filter */}
+          <div>
+            <label className="label flex items-center gap-1.5">
+              <Receipt className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+              Número de factura
+            </label>
+            <input
+              className="input max-w-sm"
+              placeholder="Ej: F-001234"
+              value={invoiceFilter}
+              onChange={e => setInvoiceFilter(e.target.value)}
+            />
+            <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Busca los movimientos cuya nota hace referencia a la factura</p>
           </div>
         </div>
       )}

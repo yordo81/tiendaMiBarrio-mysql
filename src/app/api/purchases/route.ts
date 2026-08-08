@@ -15,6 +15,7 @@ export const GET = handle(async (req: Request) => {
   const { searchParams } = new URL(req.url);
   const productId = searchParams.get('product_id');
   const supplierId = searchParams.get('supplier_id');
+  const invoiceNumber = searchParams.get('invoice_number');
   const from = searchParams.get('from');
   const to = searchParams.get('to');
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '100'), 500);
@@ -31,6 +32,7 @@ export const GET = handle(async (req: Request) => {
 
   if (productId) { conditions.push('p.product_id = ?'); params.push(productId); }
   if (supplierId) { conditions.push('p.supplier_id = ?'); params.push(supplierId); }
+  if (invoiceNumber) { conditions.push('p.invoice_number LIKE ?'); params.push(`%${invoiceNumber}%`); }
   if (from) { conditions.push('p.created_at >= ?'); params.push(from); }
   if (to) {
     const toDate = to.length === 10 ? to + ' 23:59:59' : to;
@@ -47,7 +49,7 @@ export const GET = handle(async (req: Request) => {
 // ── POST: Registrar nueva compra ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital, expiration_date, pos_id } = await req.json();
+  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital, expiration_date, pos_id, invoice_number } = await req.json();
 
   if (!product_id || !supplier_id || !quantity || quantity <= 0 || price == null || price < 0) {
     return err('Faltan datos: producto, proveedor, cantidad (>0) y precio requeridos');
@@ -62,10 +64,13 @@ export const POST = handle(async (req: Request) => {
 
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
-  // Construir notas de compra incluyendo fecha de caducidad si aplica
-  const purchaseNotes = expiration_date
-    ? (notes ? `${notes} | Vence: ${expiration_date}` : `Vence: ${expiration_date}`)
-    : (notes ?? null);
+  // Construir notas de compra incluyendo la referencia de factura y caducidad
+  const invoiceRef = invoice_number && String(invoice_number).trim() ? `Factura #${String(invoice_number).trim()}` : null;
+  const purchaseNotes = [
+    invoiceRef,
+    expiration_date ? `Vence: ${expiration_date}` : null,
+    notes ? String(notes) : null,
+  ].filter(Boolean).join(' | ') || null;
 
   // Verificar que el producto existe y está activo
   const [preCheck] = await pool.execute(
@@ -113,7 +118,7 @@ export const POST = handle(async (req: Request) => {
     const smId = randomUUID();
     await conn.execute(
       "INSERT INTO stock_movements (id,product_id,type,quantity,reason,reference_id,user_id,date,created_at) VALUES (?,?,'in',?,?,?,?,?,?)",
-      [smId, product_id, purchaseQty, notes ? `Compra: ${notes}` : 'Compra', null, sessionUser.id, ts, ts]
+      [smId, product_id, purchaseQty, purchaseNotes ? `Compra: ${purchaseNotes}` : 'Compra', null, sessionUser.id, ts, ts]
     );
 
     // Registrar precio de compra histórico
@@ -152,8 +157,8 @@ export const POST = handle(async (req: Request) => {
     const purchaseId = randomUUID();
     const totalCost = Math.round(purchaseQty * purchasePrice * 100) / 100;
     await conn.execute(
-      'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,pos_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, ts]
+      'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,pos_id,invoice_number,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, invoice_number ? String(invoice_number).trim() : null, ts]
     );
 
     // ── Registrar en contabilidad ──
@@ -181,7 +186,7 @@ export const POST = handle(async (req: Request) => {
       );
       await conn.execute(
         "INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,reference_id,user_id,created_at) VALUES (?,?,?,'entrada',?,?,?,?,?)",
-        [randomUUID(), targetLocationId, product_id, purchaseQty, notes ? `Compra: ${notes}` : 'Compra', null, sessionUser.id, ts]
+        [randomUUID(), targetLocationId, product_id, purchaseQty, purchaseNotes ? `Compra: ${purchaseNotes}` : 'Compra', null, sessionUser.id, ts]
       );
     }
 

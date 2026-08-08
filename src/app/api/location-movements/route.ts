@@ -17,6 +17,7 @@ export const GET = handle(async (req: Request) => {
   const from = searchParams.get('from');
   const to = searchParams.get('to');
   const productId = searchParams.get('product_id');
+  const q = searchParams.get('q');
 
   let sql = `
     SELECT lm.*, p.name AS product_name, u.name AS user_name, l.name AS location_name
@@ -32,6 +33,8 @@ export const GET = handle(async (req: Request) => {
   if (from)      { where.push('lm.created_at >= ?');  params.push(from); }
   if (to)        { where.push('lm.created_at <= ?');  params.push(to + ' 23:59:59'); }
   if (productId) { where.push('lm.product_id = ?');   params.push(productId); }
+  // Búsqueda por factura (la referencia va en las notas, ej: 'Factura #F-001')
+  if (q)         { where.push('lm.notes LIKE ?');      params.push(`%${q}%`); }
 
   if (where.length) sql += ' WHERE ' + where.join(' AND ');
   sql += ' ORDER BY lm.created_at DESC LIMIT 200';

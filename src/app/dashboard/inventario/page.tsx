@@ -10,7 +10,8 @@ import EmptyState from '@/components/ui/EmptyState';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
-import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Tag, History, ArrowRightLeft, ShoppingBag, Image as ImageIcon, Upload, X as XIcon, Barcode } from 'lucide-react';
+import InvoicePurchaseModal from '@/components/purchases/InvoicePurchaseModal';
+import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Tag, History, ArrowRightLeft, ShoppingBag, Image as ImageIcon, Upload, X as XIcon, Barcode, Receipt } from 'lucide-react';
 
 type Tab = 'productos' | 'categorias';
 type AnyRecord = Record<string,unknown>;
@@ -29,7 +30,8 @@ export default function InventarioPage() {
   const [showModal, setShowModal] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
-  const [purchaseForm, setPurchaseForm] = useState({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', is_capital: false, expiration_date: '' });
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [purchaseForm, setPurchaseForm] = useState({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', invoice_number: '', is_capital: false, expiration_date: '' });
   const [purchaseSaving, setPurchaseSaving] = useState(false);
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showPurchaseModal);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -163,6 +165,7 @@ export default function InventarioPage() {
       price: 0,
       location_id: locations.length > 0 ? String(locations[0].id) : '',
       notes: '',
+      invoice_number: '',
       is_capital: false,
       expiration_date: product?.expiration_date ? String(product.expiration_date) : '',
     });
@@ -216,6 +219,7 @@ export default function InventarioPage() {
         price: purchaseForm.price,
         location_id: purchaseForm.location_id,
         notes: purchaseForm.notes,
+        invoice_number: purchaseForm.invoice_number.trim() || null,
         is_capital: purchaseForm.is_capital,
         expiration_date: purchaseForm.expiration_date || null,
         pos_id: workMode === 'shifts' ? posId || null : null,
@@ -458,6 +462,7 @@ export default function InventarioPage() {
               )}
             </div>
             <div className="flex gap-2">
+              <button onClick={() => setShowInvoiceModal(true)} className="btn-secondary flex items-center gap-2 flex-shrink-0"><Receipt className="w-4 h-4"/>Entrada por factura</button>
               <button onClick={() => openPurchase()} className="btn-secondary flex items-center gap-2 flex-shrink-0"><ShoppingBag className="w-4 h-4"/>Registrar compra</button>
               <button onClick={openNew} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nuevo producto</button>
             </div>
@@ -812,6 +817,13 @@ export default function InventarioPage() {
         )}
       </Modal>
 
+      {/* Modal: Entrada por factura (varios productos) */}
+      <InvoicePurchaseModal
+        open={showInvoiceModal}
+        onClose={() => setShowInvoiceModal(false)}
+        onSuccess={load}
+      />
+
       {/* Purchase Modal */}
       <Modal open={showPurchaseModal} onClose={() => setShowPurchaseModal(false)} title="Registrar compra" size="md">
         <div className="space-y-4">
@@ -911,7 +923,10 @@ export default function InventarioPage() {
             <div><label className="label">Cantidad *</label><input type="number" min="1" step="1" className="input" value={purchaseForm.quantity || ''} onChange={e => setPurchaseForm(f => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))} /></div>
             <div><label className="label">Precio unitario *</label><input type="number" min="0" step="1" className="input" value={purchaseForm.price || ''} onChange={e => setPurchaseForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))} /></div>
           </div>
-          <div><label className="label">Notas</label><input className="input" placeholder="Ej: Factura #123, lote..." value={purchaseForm.notes} onChange={e => setPurchaseForm(f => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div><label className="label">Número de factura</label><input className="input" placeholder="Ej: F-001234" value={purchaseForm.invoice_number} onChange={e => setPurchaseForm(f => ({ ...f, invoice_number: e.target.value }))} /></div>
+            <div><label className="label">Notas</label><input className="input" placeholder="Ej: Lote, observaciones..." value={purchaseForm.notes} onChange={e => setPurchaseForm(f => ({ ...f, notes: e.target.value }))} /></div>
+          </div>
 
           {/* Tipo de inversión */}
           <div className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] p-3">

@@ -34,6 +34,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
     price: 0,
     location_id: '',
     notes: '',
+    invoice_number: '',
     is_capital: false,
     expiration_date: '',
   });
@@ -75,7 +76,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
   }, [form.location_id]);
 
   function handleClose() {
-    setForm({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', is_capital: false, expiration_date: '' });
+    setForm({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', invoice_number: '', is_capital: false, expiration_date: '' });
     setBarcodeSearch('');
     resetPos();
     onClose();
@@ -115,6 +116,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
         price: form.price,
         location_id: form.location_id,
         notes: form.notes,
+        invoice_number: form.invoice_number.trim() || null,
         is_capital: form.is_capital,
         expiration_date: form.expiration_date || null,
         pos_id: workMode === 'shifts' ? posId || null : null,
@@ -263,14 +265,25 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
             />
           </div>
         </div>
-        <div>
-          <label className="label">Notas</label>
-          <input
-            className="input"
-            placeholder="Ej: Factura #123, lote..."
-            value={form.notes}
-            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Número de factura</label>
+            <input
+              className="input"
+              placeholder="Ej: F-001234"
+              value={form.invoice_number}
+              onChange={e => setForm(f => ({ ...f, invoice_number: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="label">Notas</label>
+            <input
+              className="input"
+              placeholder="Ej: Lote, observaciones..."
+              value={form.notes}
+              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+            />
+          </div>
         </div>
 
         {/* Capital investment toggle */}

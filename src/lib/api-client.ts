@@ -142,14 +142,16 @@ export const api = {
   // Purchases
   getPurchases: (params?: string) => apiFetch<Record<string,unknown>[]>(`/api/purchases${params ? '?' + params : ''}`),
   registerPurchase: (data: unknown) => apiFetch('/api/purchases', { method: 'POST', body: JSON.stringify(data) }),
+  registerBulkPurchase: (data: unknown) => apiFetch('/api/purchases/bulk', { method: 'POST', body: JSON.stringify(data) }),
 
-  getMovementsFiltered: (params?: { location_id?: string; product_id?: string; from?: string; to?: string }) => {
-    const q = new URLSearchParams();
-    if (params?.location_id) q.set('location_id', params.location_id);
-    if (params?.product_id) q.set('product_id', params.product_id);
-    if (params?.from) q.set('from', params.from);
-    if (params?.to) q.set('to', params.to);
-    const qs = q.toString();
+  getMovementsFiltered: (params?: { location_id?: string; product_id?: string; from?: string; to?: string; q?: string }) => {
+    const qp = new URLSearchParams();
+    if (params?.location_id) qp.set('location_id', params.location_id);
+    if (params?.product_id) qp.set('product_id', params.product_id);
+    if (params?.from) qp.set('from', params.from);
+    if (params?.to) qp.set('to', params.to);
+    if (params?.q) qp.set('q', params.q);
+    const qs = qp.toString();
     return apiFetch<Record<string,unknown>[]>(`/api/location-movements${qs ? '?' + qs : ''}`);
   },
   createLocationMovement: (data: unknown) => apiFetch('/api/location-movements', { method: 'POST', body: JSON.stringify(data) }),
