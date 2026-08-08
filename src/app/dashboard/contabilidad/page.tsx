@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatDateTime, cn } from '@/lib/utils';
 import { api } from '@/lib/api-client';
+import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import { toast } from '@/components/ui/toaster';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
@@ -87,6 +88,7 @@ export default function ContabilidadPage() {
         notes: initialForm.notes || 'Saldo inicial',
       });
       toast.success('Saldo inicial registrado');
+      notifyShiftSummaryChanged();
       setShowInitialModal(false);
       setInitialForm({ cash_amount: 0, transfer_amount: 0, notes: '' });
       load();
@@ -112,6 +114,7 @@ export default function ContabilidadPage() {
         notes: capitalForm.notes || 'Aporte de capital',
       });
       toast.success('Aporte de capital registrado');
+      notifyShiftSummaryChanged();
       setShowCapitalModal(false);
       setCapitalForm({ cash_amount: 0, transfer_amount: 0, notes: '' });
       load();
@@ -128,6 +131,7 @@ export default function ContabilidadPage() {
     try {
       await api.createCashRegisterEntry(adjustForm);
       toast.success('Ajuste registrado');
+      notifyShiftSummaryChanged();
       setShowAdjustModal(false);
       setAdjustForm({ type: 'adjustment', cash_amount: 0, transfer_amount: 0, notes: '' });
       load();

@@ -6,7 +6,7 @@ import { toast } from '@/components/ui/toaster';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import { useSettingsStore } from '@/lib/stores/settings-store';
-import { notifyShiftChanged } from '@/lib/shift-events';
+import { SHIFT_CHANGED_EVENT, SHIFT_SUMMARY_CHANGED_EVENT, notifyShiftChanged } from '@/lib/shift-events';
 import ShiftReportModal from '@/components/shifts/ShiftReportModal';
 import OpenShiftModal from '@/components/shifts/OpenShiftModal';
 import { Clock3, Play, Square, FileText, Banknote, Settings } from 'lucide-react';
@@ -50,6 +50,21 @@ export default function TurnosPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Mantener los turnos abiertos al día: al instante cuando cambia un turno
+  // o su resumen en vivo (venta, abono, gasto, caja) y cada 30s de respaldo.
+  useEffect(() => {
+    if (workMode !== 'shifts') return;
+    const onChanged = () => load();
+    window.addEventListener(SHIFT_CHANGED_EVENT, onChanged);
+    window.addEventListener(SHIFT_SUMMARY_CHANGED_EVENT, onChanged);
+    const id = setInterval(load, 30_000);
+    return () => {
+      window.removeEventListener(SHIFT_CHANGED_EVENT, onChanged);
+      window.removeEventListener(SHIFT_SUMMARY_CHANGED_EVENT, onChanged);
+      clearInterval(id);
+    };
+  }, [workMode, load]);
+
   async function handleCloseShift() {
     if (!closeShift) return;
     setShiftBusy(true);
@@ -70,6 +85,8 @@ export default function TurnosPage() {
 
   // Cajas que ya tienen un turno abierto (para marcarlas al abrir uno nuevo)
   const openPosIds = new Set(shiftsData.open.map(s => String(s.pos_id)));
+  // Acumulado en vivo del turno (lo adjunta el GET /api/shifts)
+  const summaryOf = (s: R) => (s.summary as { total_sales: number; total_cash: number; expected_cash: number } | null);
 
   if (!settingsLoaded || loading) {
     return (
@@ -179,6 +196,22 @@ export default function TurnosPage() {
                   <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Fondo inicial</span>
                   <span className="text-sm font-semibold text-[var(--text-primary)]">{formatCurrency(Number(s.opening_cash ?? 0))}</span>
                 </div>
+                {summaryOf(s) && (
+                  <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-[var(--border-primary)]">
+                    <div className="rounded-lg bg-[var(--bg-muted)] border border-[var(--border-primary)] px-3 py-2">
+                      <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Ventas</p>
+                      <p className="text-sm font-semibold text-brand-400 mt-0.5 truncate">{formatCurrency(summaryOf(s)!.total_sales)}</p>
+                    </div>
+                    <div className="rounded-lg bg-[var(--bg-muted)] border border-[var(--border-primary)] px-3 py-2">
+                      <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Efectivo</p>
+                      <p className="text-sm font-semibold text-green-400 mt-0.5 truncate">{formatCurrency(summaryOf(s)!.total_cash)}</p>
+                    </div>
+                    <div className="rounded-lg bg-[var(--bg-muted)] border border-[var(--border-primary)] px-3 py-2">
+                      <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Esperado</p>
+                      <p className="text-sm font-semibold text-[var(--text-primary)] mt-0.5 truncate">{formatCurrency(summaryOf(s)!.expected_cash)}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

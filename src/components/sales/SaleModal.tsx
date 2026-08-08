@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { formatCurrency, formatNumber, cn, findProductByBarcode } from '@/lib/utils';
 import { api } from '@/lib/api-client';
+import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
@@ -169,6 +170,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
         notes: saleNotes || null,
       });
       toast.success('Venta registrada');
+      notifyShiftSummaryChanged();
       resetForm();
       onClose();
       onSuccess?.();

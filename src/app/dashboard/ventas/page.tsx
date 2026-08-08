@@ -4,6 +4,7 @@ import { formatCurrency, formatDateTime, generateId, cn, formatNumber } from '@/
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usePosSelector } from '@/hooks/use-pos';
 import { api } from '@/lib/api-client';
+import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import SearchableSelect from '@/components/ui/SearchableSelect';
@@ -110,6 +111,7 @@ export default function VentasPage() {
     try {
       await api.cancelSale(String(selectedSale.id));
       toast.success('Venta cancelada — inventario y saldos restaurados');
+      notifyShiftSummaryChanged();
       setShowCancelConfirm(false);
       setShowDetail(false);
       setSelectedSale(null);
@@ -123,6 +125,7 @@ export default function VentasPage() {
     try {
       await api.paySale(String(selectedSale.id), paySaleForm);
       toast.success('Pago registrado');
+      notifyShiftSummaryChanged();
       setShowPaySale(false);
       setPaySaleForm({ amount: 0, method: 'cash', notes: '' });
       // Recargar detalle
@@ -154,7 +157,7 @@ export default function VentasPage() {
         pos_id: workMode === 'shifts' ? posId || null : null,
         notes: saleNotes || null,
       });
-      toast.success('Venta registrada'); setShowNew(false); resetForm(); load();
+      toast.success('Venta registrada'); notifyShiftSummaryChanged(); setShowNew(false); resetForm(); load();
     } catch(e) { toast.error(e instanceof Error ? e.message : 'Error al registrar la venta'); } finally { setSaving(false); }
   }
 

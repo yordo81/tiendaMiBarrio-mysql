@@ -15,7 +15,7 @@ import StatCard from '@/components/ui/StatCard';
 import SaleModal from '@/components/sales/SaleModal';
 import Modal from '@/components/ui/Modal';
 import { toast } from '@/components/ui/toaster';
-import { SHIFT_CHANGED_EVENT, notifyShiftChanged } from '@/lib/shift-events';
+import { SHIFT_CHANGED_EVENT, SHIFT_SUMMARY_CHANGED_EVENT, notifyShiftChanged } from '@/lib/shift-events';
 import OpenShiftModal from '@/components/shifts/OpenShiftModal';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -151,12 +151,28 @@ export default function SellerDashboard() {
   // (píldora del Topbar o módulo Turnos), para no dejar el estado obsoleto.
   useEffect(() => {
     const onShiftChanged = () => loadShifts();
+    // El resumen en vivo (ventas, efectivo, esperado) cambia al registrar
+    // ventas, abonos, gastos o movimientos de caja: refresca al instante.
+    const onSummaryChanged = () => { if (workMode === 'shifts') loadShifts(); };
     window.addEventListener(SHIFT_CHANGED_EVENT, onShiftChanged);
-    return () => window.removeEventListener(SHIFT_CHANGED_EVENT, onShiftChanged);
-  }, [loadShifts]);
+    window.addEventListener(SHIFT_SUMMARY_CHANGED_EVENT, onSummaryChanged);
+    return () => {
+      window.removeEventListener(SHIFT_CHANGED_EVENT, onShiftChanged);
+      window.removeEventListener(SHIFT_SUMMARY_CHANGED_EVENT, onSummaryChanged);
+    };
+  }, [loadShifts, workMode]);
+
+  // Respaldo: mantener el panel al día cada 30s (cambios desde otra pestaña)
+  useEffect(() => {
+    if (workMode !== 'shifts') return;
+    const id = setInterval(loadShifts, 30_000);
+    return () => clearInterval(id);
+  }, [workMode, loadShifts]);
 
   const openPosIds = new Set(shifts.open.map(s => String(s.pos_id)));
   const myOpenShift = shifts.open.find(s => String(s.user_id) === user?.id) ?? null;
+  // Acumulado en vivo del turno propio (lo adjunta el GET /api/shifts)
+  const myShiftSummary = (myOpenShift?.summary ?? null) as { total_sales: number; total_cash: number; expected_cash: number } | null;
   const otherOpenShifts = shifts.open.filter(s => String(s.user_id) !== user?.id);
   const freeCajas = shifts.pos.filter(p => !openPosIds.has(String(p.id)));
   const sellingBlocked = workMode === 'shifts' && !shiftsLoading && shifts.open.length === 0;
@@ -289,6 +305,22 @@ export default function SellerDashboard() {
                 <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Fondo inicial</span>
                 <span className="text-sm font-semibold text-[var(--text-primary)]">{formatCurrency(Number(myOpenShift.opening_cash ?? 0))}</span>
               </div>
+              {myShiftSummary && (
+                <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-[var(--border-primary)]">
+                  <div className="rounded-lg bg-[var(--bg-muted)] border border-[var(--border-primary)] px-3 py-2">
+                    <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Ventas</p>
+                    <p className="text-sm font-semibold text-brand-400 mt-0.5 truncate">{formatCurrency(myShiftSummary.total_sales)}</p>
+                  </div>
+                  <div className="rounded-lg bg-[var(--bg-muted)] border border-[var(--border-primary)] px-3 py-2">
+                    <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Efectivo</p>
+                    <p className="text-sm font-semibold text-green-400 mt-0.5 truncate">{formatCurrency(myShiftSummary.total_cash)}</p>
+                  </div>
+                  <div className="rounded-lg bg-[var(--bg-muted)] border border-[var(--border-primary)] px-3 py-2">
+                    <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Esperado</p>
+                    <p className="text-sm font-semibold text-[var(--text-primary)] mt-0.5 truncate">{formatCurrency(myShiftSummary.expected_cash)}</p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

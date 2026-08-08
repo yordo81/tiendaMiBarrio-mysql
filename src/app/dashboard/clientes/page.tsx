@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatDateTime, cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { api } from '@/lib/api-client';
+import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
@@ -58,7 +59,7 @@ export default function ClientesPage() {
     setSaving(true);
     try {
       await api.addPayment({ customer_id: payTarget.id, amount: payForm.amount, method: payForm.method, notes: payForm.notes, sale_id: payForm.sale_id || null });
-      toast.success('Abono registrado'); setShowPayModal(false); setPayTarget(null); setPendingSales([]); load();
+      toast.success('Abono registrado'); notifyShiftSummaryChanged(); setShowPayModal(false); setPayTarget(null); setPendingSales([]); load();
     } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
   }
 

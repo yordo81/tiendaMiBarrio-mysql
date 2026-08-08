@@ -4,6 +4,7 @@ import { formatCurrency, formatDate, cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usePosSelector } from '@/hooks/use-pos';
 import { api } from '@/lib/api-client';
+import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
@@ -60,7 +61,7 @@ export default function GastosPage() {
     try {
       const pm = form.payment_method === 'cash' ? 'cash' : form.payment_method === 'transfer' ? 'transfer' : form.payment_method === 'mixed' ? 'mixed' : null;
       await api.createExpense({ ...form, category_id: form.category_id || null, payment_method: pm, product_id: form.product_id || null, product_quantity: form.product_quantity || null, location_id: form.location_id || null, pos_id: workMode === 'shifts' ? posId || null : null, date: form.date || undefined });
-      toast.success('Gasto registrado'); setShowModal(false); resetPos();
+      toast.success('Gasto registrado'); notifyShiftSummaryChanged(); setShowModal(false); resetPos();
       setForm({ category_id:'', description:'', amount:0, payment_method:'cash', product_id:'', product_quantity:0, location_id:'', date:'' }); load();
     } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
   }
@@ -125,7 +126,7 @@ export default function GastosPage() {
         <Pagination currentPage={page} totalItems={filtered.length} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
       </div>
 
-      <ConfirmDialog open={!!deleteTarget} onClose={()=>setDeleteTarget(null)} onConfirm={async ()=>{if(!deleteTarget)return;setDeleting(true);try{await api.deleteExpense(String(deleteTarget.id));toast.success('Gasto eliminado');setDeleteTarget(null);load();}catch(e){toast.error(e instanceof Error?e.message:'Error')}finally{setDeleting(false);}}} title="Eliminar gasto" message={`¿Eliminar "${String(deleteTarget?.description??'')}" por ${formatCurrency(Number(deleteTarget?.amount??0))}? Esta acción restaurará el stock si corresponde.`} loading={deleting}/>
+      <ConfirmDialog open={!!deleteTarget} onClose={()=>setDeleteTarget(null)} onConfirm={async ()=>{if(!deleteTarget)return;setDeleting(true);try{await api.deleteExpense(String(deleteTarget.id));toast.success('Gasto eliminado');notifyShiftSummaryChanged();setDeleteTarget(null);load();}catch(e){toast.error(e instanceof Error?e.message:'Error')}finally{setDeleting(false);}}} title="Eliminar gasto" message={`¿Eliminar "${String(deleteTarget?.description??'')}" por ${formatCurrency(Number(deleteTarget?.amount??0))}? Esta acción restaurará el stock si corresponde.`} loading={deleting}/>
 
       <Modal open={showModal} onClose={()=>setShowModal(false)} title="Registrar gasto" size="md">
         <div className="space-y-4">

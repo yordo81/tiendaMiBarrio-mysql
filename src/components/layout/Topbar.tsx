@@ -8,7 +8,7 @@ import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSettingsStore, useWorkMode } from '@/lib/stores/settings-store';
 import { classifyRole, cn, formatCurrency, formatDateTime } from '@/lib/utils';
 import { api } from '@/lib/api-client';
-import { SHIFT_CHANGED_EVENT } from '@/lib/shift-events';
+import { SHIFT_CHANGED_EVENT, SHIFT_SUMMARY_CHANGED_EVENT } from '@/lib/shift-events';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import NotificationBell from '@/components/notifications/NotificationBell';
 import OpenShiftModal from '@/components/shifts/OpenShiftModal';
@@ -49,7 +49,9 @@ export default function Topbar() {
   // Cargar la configuración del negocio para mostrar su nombre en el título
   useEffect(() => { loadSettings(); }, [loadSettings]);
 
-  // Turno abierto: se actualiza al instante con el evento global y cada 60s
+  // Turno abierto: se actualiza al instante cuando cambia un turno
+  // (SHIFT_CHANGED_EVENT), cuando cambia la data del resumen en vivo
+  // (SHIFT_SUMMARY_CHANGED_EVENT: venta, abono, gasto, caja) y cada 30s
   // como respaldo (cambios desde otra pestaña o por el reloj del servidor).
   const refreshShifts = useCallback(() => {
     if (workMode !== 'shifts') { setShiftsLoaded(true); setOpenShifts([]); setPosList([]); return; }
@@ -69,12 +71,15 @@ export default function Topbar() {
 
   useEffect(() => {
     refreshShifts();
-    const id = setInterval(refreshShifts, 60_000);
+    const id = setInterval(refreshShifts, 30_000);
     const onShiftChanged = () => refreshShifts();
+    const onSummaryChanged = () => refreshShifts();
     window.addEventListener(SHIFT_CHANGED_EVENT, onShiftChanged);
+    window.addEventListener(SHIFT_SUMMARY_CHANGED_EVENT, onSummaryChanged);
     return () => {
       clearInterval(id);
       window.removeEventListener(SHIFT_CHANGED_EVENT, onShiftChanged);
+      window.removeEventListener(SHIFT_SUMMARY_CHANGED_EVENT, onSummaryChanged);
     };
   }, [refreshShifts]);
 
