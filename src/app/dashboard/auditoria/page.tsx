@@ -16,6 +16,7 @@ const entityLabels: Record<string, string> = {
   customer: 'Cliente',
   supplier: 'Proveedor',
   stock_movement: 'Ajuste de stock',
+  shift: 'Turno',
 };
 
 const entityColors: Record<string, string> = {
@@ -25,6 +26,7 @@ const entityColors: Record<string, string> = {
   customer: 'text-green-400 bg-green-500/10 border-green-500/20',
   supplier: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
   stock_movement: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
+  shift: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
 };
 
 const actionLabels: Record<string, string> = {
@@ -33,6 +35,8 @@ const actionLabels: Record<string, string> = {
   adjust: 'Ajuste',
   adjust_increase: 'Ajuste (+)',
   adjust_decrease: 'Ajuste (-)',
+  open: 'Apertura',
+  close: 'Cierre',
 };
 
 const actionColors: Record<string, string> = {
@@ -41,6 +45,8 @@ const actionColors: Record<string, string> = {
   adjust: 'badge-info',
   adjust_increase: 'badge-success',
   adjust_decrease: 'badge-warning',
+  open: 'badge-success',
+  close: 'badge-info',
 };
 
 export default function AuditoriaPage() {
@@ -48,6 +54,8 @@ export default function AuditoriaPage() {
   const [loading, setLoading] = useState(true);
   const [entityFilter, setEntityFilter] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -59,6 +67,8 @@ export default function AuditoriaPage() {
       const params = new URLSearchParams();
       if (entityFilter) params.set('entity_type', entityFilter);
       if (actionFilter) params.set('action', actionFilter);
+      if (dateFrom) params.set('from', dateFrom);
+      if (dateTo) params.set('to', dateTo);
       params.set('limit', '500');
       const data = await api.getAuditLogs(params.toString());
       setLogs(data);
@@ -67,14 +77,14 @@ export default function AuditoriaPage() {
     } finally {
       setLoading(false);
     }
-  }, [entityFilter, actionFilter]);
+  }, [entityFilter, actionFilter, dateFrom, dateTo]);
 
   useEffect(() => { load(); }, [load]);
 
   const paginated = pageSize === 0 ? logs : logs.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [entityFilter, actionFilter]);
+  useEffect(() => { setPage(1); }, [entityFilter, actionFilter, dateFrom, dateTo]);
 
   return (
     <div className="space-y-5">
@@ -110,6 +120,15 @@ export default function AuditoriaPage() {
               />
             </div>
           </div>
+          <div className="flex items-center gap-1.5">
+            <input type="date" className="input text-sm max-w-[140px] py-1.5 px-2" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="Desde" />
+            <input type="date" className="input text-sm max-w-[140px] py-1.5 px-2" value={dateTo} onChange={e => setDateTo(e.target.value)} title="Hasta" />
+            {(dateFrom || dateTo) && (
+              <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="btn-secondary p-2" title="Limpiar fechas">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            )}
+          </div>
         </div>
         <p className="text-sm text-[var(--text-secondary)]">{logs.length} registro(s)</p>
       </div>
@@ -118,7 +137,7 @@ export default function AuditoriaPage() {
         {loading ? (
           <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
         ) : paginated.length === 0 ? (
-          <EmptyState icon={Shield} title="Sin registros de auditoría" description="Aún no hay eliminaciones registradas" />
+          <EmptyState icon={Shield} title="Sin registros de auditoría" description="Aún no hay acciones registradas" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -142,6 +161,8 @@ export default function AuditoriaPage() {
                     else if (details.amount) detailsText = `Monto: ${details.amount}`;
                     else if (details.balance !== undefined) detailsText = `Saldo: ${details.balance}`;
                     else if (details.total !== undefined) detailsText = `Total: $${Number(details.total).toFixed(2)}`;
+                    else if (details.opening_cash !== undefined) detailsText = `Fondo inicial: $${Number(details.opening_cash).toFixed(2)}`;
+                    else if (details.expected_cash !== undefined) detailsText = `Contado: $${Number(details.closing_cash).toFixed(2)} · Esperado: $${Number(details.expected_cash).toFixed(2)} · Δ $${Number(details.difference).toFixed(2)}`;
                   }
                   return (
                     <tr key={String(log.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
