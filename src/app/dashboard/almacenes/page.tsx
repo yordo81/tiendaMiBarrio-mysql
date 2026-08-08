@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, Fragment } from 'react';
 import { formatDateTime, formatNumber, cn } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
@@ -8,7 +8,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
 import Pagination from '@/components/ui/Pagination';
-import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw, Package, DollarSign, Layers, Search, Banknote, Power, Store } from 'lucide-react';
+import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarChart3, RefreshCw, Package, DollarSign, Layers, Search, Banknote, Power, Store, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/auth-store';
 type R = Record<string,unknown>;
 
@@ -44,15 +44,46 @@ export default function AlmacenesPage() {
   const [delTarget, setDelTarget] = useState<R|null>(null);
   const [saving, setSaving] = useState(false);
   const [locForm, setLocForm] = useState({name:'',type:'warehouse',address:'',notes:''});
-  const [trForm, setTrForm] = useState({from_location_id:'',to_location_id:'',product_id:'',quantity:0,notes:''});
+  const [trForm, setTrForm] = useState({from_location_id:'',to_location_id:'',notes:''});
+  const [trItems, setTrItems] = useState<{product_id:string;quantity:number}[]>([{product_id:'',quantity:0}]);
+  const [trStockMap, setTrStockMap] = useState<Record<string, number>>({});
+  // Selección múltiple en la pestaña Stock del detalle de una ubicación
+  const [selectedStock, setSelectedStock] = useState<Set<string>>(new Set());
+  // Productos precargados al abrir el modal de traslado desde el detalle
+  const presetTrItemsRef = useRef<{product_id:string;quantity:number}[] | null>(null);
   const [movForm, setMovForm] = useState({location_id:'',product_id:'',type:'entrada',quantity:0,notes:''});
   const [locStockMap, setLocStockMap] = useState<Record<string, number>>({});
   // Pagination for transfers
   const [transferPage, setTransferPage] = useState(1);
   const [transferPageSize, setTransferPageSize] = useState(10);
-  const paginatedTransfers = transferPageSize === 0
-    ? transfers
-    : transfers.slice((transferPage - 1) * transferPageSize, transferPage * transferPageSize);
+  // Lote expandido en el historial de traslados (ver sus productos)
+  const [expandedBatch, setExpandedBatch] = useState<string | null>(null);
+  // Agrupa los traslados del mismo lote para mostrarlos como un solo movimiento.
+  // batch_id identifica el lote de forma definitiva; las filas legacy (sin
+  // batch_id) se agrupan por origen/destino/usuario/fecha.
+  const transferGroups = (() => {
+    const map = new Map<string, { key: string; created_at: string; from_location_name: string; to_location_name: string; user_name: string; items: R[] }>();
+    for (const t of transfers) {
+      const key = String(t.batch_id ?? '') || `${String(t.from_location_id ?? '')}|${String(t.to_location_id ?? '')}|${String(t.user_id ?? '')}|${String(t.created_at ?? '')}`;
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          key,
+          created_at: String(t.created_at ?? ''),
+          from_location_name: String(t.from_location_name ?? '—'),
+          to_location_name: String(t.to_location_name ?? '—'),
+          user_name: String(t.user_name ?? '—'),
+          items: [],
+        };
+        map.set(key, g);
+      }
+      g.items.push(t);
+    }
+    return Array.from(map.values());
+  })();
+  const paginatedGroups = transferPageSize === 0
+    ? transferGroups
+    : transferGroups.slice((transferPage - 1) * transferPageSize, transferPage * transferPageSize);
   // Search & pagination for stock & movements inside detail modal
   const [stockSearch, setStockSearch] = useState('');
   const [stockPage, setStockPage] = useState(1);
@@ -80,6 +111,7 @@ export default function AlmacenesPage() {
     ]);
     setLocations(locs); setProducts(prods); setTransfers(trans); setStockSummary(summary);
     setPosList(pos); setOpenShifts((shifts.open ?? []) as R[]);
+    setExpandedBatch(null);
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -103,12 +135,35 @@ export default function AlmacenesPage() {
     }
   }, [movForm.location_id]);
 
+  // Stock disponible en el origen para el traslado (para mostrar y validar).
+  // Se re-ejecuta también al abrir el modal para no mostrar datos obsoletos.
+  useEffect(() => {
+    if (trForm.from_location_id) {
+      api.getLocationStock(trForm.from_location_id).then(stock => {
+        const map: Record<string, number> = {};
+        stock.forEach((s: Record<string,unknown>) => { map[String(s.product_id)] = Number(s.quantity); });
+        setTrStockMap(map);
+      }).catch(() => setTrStockMap({}));
+    } else {
+      setTrStockMap({});
+    }
+  }, [trForm.from_location_id, showTransfer]);
+
+  // Al abrir el modal de traslado, usar los productos precargados (si vienen
+  // de la selección en el detalle) o comenzar con una lista limpia.
+  useEffect(() => {
+    if (showTransfer) {
+      setTrItems(presetTrItemsRef.current ?? [{ product_id: '', quantity: 0 }]);
+      presetTrItemsRef.current = null;
+    }
+  }, [showTransfer]);
+
   async function loadDetail(locId: string) {
     const [st, mv] = await Promise.all([api.getLocationStock(locId), api.getLocationMovements(locId)]);
     setLocStock(st); setLocMoves(mv);
   }
 
-  async function openDetail(loc: R) { setSelLoc(loc); setDetailTab('stock'); setStockSearch(''); setStockPage(1); setShowDetail(true); loadDetail(String(loc.id)); }
+  async function openDetail(loc: R) { setSelLoc(loc); setDetailTab('stock'); setStockSearch(''); setStockPage(1); setSelectedStock(new Set()); setShowDetail(true); loadDetail(String(loc.id)); }
 
   async function handleSaveLoc() {
     if (!locForm.name.trim()) return;
@@ -166,15 +221,66 @@ export default function AlmacenesPage() {
     } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
   }
 
+  function updateTrItem(idx: number, patch: Partial<{product_id:string;quantity:number}>) {
+    setTrItems(list => list.map((it, i) => i === idx ? { ...it, ...patch } : it));
+  }
+  function addTrItem() { setTrItems(list => [...list, { product_id: '', quantity: 0 }]); }
+  function removeTrItem(idx: number) { setTrItems(list => list.length > 1 ? list.filter((_, i) => i !== idx) : list); }
+
+  function toggleStockSel(pid: string) {
+    setSelectedStock(prev => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid); else next.add(pid);
+      return next;
+    });
+  }
+  function toggleAllStockSel() {
+    setSelectedStock(prev => {
+      const next = new Set(prev);
+      const allSelected = filteredStock.length > 0 && filteredStock.every(s => next.has(String(s.product_id)));
+      if (allSelected) filteredStock.forEach(s => next.delete(String(s.product_id)));
+      else filteredStock.forEach(s => next.add(String(s.product_id)));
+      return next;
+    });
+  }
+  function handleTransferSelected() {
+    const locId = String(selLoc?.id ?? '');
+    const items = locStock
+      .filter(s => selectedStock.has(String(s.product_id)))
+      .map(s => ({ product_id: String(s.product_id), quantity: 1 }));
+    if (items.length === 0) { toast.error('Selecciona al menos un producto'); return; }
+    presetTrItemsRef.current = items;
+    setTrForm(f => ({ ...f, from_location_id: locId }));
+    setShowTransfer(true);
+  }
+
   async function handleTransfer() {
-    const { from_location_id, to_location_id, product_id, quantity, notes } = trForm;
-    if (!from_location_id||!to_location_id||!product_id||quantity<=0) { toast.error('Completa todos los campos'); return; }
+    const { from_location_id, to_location_id, notes } = trForm;
+    if (!from_location_id || !to_location_id) { toast.error('Selecciona origen y destino'); return; }
     if (from_location_id===to_location_id) { toast.error('Origen y destino no pueden ser iguales'); return; }
+    const items = trItems
+      .map(i => ({ product_id: i.product_id, quantity: Number(i.quantity) || 0 }))
+      .filter(i => i.product_id && i.quantity > 0);
+    if (items.length === 0) { toast.error('Agrega al menos un producto con cantidad'); return; }
+    for (const it of items) {
+      // Solo valida contra el stock cuando ya se cargaron los datos del origen;
+      // si el fetch falló o aún no resuelve, la API valida contra el stock real.
+      const available = trStockMap[it.product_id];
+      if (available !== undefined && it.quantity > available) {
+        toast.error('Stock insuficiente en el origen para uno de los productos');
+        return;
+      }
+    }
     setSaving(true);
     try {
-      await api.createTransfer({ from_location_id, to_location_id, product_id, quantity, notes: notes||null });
-      toast.success('Traslado registrado'); setShowTransfer(false);
-      setTrForm({from_location_id:'',to_location_id:'',product_id:'',quantity:0,notes:''}); load();
+      await api.createTransfer({ from_location_id, to_location_id, items, notes: notes || null });
+      toast.success(items.length > 1 ? `Traslado registrado (${items.length} productos)` : 'Traslado registrado');
+      setShowTransfer(false);
+      setTrForm({from_location_id:'',to_location_id:'',notes:''});
+      setTrItems([{ product_id: '', quantity: 0 }]);
+      setSelectedStock(new Set());
+      load();
+      if (selLoc && String(selLoc.id) === from_location_id) loadDetail(from_location_id);
     } catch(e) { toast.error(e instanceof Error?e.message:'Error al trasladar. Verifica el stock disponible.'); } finally { setSaving(false); }
   }
 
@@ -338,20 +444,48 @@ export default function AlmacenesPage() {
             :transfers.length===0?<EmptyState icon={ArrowRightLeft} title="Sin traslados" description="Registra el primer traslado" action={<button onClick={()=>setShowTransfer(true)} className="btn-primary">Nuevo traslado</button>}/>:(<>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Origen','Destino','Producto','Cantidad','Usuario'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
-                  <tbody>{paginatedTransfers.map(t=>(
-                    <tr key={String(t.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
-                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-nowrap">{t.created_at?formatDateTime(String(t.created_at)):'—'}</td>
-                      <td className="px-4 py-3 text-[var(--text-primary)]">{String(t.from_location_name??'—')}</td>
-                      <td className="px-4 py-3 text-[var(--text-primary)]">{String(t.to_location_name??'—')}</td>
-                      <td className="px-4 py-3 text-[var(--text-primary)]">{String(t.product_name??'—')}</td>
-                      <td className="px-4 py-3 text-brand-400 font-medium">{formatNumber(Number(t.quantity),2)} {String(t.unit??'')}</td>
-                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{String(t.user_name??'—')}</td>
-                    </tr>
-                  ))}</tbody>
+                  <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Origen','Destino','Productos','Cant. total','Usuario'].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                  <tbody>{paginatedGroups.map(g=>{
+                    const isOpen = expandedBatch === g.key;
+                    const totalQty = g.items.reduce((s, it) => s + Number(it.quantity ?? 0), 0);
+                    return (
+                      <Fragment key={g.key}>
+                        <tr onClick={()=>setExpandedBatch(isOpen ? null : g.key)} title="Ver productos del traslado" className={cn('border-b border-[var(--border-primary)] table-row-hover cursor-pointer', isOpen && 'bg-[#1c2128]')}>
+                          <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1.5">
+                              <ChevronDown className={cn('w-3.5 h-3.5 text-[var(--text-tertiary)] transition-transform duration-200', isOpen && 'rotate-180')}/>
+                              {g.created_at ? formatDateTime(g.created_at) : '—'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-[var(--text-primary)]">{g.from_location_name}</td>
+                          <td className="px-4 py-3 text-[var(--text-primary)]">{g.to_location_name}</td>
+                          <td className="px-4 py-3 text-[var(--text-primary)]">{g.items.length === 1 ? '1 producto' : `${g.items.length} productos`}</td>
+                          <td className="px-4 py-3 text-brand-400 font-medium">{formatNumber(totalQty, 2)}</td>
+                          <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{g.user_name}</td>
+                        </tr>
+                        {isOpen && (
+                          <tr className="border-b border-[var(--border-primary)] last:border-0">
+                            <td colSpan={6} className="px-4 py-3">
+                              <div className="rounded-lg border border-[var(--border-secondary)] overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead><tr className="border-b border-[var(--border-secondary)] bg-[var(--bg-primary)]">{['Producto','Cantidad'].map(h=><th key={h} className="text-left px-3 py-2 text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                                  <tbody>{g.items.map(it=>(
+                                    <tr key={String(it.id)} className="border-b border-[var(--border-secondary)] last:border-0">
+                                      <td className="px-3 py-2 text-[var(--text-primary)]">{String(it.product_name??'—')}</td>
+                                      <td className="px-3 py-2 text-brand-400 font-medium">{formatNumber(Number(it.quantity), 2)} {String(it.unit??'')}</td>
+                                    </tr>
+                                  ))}</tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}</tbody>
                 </table>
               </div>
-              <Pagination currentPage={transferPage} totalItems={transfers.length} pageSize={transferPageSize} onPageChange={setTransferPage} onPageSizeChange={setTransferPageSize} /></>
+              <Pagination currentPage={transferPage} totalItems={transferGroups.length} pageSize={transferPageSize} onPageChange={setTransferPage} onPageSizeChange={setTransferPageSize} /></>
             )}
           </div>
         </>
@@ -388,6 +522,17 @@ export default function AlmacenesPage() {
                 )}
               </div>
 
+              {/* Selección múltiple para trasladar varios productos a la vez */}
+              {selectedStock.size > 0 && (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-brand-500/20 bg-brand-500/10 px-3 py-2">
+                  <p className="text-xs text-brand-300 font-medium">{selectedStock.size} producto(s) seleccionado(s)</p>
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>setSelectedStock(new Set())} className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">Limpiar</button>
+                    <button onClick={handleTransferSelected} className="btn-primary text-xs flex items-center gap-1.5"><ArrowRightLeft className="w-3.5 h-3.5"/>Trasladar</button>
+                  </div>
+                </div>
+              )}
+
               {filteredStock.length===0?(
                 <div className="flex flex-col items-center justify-center py-10 text-[var(--text-tertiary)]">
                   <PackagePlus size={32} className="mb-3 opacity-40"/>
@@ -403,14 +548,18 @@ export default function AlmacenesPage() {
               ):(<>
                 <div className="overflow-x-auto rounded-xl border border-[var(--border-primary)]">
                   <table className="w-full text-sm">
-                    <thead><tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">{['Producto','Stock disponible','Unidad'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
-                    <tbody>{paginatedStock.map(s=>(
-                      <tr key={String(s.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[#1c2128]">
+                    <thead><tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">
+                      <th className="w-10 px-2 py-2.5"><input type="checkbox" checked={filteredStock.length>0&&filteredStock.every(s=>selectedStock.has(String(s.product_id)))} onChange={toggleAllStockSel} title="Seleccionar todos" className="accent-brand-500"/></th>
+                      {['Producto','Stock disponible','Unidad'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}
+                    </tr></thead>
+                    <tbody>{paginatedStock.map(s=>{ const pid = String(s.product_id); return (
+                      <tr key={String(s.id)} className={cn('border-b border-[var(--border-primary)] last:border-0 hover:bg-[#1c2128]',selectedStock.has(pid)&&'bg-brand-500/5')}>
+                        <td className="px-2 py-2.5"><input type="checkbox" checked={selectedStock.has(pid)} onChange={()=>toggleStockSel(pid)} className="accent-brand-500"/></td>
                         <td className="px-4 py-2.5 text-[var(--text-primary)] font-medium">{String(s.product_name??'—')}</td>
                         <td className="px-4 py-2.5"><span className={cn('font-semibold',Number(s.quantity)<=0?'text-red-400':'text-green-400')}>{formatNumber(Number(s.quantity),2)}</span></td>
                         <td className="px-4 py-2.5 text-[var(--text-secondary)]">{String(s.unit??'')}</td>
                       </tr>
-                    ))}</tbody>
+                    );})}</tbody>
                   </table>
                 </div>
                 <Pagination currentPage={stockPage} totalItems={filteredStock.length} pageSize={stockPageSize} onPageChange={setStockPage} onPageSizeChange={setStockPageSize} /></>
@@ -498,9 +647,9 @@ export default function AlmacenesPage() {
       </Modal>
 
       {/* Transfer Modal */}
-      <Modal open={showTransfer} onClose={()=>setShowTransfer(false)} title="Trasladar stock entre ubicaciones" size="md">
+      <Modal open={showTransfer} onClose={()=>setShowTransfer(false)} title="Trasladar stock entre ubicaciones" size="lg">
         <div className="space-y-4">
-          <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-400">El traslado mueve stock entre almacenes/puntos de venta. El stock global no cambia.</div>
+          <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-400">El traslado mueve stock entre almacenes/puntos de venta. El stock global no cambia. Puedes incluir varios productos en un mismo traslado.</div>
           <div><label className="label">Origen *</label>
             <SearchableSelect
               options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
@@ -521,22 +670,58 @@ export default function AlmacenesPage() {
               noResultsMessage="Sin almacenes disponibles"
             />
           </div>
-          <div><label className="label">Producto *</label>
-            <SearchableSelect
-              options={products.map(p=>({
-                value: String(p.id),
-                label: String(p.name),
-                sublabel: p.unit ? String(p.unit) : undefined
-              }))}
-              value={trForm.product_id}
-              onChange={v=>setTrForm(f=>({...f,product_id:v}))}
-              placeholder="Buscar producto…"
-              noResultsMessage="No se encontraron productos"
-            />
+          <div><label className="label">Productos a trasladar *</label>
+            <div className="space-y-2">
+              {trItems.map((it, idx) => {
+                const available = trForm.from_location_id ? (trStockMap[it.product_id] ?? 0) : Number(products.find(p=>String(p.id)===it.product_id)?.stock ?? 0);
+                const over = !!it.product_id && it.quantity > 0 && it.quantity > available;
+                return (
+                  <div key={idx} className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <SearchableSelect
+                        options={products.map(p=>({
+                          value: String(p.id),
+                          label: String(p.name),
+                          sublabel: `Stock: ${formatNumber(trForm.from_location_id ? (trStockMap[String(p.id)] ?? 0) : Number(p.stock ?? 0), 2)} ${String(p.unit ?? '')}`
+                        }))}
+                        value={it.product_id}
+                        onChange={v=>{
+                          if (trItems.some((o, oi) => oi !== idx && o.product_id === v)) {
+                            toast.error('Ese producto ya está en la lista');
+                            return;
+                          }
+                          updateTrItem(idx, { product_id: v });
+                        }}
+                        placeholder="Buscar producto…"
+                        noResultsMessage="No se encontraron productos"
+                      />
+                    </div>
+                    <div className="w-28 shrink-0">
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        className={cn('input', over && 'border-red-500/60')}
+                        placeholder="Cant."
+                        value={it.quantity || ''}
+                        onChange={e=>updateTrItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                      />
+                      {over && (
+                        <p className="text-[10px] text-red-400 mt-0.5">Máx: {formatNumber(available, 2)}</p>
+                      )}
+                    </div>
+                    <button type="button" onClick={()=>removeTrItem(idx)} disabled={trItems.length===1} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30" title="Quitar producto"><Trash2 className="w-4 h-4"/></button>
+                  </div>
+                );
+              })}
+            </div>
+            <button type="button" onClick={addTrItem} className="mt-2 text-xs text-brand-400 hover:text-brand-300 flex items-center gap-1 transition-colors"><Plus className="w-3.5 h-3.5"/>Agregar otro producto</button>
+            {!trForm.from_location_id && (
+              <p className="text-xs text-[var(--text-tertiary)] mt-1">Selecciona el origen para ver el stock disponible por producto.</p>
+            )}
           </div>
-          <div><label className="label">Cantidad *</label><input type="number" min="1" step="1" className="input" value={trForm.quantity||''} onChange={e=>setTrForm(f=>({...f,quantity:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Notas</label><input className="input" placeholder="Motivo..." value={trForm.notes} onChange={e=>setTrForm(f=>({...f,notes:e.target.value}))}/></div>
-          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowTransfer(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleTransfer} disabled={saving||!trForm.from_location_id||!trForm.to_location_id||!trForm.product_id||trForm.quantity<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Trasladando...':'Confirmar traslado'}</button></div>
+          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowTransfer(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleTransfer} disabled={saving||!trForm.from_location_id||!trForm.to_location_id||!trItems.some(i=>i.product_id&&i.quantity>0)} className="btn-primary flex-1 disabled:opacity-50">{saving?'Trasladando...':'Confirmar traslado'}</button></div>
         </div>
       </Modal>
 
