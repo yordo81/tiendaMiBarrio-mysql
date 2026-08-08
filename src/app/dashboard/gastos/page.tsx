@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { formatCurrency, formatDate, cn } from '@/lib/utils';
+import { formatCurrency, formatDate, formatNumber, cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usePosSelector } from '@/hooks/use-pos';
 import { api } from '@/lib/api-client';
@@ -18,7 +18,10 @@ export default function GastosPage() {
   const { user } = useAuthStore();
   const [expenses, setExpenses] = useState<R[]>([]);
   const [categories, setCategories] = useState<R[]>([]);
-  const [products, setProducts] = useState<R[]>([]);
+  // Productos con existencia en el almacén de origen elegido (se cargan
+  // bajo demanda al seleccionar el almacén).
+  const [locProducts, setLocProducts] = useState<R[]>([]);
+  const [locLoading, setLocLoading] = useState(false);
   const [locations, setLocations] = useState<R[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -38,18 +41,40 @@ export default function GastosPage() {
   const [pageSize, setPageSize] = useState(10);
 
   const load = useCallback(async () => {
-    const [e, c, p, l] = await Promise.all([api.getExpenses(), api.getExpenseCategories(), api.getProducts(), api.getLocations()]);
-    setExpenses(e); setCategories(c); setProducts(p as R[]); setLocations(l); setLoading(false);
+    const [e, c, l] = await Promise.all([api.getExpenses(), api.getExpenseCategories(), api.getLocations()]);
+    setExpenses(e); setCategories(c); setLocations(l); setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Cargar solo los productos con existencia en el almacén de origen
+  // seleccionado. Si el almacén cambia, se reinicia la selección de producto.
+  useEffect(() => {
+    if (!form.location_id) { setLocProducts([]); setLocLoading(false); return; }
+    let cancelled = false;
+    setLocLoading(true);
+    api.getProducts(`location_id=${form.location_id}`)
+      .then(list => { if (!cancelled) setLocProducts((list as R[]).filter(p => Number(p.stock) > 0)); })
+      .catch(() => { if (!cancelled) setLocProducts([]); })
+      .finally(() => { if (!cancelled) setLocLoading(false); });
+    return () => { cancelled = true; };
+  }, [form.location_id]);
+
+  // En modo turnos, precargar el origen con la ubicación de la caja elegida
+  // (el producto se descuenta del almacén / punto de venta de esa caja).
+  useEffect(() => {
+    if (workMode !== 'shifts' || !posId) return;
+    const pos = posOptions.find(p => String(p.id) === posId);
+    const locId = pos ? String(pos.location_id ?? '') : '';
+    if (locId) setForm(f => ({ ...f, location_id: locId, product_id: '', product_quantity: 0, amount: 0 }));
+  }, [posId, posOptions, workMode]);
 
   // Auto-calc amount when product is selected
   useEffect(() => {
     if (form.product_id && form.product_quantity > 0) {
-      const prod = products.find(p => String(p.id) === form.product_id);
+      const prod = locProducts.find(p => String(p.id) === form.product_id);
       if (prod) setForm(f => ({ ...f, amount: Number(prod.cost) * f.product_quantity }));
     }
-  }, [form.product_id, form.product_quantity, products]);
+  }, [form.product_id, form.product_quantity, locProducts]);
 
   async function handleSave() {
     if (!form.description.trim() || form.amount <= 0) return;
@@ -160,25 +185,44 @@ export default function GastosPage() {
           <div><label className="label">Descripción *</label><input className="input" placeholder="Ej: Compra para uso interno..." value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></div>
           <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] space-y-3">
             <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Producto del inventario (opcional)</p>
+            <div>
+              <label className="label">Almacén de origen *</label>
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Seleccionar almacén' },
+                  ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
+                ]}
+                value={form.location_id}
+                onChange={v => setForm(f => ({ ...f, location_id: v, product_id: '', product_quantity: 0, amount: 0 }))}
+                placeholder="Seleccionar almacén"
+                noResultsMessage="Sin almacenes"
+              />
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Solo se mostrarán productos con existencia en este almacén.</p>
+            </div>
             <div><label className="label">Producto</label>
-              <select className="input" value={form.product_id} onChange={e=>setForm(f=>({...f,product_id:e.target.value,product_quantity:0,amount:0}))}>
+              <select className="input" value={form.product_id} disabled={!form.location_id} onChange={e=>setForm(f=>({...f,product_id:e.target.value,product_quantity:0,amount:0}))}>
                 <option value="">No aplica</option>
-                {products.map(p=><option key={String(p.id)} value={String(p.id)}>{String(p.name)} — costo: {formatCurrency(Number(p.cost))}</option>)}
+                {!form.location_id
+                  ? <option disabled>Selecciona primero el almacén de origen</option>
+                  : locLoading
+                    ? <option disabled>Cargando productos…</option>
+                    : locProducts.length===0
+                      ? <option disabled>Sin productos con existencia en este almacén</option>
+                      : locProducts.map(p=><option key={String(p.id)} value={String(p.id)}>{String(p.name)} — costo: {formatCurrency(Number(p.cost))} · disp: {formatNumber(Number(p.stock))}</option>)}
               </select>
             </div>
             {form.product_id&&<>
-              <div><label className="label">Cantidad</label><input type="number" min="1" step="1" className="input" value={form.product_quantity||''} onChange={e=>setForm(f=>({...f,product_quantity:parseFloat(e.target.value)||0}))}/></div>
-              <div><label className="label">Almacén de origen *</label>
-                <SearchableSelect
-                  options={[
-                    { value: '', label: 'Seleccionar almacén' },
-                    ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
-                  ]}
-                  value={form.location_id}
-                  onChange={v => setForm(f => ({ ...f, location_id: v }))}
-                  placeholder="Seleccionar almacén"
-                  noResultsMessage="Sin almacenes"
-                />
+              <div>
+                <label className="label">Cantidad</label>
+                <input type="number" min="1" step="1" className="input" value={form.product_quantity||''} onChange={e=>setForm(f=>({...f,product_quantity:parseFloat(e.target.value)||0}))}/>
+                {(() => {
+                  const prod = locProducts.find(p => String(p.id) === form.product_id);
+                  const avail = prod ? Number(prod.stock ?? 0) : 0;
+                  if (avail > 0 && form.product_quantity > avail) {
+                    return <p className="text-[10px] text-red-400 mt-1">⚠ Máx disponible en el almacén: {formatNumber(avail)}</p>;
+                  }
+                  return null;
+                })()}
               </div>
             </>}
           </div>

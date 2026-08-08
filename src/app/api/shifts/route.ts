@@ -23,7 +23,7 @@ export const GET = handle(async () => {
   // Solo cajas activas: las desactivadas no pueden abrir turnos ni deben
   // aparecer en los selectores de ventas, gastos y compras.
   const pos = await query(
-    `SELECT p.id, p.name, p.active, l.name AS location_name
+    `SELECT p.id, p.name, p.active, p.location_id, l.name AS location_name
      FROM pos p
      LEFT JOIN locations l ON l.id = p.location_id
      WHERE p.active = 1
