@@ -181,11 +181,9 @@ export default function VentasPage() {
 
   const filteredProducts = products
     .filter(p => String(p.name).toLowerCase().includes(productSearch.toLowerCase()))
-    .sort((a, b) => {
-      const aOut = getAvailableStock(a) <= 0 ? 1 : 0;
-      const bOut = getAvailableStock(b) <= 0 ? 1 : 0;
-      return aOut - bOut;
-    })
+    // Solo se listan productos con existencia en el almacén de salida
+    // seleccionado (igual que en el módulo de gastos).
+    .filter(p => getAvailableStock(p) > 0)
     .slice(0, 8);
 
   return (
@@ -264,6 +262,7 @@ export default function VentasPage() {
           <div className="space-y-3">
             <div><label className="label">Buscar producto</label>
               <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Nombre..." value={productSearch} onChange={e=>setProductSearch(e.target.value)}/></div>
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Solo se muestran productos con existencia en el almacén de salida.</p>
             </div>
             {productSearch&&(
               <div className="border border-[var(--border-secondary)] rounded-xl overflow-hidden bg-[var(--bg-primary)]">

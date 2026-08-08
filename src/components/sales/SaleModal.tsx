@@ -130,11 +130,9 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
       const barcodeMatch = qBarcode && String(p.barcode ?? '').toLowerCase().includes(qBarcode);
       return nameMatch || barcodeMatch;
     })
-    .sort((a, b) => {
-      const aOut = getAvailableStock(a) <= 0 ? 1 : 0;
-      const bOut = getAvailableStock(b) <= 0 ? 1 : 0;
-      return aOut - bOut;
-    })
+    // Solo se listan productos con existencia en el almacén de salida
+    // seleccionado (igual que en el módulo de gastos).
+    .filter(p => getAvailableStock(p) > 0)
     .slice(0, 8);
 
   async function handleSave() {
@@ -221,6 +219,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
               <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Escanea el código y presiona Enter para agregarlo al carrito</p>
             </div>
           </div>
+          <p className="text-[10px] text-[var(--text-tertiary)]">Solo se muestran productos con existencia en el almacén de salida.</p>
           {(productSearch.trim() || barcodeSearch.trim()) && (
             <div className="border border-[var(--border-secondary)] rounded-xl overflow-hidden bg-[var(--bg-primary)]">
               {filteredProducts.length === 0 ? (
