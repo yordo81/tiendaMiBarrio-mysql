@@ -142,9 +142,11 @@ mysql -u root -p < mysql/migration-013-pos-shifts.sql
 mysql -u root -p < mysql/migration-014-sales-pos.sql
 mysql -u root -p < mysql/migration-015-pos-gastos-compras.sql
 mysql -u root -p < mysql/migration-016-pos-locations.sql
+mysql -u root -p < mysql/migration-017-purchases-invoice.sql
+mysql -u root -p < mysql/migration-018-stock-transfers-batch.sql
 ```
 
-> 💡 **Aplicación automática:** `node scripts/apply-migration-012.js`, `node scripts/apply-migration-013.js`, `node scripts/apply-migration-014.js`, `node scripts/apply-migration-015.js` y `node scripts/apply-migration-016.js` aplican las migraciones 012-016 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
+> 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` a `node scripts/apply-migration-018.js` aplican las migraciones 012-018 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
 
 | Migración | Descripción |
 |-----------|-------------|
@@ -164,6 +166,8 @@ mysql -u root -p < mysql/migration-016-pos-locations.sql
 | `migration-014-sales-pos.sql` | Agrega `sales.pos_id` para registrar la caja en cada venta; el arqueo y el reporte de cada turno suman solo las ventas de su caja. |
 | `migration-015-pos-gastos-compras.sql` | Agrega `expenses.pos_id` y `purchases.pos_id` para atribuir gastos y compras a la caja de su turno. |
 | `migration-016-pos-locations.sql` | Asocia cada caja (`pos`) a un punto de venta (`locations` tipo `store`) con FK; habilita crear, editar y activar/desactivar cajas desde la pestaña **Cajas** de Almacenes. |
+| `migration-017-purchases-invoice.sql` | Agrega `purchases.invoice_number` (n.º de factura) para compras por factura con entrada múltiple de productos. |
+| `migration-018-stock-transfers-batch.sql` | Agrega `stock_transfers.batch_id` para agrupar de forma definitiva las líneas de un traslado múltiple en el historial y agrupa los traslados existentes por lote. |
 
 > **Nota:** Si usaste `node scripts/setup-db.js` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo ejecútalas manualmente si actualizas una BD existente.
 

@@ -143,6 +143,8 @@ mysql -u root -p < mysql/migration-013-pos-shifts.sql
 mysql -u root -p < mysql/migration-014-sales-pos.sql
 mysql -u root -p < mysql/migration-015-pos-gastos-compras.sql
 mysql -u root -p < mysql/migration-016-pos-locations.sql
+mysql -u root -p < mysql/migration-017-purchases-invoice.sql
+mysql -u root -p < mysql/migration-018-stock-transfers-batch.sql
 ```
 
 | Migración | Descripción |
@@ -163,6 +165,8 @@ mysql -u root -p < mysql/migration-016-pos-locations.sql
 | `migration-014-sales-pos.sql` | Agrega `sales.pos_id` para registrar la caja en cada venta; el arqueo y el reporte de cada turno suman solo las ventas de su caja. Aplicable con `node scripts/apply-migration-014.js`. |
 | `migration-015-pos-gastos-compras.sql` | Agrega `expenses.pos_id` y `purchases.pos_id` para atribuir gastos y compras a la caja de su turno. Aplicable con `node scripts/apply-migration-015.js`. |
 | `migration-016-pos-locations.sql` | Asocia cada caja (`pos`) a un punto de venta (`locations` tipo `store`) con FK; habilita crear, editar y activar/desactivar cajas desde la pestaña **Cajas** de Almacenes. Aplicable con `node scripts/apply-migration-016.js`. |
+| `migration-017-purchases-invoice.sql` | Agrega `purchases.invoice_number` (n.º de factura) para las compras por factura con entrada múltiple de productos. Aplicable con `node scripts/apply-migration-017.js`. |
+| `migration-018-stock-transfers-batch.sql` | Agrega `stock_transfers.batch_id` para agrupar de forma definitiva las líneas de un traslado múltiple en el historial y agrupa los traslados existentes por lote. Aplicable con `node scripts/apply-migration-018.js`. |
 
 > **Nota:** Si usaste `npm run db:setup` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo necesitas ejecutarlas manualmente si actualizas una BD existente.
 
