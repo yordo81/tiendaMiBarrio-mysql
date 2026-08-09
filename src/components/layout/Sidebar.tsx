@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSettingsStore } from '@/lib/stores/settings-store';
 import { cn } from '@/lib/utils';
@@ -9,30 +9,61 @@ import {
   LayoutDashboard, Package, ShoppingCart, Users, Truck,
   TrendingDown, BarChart2, UserCog, Wifi, WifiOff,
   Warehouse, ArrowRightLeft, ShoppingBag, Shield, DollarSign, CalendarCheck, Bell, Settings, Clock3,
+  ChevronDown,
   type LucideIcon,
 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import type { AppUser } from '@/types';
 import { UNAUTHORIZED_EVENT, type UnauthorizedEventDetail } from '@/lib/api-client';
 
-const navItems: { href: string; icon: LucideIcon; label: string; roles: string[]; workMode?: 'shifts' }[] = [
-  { href: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard',    roles: ['owner','admin','seller','warehouse'] },
-  { href: '/dashboard/ventas',      icon: ShoppingCart,    label: 'Ventas',       roles: ['owner','admin','seller'] },
-  { href: '/dashboard/reservaciones', icon: CalendarCheck,   label: 'Reservaciones', roles: ['owner','admin','seller'] },
-  { href: '/dashboard/inventario',  icon: Package,         label: 'Inventario',   roles: ['owner','admin','warehouse'] },
-  { href: '/dashboard/compras',     icon: ShoppingBag,     label: 'Compras',      roles: ['owner','admin','warehouse'] },
-  { href: '/dashboard/movimientos', icon: ArrowRightLeft,  label: 'Movimientos',  roles: ['owner','admin','warehouse'] },
-  { href: '/dashboard/almacenes',   icon: Warehouse,       label: 'Almacenes',    roles: ['owner','admin','warehouse'] },
-  { href: '/dashboard/clientes',    icon: Users,           label: 'Clientes',     roles: ['owner','admin','seller'] },
-  { href: '/dashboard/proveedores', icon: Truck,           label: 'Proveedores',  roles: ['owner','admin','warehouse'] },
-  { href: '/dashboard/gastos',      icon: TrendingDown,    label: 'Gastos',       roles: ['owner','admin'] },
-  { href: '/dashboard/contabilidad', icon: DollarSign,     label: 'Contabilidad', roles: ['owner','admin'] },
-  { href: '/dashboard/turnos',      icon: Clock3,          label: 'Turnos',       roles: ['owner','admin'], workMode: 'shifts' },
-  { href: '/dashboard/reportes',    icon: BarChart2,       label: 'Reportes',     roles: ['owner','admin'] },
-  { href: '/dashboard/auditoria',   icon: Shield,          label: 'Auditoría',    roles: ['owner','admin'] },
-  { href: '/dashboard/notificaciones', icon: Bell,         label: 'Notificaciones', roles: ['owner','admin','warehouse','seller'] },
-  { href: '/dashboard/usuarios',    icon: UserCog,         label: 'Usuarios',     roles: ['owner'] },
-  { href: '/dashboard/configuracion', icon: Settings,      label: 'Configuración', roles: ['owner'] },
+interface NavItem { href: string; icon: LucideIcon; label: string; roles: string[]; workMode?: 'shifts' }
+interface NavGroup { title: string; icon: LucideIcon; items: NavItem[] }
+
+// Dashboard queda fijo en la parte superior (fuera del acordeón)
+const dashboardItem: NavItem = { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['owner','admin','seller','warehouse'] };
+
+// Enlaces agrupados por categoría para el acordeón del sidebar
+const navGroups: NavGroup[] = [
+  {
+    title: 'Ventas y clientes',
+    icon: ShoppingCart,
+    items: [
+      { href: '/dashboard/ventas', icon: ShoppingCart, label: 'Ventas', roles: ['owner','admin','seller'] },
+      { href: '/dashboard/reservaciones', icon: CalendarCheck, label: 'Reservaciones', roles: ['owner','admin','seller'] },
+      { href: '/dashboard/clientes', icon: Users, label: 'Clientes', roles: ['owner','admin','seller'] },
+    ],
+  },
+  {
+    title: 'Inventario',
+    icon: Package,
+    items: [
+      { href: '/dashboard/inventario', icon: Package, label: 'Inventario', roles: ['owner','admin','warehouse'] },
+      { href: '/dashboard/compras', icon: ShoppingBag, label: 'Compras', roles: ['owner','admin','warehouse'] },
+      { href: '/dashboard/movimientos', icon: ArrowRightLeft, label: 'Movimientos', roles: ['owner','admin','warehouse'] },
+      { href: '/dashboard/almacenes', icon: Warehouse, label: 'Almacenes', roles: ['owner','admin','warehouse'] },
+      { href: '/dashboard/proveedores', icon: Truck, label: 'Proveedores', roles: ['owner','admin','warehouse'] },
+    ],
+  },
+  {
+    title: 'Finanzas',
+    icon: DollarSign,
+    items: [
+      { href: '/dashboard/gastos', icon: TrendingDown, label: 'Gastos', roles: ['owner','admin'] },
+      { href: '/dashboard/contabilidad', icon: DollarSign, label: 'Contabilidad', roles: ['owner','admin'] },
+      { href: '/dashboard/turnos', icon: Clock3, label: 'Turnos', roles: ['owner','admin'], workMode: 'shifts' },
+    ],
+  },
+  {
+    title: 'Administración',
+    icon: Shield,
+    items: [
+      { href: '/dashboard/reportes', icon: BarChart2, label: 'Reportes', roles: ['owner','admin'] },
+      { href: '/dashboard/auditoria', icon: Shield, label: 'Auditoría', roles: ['owner','admin'] },
+      { href: '/dashboard/notificaciones', icon: Bell, label: 'Notificaciones', roles: ['owner','admin','warehouse','seller'] },
+      { href: '/dashboard/usuarios', icon: UserCog, label: 'Usuarios', roles: ['owner'] },
+      { href: '/dashboard/configuracion', icon: Settings, label: 'Configuración', roles: ['owner'] },
+    ],
+  },
 ];
 
 export default function Sidebar() {
@@ -43,6 +74,19 @@ export default function Sidebar() {
   const isOnline = useOnlineStatus();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+
+  // Acordeón puro: un solo grupo abierto a la vez. Al navegar (o al cargar)
+  // se abre automáticamente el grupo de la página activa.
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const activeGroupTitle = useMemo(() => {
+    const g = navGroups.find(grp => grp.items.some(item =>
+      pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+    ));
+    return g?.title;
+  }, [pathname]);
+
+  const showDashboard = !user ? true : dashboardItem.roles.includes(user.role);
+  useEffect(() => { if (activeGroupTitle) setOpenGroup(activeGroupTitle); }, [activeGroupTitle]);
 
   // Cargar configuración del negocio (nombre/logo) una sola vez
   useEffect(() => { loadSettings(); }, [loadSettings]);
@@ -71,11 +115,8 @@ export default function Sidebar() {
 
   useEffect(() => { loadUser(); }, [loadUser]);
 
-  // Solo se muestra 'Turnos' cuando el modo de operación es por turnos
-  const allowedItems = navItems.filter(item =>
-    (!user ? true : item.roles.includes(user.role)) &&
-    (!item.workMode || settings?.work_mode === item.workMode)
-  );
+  const isActive = (href: string) =>
+    pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
 
   return (
     <aside className="hidden md:flex flex-col w-60 h-screen fixed left-0 top-0 z-40" style={{ backgroundColor: 'var(--bg-secondary)', borderRightColor: 'var(--border-primary)', borderRightWidth: '1px' }}>
@@ -96,14 +137,54 @@ export default function Sidebar() {
         {!mounted || isOnline ? <Wifi className="w-3 h-3"/> : <WifiOff className="w-3 h-3"/>}
         {!mounted || isOnline ? 'En línea' : 'Sin conexión'}
       </div>
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {allowedItems.map(({ href, icon: Icon, label }) => {
-          const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
+      <nav className="flex-1 px-3 py-4 space-y-2.5 overflow-y-auto">
+        {showDashboard && (
+          <Link
+            href={dashboardItem.href}
+            className={cn('flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150', isActive(dashboardItem.href) ? 'bg-brand-600/20 text-brand-400 border border-brand-500/30' : 'hover:bg-[var(--bg-tertiary)]')}
+            style={!isActive(dashboardItem.href) ? { color: 'var(--text-secondary)' } : undefined}
+          >
+            <dashboardItem.icon className={cn('w-4 h-4 flex-shrink-0', isActive(dashboardItem.href) ? 'text-brand-400' : 'text-[var(--text-tertiary)]')} />
+            {dashboardItem.label}
+          </Link>
+        )}
+        {navGroups.map(group => {
+          // Filtrar enlaces por rol y modo de operación (Turnos solo en modo por turnos)
+          const items = group.items.filter(item =>
+            (!user ? true : item.roles.includes(user.role)) &&
+            (!item.workMode || settings?.work_mode === item.workMode)
+          );
+          if (items.length === 0) return null;
+          const open = openGroup === group.title;
+          const groupActive = group.items.some(item => isActive(item.href));
           return (
-            <Link key={href} href={href} className={cn('flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150 group', active ? 'bg-brand-600/20 text-brand-400 border border-brand-500/30' : 'hover:bg-[var(--bg-tertiary)]')} style={!active ? { color: 'var(--text-secondary)' } : undefined}>
-              <Icon className={cn('w-4 h-4 flex-shrink-0', active ? 'text-brand-400' : 'group-hover:text-[var(--text-secondary)]')} style={!active ? { color: 'var(--text-tertiary)' } : undefined} />
-              {label}
-            </Link>
+            <div key={group.title} className="space-y-0.5">
+              <button
+                onClick={() => setOpenGroup(open ? null : group.title)}
+                className={cn('w-full flex items-center gap-2.5 pl-2.5 pr-3 py-2 rounded-lg text-[11px] uppercase tracking-wider font-semibold transition-colors', open ? 'bg-[var(--bg-tertiary)] border-l-2 border-brand-500' : 'border-l-2 border-transparent hover:bg-[var(--bg-tertiary)]')}
+                style={{ color: groupActive ? 'var(--brand-400)' : 'var(--text-tertiary)' }}
+                aria-expanded={open}
+              >
+                <group.icon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="flex-1 text-left">{group.title}</span>
+                <ChevronDown className={cn('w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200', open ? 'rotate-180' : '')} />
+              </button>
+              <div className={cn('grid transition-all duration-200 ease-out', open ? 'grid-rows-[1fr] opacity-100 visible' : 'grid-rows-[0fr] opacity-0 invisible')}>
+                <div className="overflow-hidden min-h-0">
+                  <div className="space-y-0.5 pt-0.5 pl-1.5">
+                    {items.map(({ href, icon: Icon, label }) => {
+                      const active = isActive(href);
+                      return (
+                        <Link key={href} href={href} className={cn('flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150', active ? 'bg-brand-600/20 text-brand-400 border border-brand-500/30' : 'hover:bg-[var(--bg-tertiary)]')} style={!active ? { color: 'var(--text-secondary)' } : undefined}>
+                          <Icon className={cn('w-4 h-4 flex-shrink-0', active ? 'text-brand-400' : 'text-[var(--text-tertiary)]')} />
+                          {label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
           );
         })}
       </nav>
