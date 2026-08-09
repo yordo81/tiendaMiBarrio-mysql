@@ -11,7 +11,9 @@ import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
 import InvoicePurchaseModal from '@/components/purchases/InvoicePurchaseModal';
-import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Tag, History, ArrowRightLeft, ShoppingBag, Image as ImageIcon, Upload, X as XIcon, Barcode, Receipt } from 'lucide-react';
+import InventoryExportModal from '@/components/inventory/InventoryExportModal';
+import InfoTooltip from '@/components/ui/Tooltip';
+import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Tag, History, ArrowRightLeft, ShoppingBag, Image as ImageIcon, Upload, X as XIcon, Barcode, Receipt, Printer, Filter } from 'lucide-react';
 
 type Tab = 'productos' | 'categorias';
 type AnyRecord = Record<string,unknown>;
@@ -28,6 +30,9 @@ export default function InventarioPage() {
   const [catFilter, setCatFilter] = useState('');
   const [locFilter, setLocFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const filtersRef = useRef<HTMLDivElement>(null);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -61,22 +66,8 @@ export default function InventarioPage() {
   }
   const [showZeroStock, setShowZeroStock] = useState(false);
   const [showExpiringOnly, setShowExpiringOnly] = useState(false);
-  const [showLowStockBanner, setShowLowStockBanner] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('inv_hide_low_stock') !== 'true';
-    }
-    return true;
-  });
-
-  function dismissLowStockBanner() {
-    setShowLowStockBanner(false);
-    localStorage.setItem('inv_hide_low_stock', 'true');
-  }
-
-  function restoreLowStockBanner() {
-    setShowLowStockBanner(true);
-    localStorage.removeItem('inv_hide_low_stock');
-  }
+  // Nota: el aviso de stock bajo se movió al módulo de Notificaciones
+  // (generado por /api/notifications/check-expiration, tipo low_stock/out_of_stock)
   const [showCatModal, setShowCatModal] = useState(false);
   const [editCat, setEditCat] = useState<AnyRecord | null>(null);
   const [deleteCat, setDeleteCat] = useState<AnyRecord | null>(null);
@@ -294,7 +285,18 @@ export default function InventarioPage() {
     setExpiringProducts(expiring);
   }, [products]);
 
-  const lowStock = products.filter(p => Number(p.stock ?? 0) <= Number(p.min_stock ?? 0) && Number(p.min_stock ?? 0) > 0);
+  // Filtros activos para el badge del menú (el almacén no cuenta: es el contexto de la vista)
+  const activeFilterCount = (catFilter ? 1 : 0) + (showZeroStock ? 1 : 0) + (showExpiringOnly ? 1 : 0);
+
+  // Cerrar el menú de filtros al hacer clic fuera
+  useEffect(() => {
+    if (!showFilters) return;
+    const handler = (e: MouseEvent) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) setShowFilters(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showFilters]);
   const movTypeLabel: Record<string,string> = { in:'Entrada', out:'Salida', adjust:'Ajuste', expense:'Gasto', sale:'Venta' };
   const movTypeColor: Record<string,string> = { in:'text-green-400', out:'text-red-400', adjust:'text-yellow-400', expense:'text-orange-400', sale:'text-blue-400' };
 
@@ -310,20 +312,6 @@ export default function InventarioPage() {
 
       {tab === 'productos' && (
         <>
-          {lowStock.length > 0 && showLowStockBanner && (
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3 flex items-center gap-3 group">
-              <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0"/>
-              <p className="text-yellow-400 text-sm flex-1"><span className="font-semibold">{lowStock.length}</span> producto(s) con stock bajo: {lowStock.slice(0,3).map(p=>String(p.name)).join(', ')}{lowStock.length>3?'...':''}</p>
-              <button
-                onClick={dismissLowStockBanner}
-                className="text-yellow-400/60 hover:text-yellow-400 transition-colors p-1 rounded-lg hover:bg-yellow-500/10"
-                title="Ocultar aviso"
-              >
-                <XIcon className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
           {/* ── Alerta de productos próximos a vencer ── */}
           {expiringProducts.length > 0 && showExpiryBanner && (() => {
             const today = new Date();
@@ -419,52 +407,75 @@ export default function InventarioPage() {
             </button>
           )}
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-            <div className="flex gap-2 flex-1 w-full sm:w-auto">
+            <div className="flex gap-2 flex-1 w-full sm:w-auto items-center">
               <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
-              <div className="w-44">
-                <SearchableSelect
-                  options={[
-                    { value: '', label: 'Todas las categorías' },
-                    ...categories.map(c => ({ value: String(c.id), label: String(c.name) }))
-                  ]}
-                  value={catFilter}
-                  onChange={v => setCatFilter(v)}
-                  placeholder="Todas las categorías"
-                  noResultsMessage="Sin categorías"
-                />
-              </div>
-              <div className="w-44">
-                <SearchableSelect
-                  options={[
-                    { value: '', label: 'Todos los almacenes' },
-                    ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
-                  ]}
-                  value={locFilter}
-                  onChange={v => setLocFilter(v)}
-                  placeholder="Todos los almacenes"
-                  noResultsMessage="Sin almacenes"
-                />
-              </div>
-              <button onClick={()=>setShowZeroStock(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showZeroStock ? 'bg-brand-600/20 border-brand-600/50 text-brand-400' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[#6e7681]')}>
-                <span className="text-sm">{showZeroStock ? '☑' : '☐'}</span> Stock 0
-              </button>
-              <button onClick={()=>setShowExpiringOnly(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showExpiringOnly ? 'bg-orange-600/20 border-orange-600/50 text-orange-400' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[#6e7681]')}>
-                <AlertTriangle className="w-3.5 h-3.5" /> Próx. a vencer
-              </button>
-              {!showLowStockBanner && lowStock.length > 0 && (
+              {/* Filtros en menú desplegable */}
+              <div className="relative" ref={filtersRef}>
                 <button
-                  onClick={restoreLowStockBanner}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border border-[var(--border-secondary)] text-yellow-400 hover:text-yellow-300 hover:border-yellow-500/40 hover:bg-yellow-500/5 transition-colors"
+                  onClick={()=>setShowFilters(v=>!v)}
+                  aria-expanded={showFilters}
+                  className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', activeFilterCount > 0 ? 'bg-brand-600/20 border-brand-600/50 text-brand-400' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[#6e7681]')}
                 >
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  Stock bajo ({lowStock.length})
+                  <Filter className="w-3.5 h-3.5" />
+                  Filtros
+                  {activeFilterCount > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">{activeFilterCount}</span>
+                  )}
                 </button>
-              )}
+                {showFilters && (
+                  <div className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-primary)] shadow-2xl shadow-black/30 z-50 p-4 space-y-3 animate-slide-down origin-top">
+                    <div>
+                      <label className="label">Categoría</label>
+                      <SearchableSelect
+                        options={[
+                          { value: '', label: 'Todas las categorías' },
+                          ...categories.map(c => ({ value: String(c.id), label: String(c.name) }))
+                        ]}
+                        value={catFilter}
+                        onChange={v => setCatFilter(v)}
+                        placeholder="Todas las categorías"
+                        noResultsMessage="Sin categorías"
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Almacén</label>
+                      <SearchableSelect
+                        options={[
+                          { value: '', label: 'Todos los almacenes' },
+                          ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
+                        ]}
+                        value={locFilter}
+                        onChange={v => setLocFilter(v)}
+                        placeholder="Todos los almacenes"
+                        noResultsMessage="Sin almacenes"
+                      />
+                    </div>
+                    <div className="border-t border-[var(--border-primary)] pt-3 space-y-1">
+                      <button
+                        onClick={()=>setShowZeroStock(v=>!v)}
+                        className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors', showZeroStock ? 'text-brand-400 bg-brand-600/10' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]')}
+                      >
+                        <span className={cn('w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0', showZeroStock ? 'bg-brand-500 border-brand-500 text-white' : 'border-[var(--border-secondary)]')}>{showZeroStock && '✓'}</span>
+                        Incluir stock 0
+                      </button>
+                      <button
+                        onClick={()=>setShowExpiringOnly(v=>!v)}
+                        className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors', showExpiringOnly ? 'text-orange-400 bg-orange-500/10' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]')}
+                      >
+                        <span className={cn('w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0', showExpiringOnly ? 'bg-orange-500 border-orange-500 text-white' : 'border-[var(--border-secondary)]')}>{showExpiringOnly && '✓'}</span>
+                        Solo próximos a vencer
+                      </button>
+
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => setShowInvoiceModal(true)} className="btn-secondary flex items-center gap-2 flex-shrink-0"><Receipt className="w-4 h-4"/>Entrada por factura</button>
-              <button onClick={() => openPurchase()} className="btn-secondary flex items-center gap-2 flex-shrink-0"><ShoppingBag className="w-4 h-4"/>Registrar compra</button>
-              <button onClick={openNew} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nuevo producto</button>
+            <div className="flex items-center gap-1.5">
+              <InfoTooltip content="Imprimir / exportar inventario" side="bottom"><button aria-label="Imprimir o exportar inventario" onClick={() => setShowExportModal(true)} className="btn-secondary p-2 flex items-center justify-center flex-shrink-0"><Printer className="w-4 h-4"/></button></InfoTooltip>
+              <InfoTooltip content="Entrada por factura" side="bottom"><button aria-label="Entrada por factura" onClick={() => setShowInvoiceModal(true)} className="btn-secondary p-2 flex items-center justify-center flex-shrink-0"><Receipt className="w-4 h-4"/></button></InfoTooltip>
+              <InfoTooltip content="Registrar compra" side="bottom"><button aria-label="Registrar compra" onClick={() => openPurchase()} className="btn-secondary p-2 flex items-center justify-center flex-shrink-0"><ShoppingBag className="w-4 h-4"/></button></InfoTooltip>
+              <InfoTooltip content="Nuevo producto" side="bottom"><button aria-label="Nuevo producto" onClick={openNew} className="btn-primary p-2 flex items-center justify-center flex-shrink-0"><Plus className="w-4 h-4"/></button></InfoTooltip>
             </div>
           </div>
 
@@ -822,6 +833,13 @@ export default function InventarioPage() {
         open={showInvoiceModal}
         onClose={() => setShowInvoiceModal(false)}
         onSuccess={load}
+      />
+
+      {/* Modal: Imprimir / exportar inventario */}
+      <InventoryExportModal
+        open={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        products={products}
       />
 
       {/* Purchase Modal */}
