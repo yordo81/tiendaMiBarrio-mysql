@@ -66,6 +66,10 @@ export default function NotificacionesPage() {
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
+      // Generar alertas pendientes (vencimientos, stock bajo, agotados)
+      // antes de listar, para que el módulo muestre lo recién detectado.
+      // No bloqueante: si el chequeo falla, el listado igual se carga.
+      fetch('/api/notifications/check-expiration').catch(() => {});
       const params = new URLSearchParams();
       params.set('dismissed', dismissedFilter);
       if (severityFilter) params.set('severity', severityFilter);
