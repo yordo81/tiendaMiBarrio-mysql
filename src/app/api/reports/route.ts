@@ -134,10 +134,11 @@ export const GET = handle(async (req: Request) => {
     const stockSubquery = locationId
       ? '(SELECT quantity FROM location_stock WHERE product_id=p.id AND location_id=?)'
       : '(SELECT COALESCE(SUM(quantity),0) FROM location_stock WHERE product_id=p.id)';
-    const restockParams: unknown[] = [];
-    if (locationId) restockParams.push(locationId);
+    // NOTA: con locationId hay 3 placeholders (subquery de stock en SELECT,
+    // filtro en WHERE y subquery de stock en ORDER BY), por lo que se
+    // pasan 3 parámetros. Sin locationId no hay placeholders en la subquery.
+    const restockParams: unknown[] = locationId ? [locationId, locationId, locationId] : [];
     const locationFilter = locationId ? ' AND p.id IN (SELECT product_id FROM location_stock WHERE location_id=?)' : '';
-    if (locationId) restockParams.push(locationId);
     const rows = await query<{id:string;name:string;stock:number;min_stock:number;sold:number}>(`
       SELECT p.id,p.name,
         COALESCE(${stockSubquery}, p.stock) AS stock,
