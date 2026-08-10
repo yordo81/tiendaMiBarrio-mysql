@@ -379,6 +379,9 @@ CREATE TABLE IF NOT EXISTS settings (
   business_name VARCHAR(120) NOT NULL DEFAULT 'TiendaMiBarrio',
   logo_url      VARCHAR(255) DEFAULT NULL,
   work_mode     ENUM('daily','shifts') NOT NULL DEFAULT 'daily' COMMENT 'daily = por días, shifts = por turnos',
+  receipt_printer_width ENUM('57','80') NOT NULL DEFAULT '80' COMMENT 'Ancho del papel del ticket (57 mm u 80 mm)',
+  receipt_print_method ENUM('browser','usb') NOT NULL DEFAULT 'browser' COMMENT 'browser = diálogo del navegador, usb = ESC/POS directo por WebUSB',
+  receipt_auto_print TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Imprimir el ticket automáticamente al registrar una venta',
   updated_by    VARCHAR(36) DEFAULT NULL,
   updated_at    DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -8,12 +8,19 @@ export interface BusinessSettings {
   business_name: string;
   logo_url: string | null;
   work_mode: 'daily' | 'shifts';
+  // Impresión de tickets de venta (comprobante del cliente)
+  receipt_printer_width: '57' | '80';
+  receipt_print_method: 'browser' | 'usb';
+  receipt_auto_print: boolean;
 }
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
   business_name: 'TiendaMiBarrio',
   logo_url: null,
   work_mode: 'daily',
+  receipt_printer_width: '80',
+  receipt_print_method: 'browser',
+  receipt_auto_print: true,
 };
 
 interface SettingsState {
@@ -39,6 +46,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
             business_name: String(s?.business_name ?? DEFAULT_SETTINGS.business_name),
             logo_url: s?.logo_url ?? null,
             work_mode: s?.work_mode === 'shifts' ? 'shifts' : 'daily',
+            receipt_printer_width: s?.receipt_printer_width === '57' ? '57' : '80',
+            receipt_print_method: s?.receipt_print_method === 'usb' ? 'usb' : 'browser',
+            receipt_auto_print: s?.receipt_auto_print !== false,
           },
           loaded: true,
         });

@@ -25,17 +25,25 @@ export const PUT = handle(async (req: Request) => {
   const workMode = body.work_mode === 'shifts' ? 'shifts' : 'daily';
   const logoUrl = body.logo_url ? String(body.logo_url).trim().slice(0, 255) : null;
 
+  // Impresión de tickets de venta
+  const receiptPrinterWidth = body.receipt_printer_width === '57' ? '57' : '80';
+  const receiptPrintMethod = body.receipt_print_method === 'usb' ? 'usb' : 'browser';
+  const receiptAutoPrint = body.receipt_auto_print !== false;
+
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
   await execute(
-    `INSERT INTO settings (id, business_name, logo_url, work_mode, updated_by, updated_at)
-     VALUES ('1', ?, ?, ?, ?, ?)
+    `INSERT INTO settings (id, business_name, logo_url, work_mode, receipt_printer_width, receipt_print_method, receipt_auto_print, updated_by, updated_at)
+     VALUES ('1', ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        business_name = VALUES(business_name),
        logo_url = VALUES(logo_url),
        work_mode = VALUES(work_mode),
+       receipt_printer_width = VALUES(receipt_printer_width),
+       receipt_print_method = VALUES(receipt_print_method),
+       receipt_auto_print = VALUES(receipt_auto_print),
        updated_by = VALUES(updated_by),
        updated_at = VALUES(updated_at)`,
-    [businessName, logoUrl, workMode, user.id, ts]
+    [businessName, logoUrl, workMode, receiptPrinterWidth, receiptPrintMethod, receiptAutoPrint ? 1 : 0, user.id, ts]
   );
 
   // Si se cambió a modo diario, cerrar turnos abiertos sin reconciliar

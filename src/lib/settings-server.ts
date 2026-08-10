@@ -9,18 +9,32 @@ export interface BusinessSettings {
   business_name: string;
   logo_url: string | null;
   work_mode: 'daily' | 'shifts';
+  // Impresión de tickets de venta (comprobante del cliente)
+  receipt_printer_width: '57' | '80';
+  receipt_print_method: 'browser' | 'usb';
+  receipt_auto_print: boolean;
 }
 
 export const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
   business_name: 'TiendaMiBarrio',
   logo_url: null,
   work_mode: 'daily',
+  receipt_printer_width: '80',
+  receipt_print_method: 'browser',
+  receipt_auto_print: true,
 };
 
 export async function getBusinessSettings(): Promise<BusinessSettings> {
   try {
-    const row = await queryOne<{ business_name: string | null; logo_url: string | null; work_mode: string | null }>(
-      'SELECT business_name, logo_url, work_mode FROM settings WHERE id = ? LIMIT 1',
+    const row = await queryOne<{
+      business_name: string | null;
+      logo_url: string | null;
+      work_mode: string | null;
+      receipt_printer_width: string | null;
+      receipt_print_method: string | null;
+      receipt_auto_print: number | null;
+    }>(
+      'SELECT business_name, logo_url, work_mode, receipt_printer_width, receipt_print_method, receipt_auto_print FROM settings WHERE id = ? LIMIT 1',
       ['1']
     );
     if (row) {
@@ -28,6 +42,9 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
         business_name: row.business_name?.trim() || DEFAULT_BUSINESS_SETTINGS.business_name,
         logo_url: row.logo_url ?? null,
         work_mode: row.work_mode === 'shifts' ? 'shifts' : 'daily',
+        receipt_printer_width: row.receipt_printer_width === '57' ? '57' : '80',
+        receipt_print_method: row.receipt_print_method === 'usb' ? 'usb' : 'browser',
+        receipt_auto_print: row.receipt_auto_print == null ? DEFAULT_BUSINESS_SETTINGS.receipt_auto_print : Number(row.receipt_auto_print) === 1,
       };
     }
   } catch {

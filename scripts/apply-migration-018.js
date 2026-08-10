@@ -1,12 +1,12 @@
+#!/usr/bin/env node
 /**
- * Aplica la migración 018: columna batch_id en stock_transfers
- * (agrupación de traslados por lote).
+ * TiendaMiBarrio - Aplica la migración 018 (impresión de tickets) de forma segura.
  *
  * Uso: node scripts/apply-migration-018.js
  *
  * Lee las credenciales de .env.local (o variables de entorno ya cargadas) y
- * ejecuta las sentencias de mysql/migration-018-stock-transfers-batch.sql.
- * Es idempotente: si la columna ya existe, lo reporta y termina.
+ * ejecuta las sentencias de mysql/migration-018-receipt-printer.sql.
+ * Es idempotente: si alguna columna ya existe, lo reporta y continúa.
  */
 
 const mysql = require('mysql2/promise');
@@ -36,8 +36,7 @@ async function main() {
   await conn.query(`USE \`${dbName}\``);
   console.log(`✅  Conectado a '${dbName}'.`);
 
-  // Leer las sentencias de la migración 018 (fuente única de verdad).
-  const migrationPath = path.join(__dirname, '../mysql/migration-018-stock-transfers-batch.sql');
+  const migrationPath = path.join(__dirname, '../mysql/migration-018-receipt-printer.sql');
   const sql = fs.readFileSync(migrationPath, 'utf-8');
   const statements = sql.split(';')
     .map(s => s.split('\n').filter(l => !l.trim().startsWith('--')).join('\n').trim())
@@ -49,11 +48,11 @@ async function main() {
       await conn.query(stmt);
       ok++;
     } catch (e) {
-      const msg = e.message || String(e);
-      // Ya aplicado: 'Duplicate column name' (ALTER ADD COLUMN),
-      // 'Duplicate key name' (ADD KEY), 'Duplicate foreign key constraint name' (ADD CONSTRAINT)
-      if (msg.includes('Duplicate column name') || msg.includes('Duplicate key name') || msg.includes('Duplicate foreign key constraint name')) {
+      // Ya aplicada: el ALTER ADD COLUMN lanza 'Duplicate column name' en la
+      // segunda ejecución. Se ignora y se reporta.
+      if (e.message.includes('Duplicate column name')) {
         skipped++;
+        console.log('ℹ️   Columna de settings ya existente.');
       } else {
         throw e;
       }
@@ -61,7 +60,7 @@ async function main() {
   }
   console.log(`✅  Migración 018 aplicada (${ok} sentencias, ${skipped} ya existían).`);
   await conn.end();
-  console.log('\n🎉  Campo batch_id disponible en stock_transfers.');
+  console.log('\n🎉  Base de datos al día.');
 }
 
 main().catch(e => { console.error('❌ Error:', e.message); process.exit(1); });

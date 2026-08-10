@@ -18,6 +18,16 @@ export interface UnauthorizedEventDetail {
   message: string;
 }
 
+/** Forma de la configuración del negocio devuelta por /api/settings */
+export interface SettingsDto {
+  business_name: string;
+  logo_url: string | null;
+  work_mode: 'daily' | 'shifts';
+  receipt_printer_width: '57' | '80';
+  receipt_print_method: 'browser' | 'usb';
+  receipt_auto_print: boolean;
+}
+
 /**
  * Dispara un evento global personalizado para errores 401.
  * Permite que los componentes reaccionen (mostrar toast, limpiar estado de auth)
@@ -173,8 +183,8 @@ export const api = {
   },
 
   // Settings / Configuración
-  getSettings: () => apiFetch<{ settings: { business_name: string; logo_url: string | null; work_mode: 'daily' | 'shifts' } }>('/api/settings'),
-  updateSettings: (data: unknown) => apiFetch<{ settings: { business_name: string; logo_url: string | null; work_mode: 'daily' | 'shifts' } }>('/api/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  getSettings: () => apiFetch<{ settings: SettingsDto }>('/api/settings'),
+  updateSettings: (data: unknown) => apiFetch<{ settings: SettingsDto }>('/api/settings', { method: 'PUT', body: JSON.stringify(data) }),
 
   // Shifts / Turnos de caja
   getShifts: () => apiFetch<{ pos: Record<string, unknown>[]; open: Record<string, unknown>[]; shifts: Record<string, unknown>[] }>('/api/shifts'),
