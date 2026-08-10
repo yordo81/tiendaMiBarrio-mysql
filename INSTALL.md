@@ -42,6 +42,7 @@
 | **Reportes** | Ventas, rentabilidad, variación de precios, proyección de reabastecimiento, cuentas |
 | **Auditoría** | Registro de eliminaciones y ajustes críticos con detalles de quién, qué y cuándo |
 | **Usuarios** | Roles (Dueño, Admin, Vendedor, Bodeguero) + permisos granulares |
+| **Configuración** | Módulo por pestañas (Negocio, Operación, Impresión): identidad del negocio, modo de operación (días/turnos) y gestión de impresoras de tickets (57/80 mm, WebUSB, impresora predeterminada) |
 
 ## Pasos de instalación
 
@@ -144,9 +145,11 @@ mysql -u root -p < mysql/migration-015-pos-gastos-compras.sql
 mysql -u root -p < mysql/migration-016-pos-locations.sql
 mysql -u root -p < mysql/migration-017-purchases-invoice.sql
 mysql -u root -p < mysql/migration-018-stock-transfers-batch.sql
+mysql -u root -p < mysql/migration-018-receipt-printer.sql
+mysql -u root -p < mysql/migration-019-printers.sql
 ```
 
-> 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` a `node scripts/apply-migration-018.js` aplican las migraciones 012-018 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
+> 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` a `node scripts/apply-migration-019.js` aplican las migraciones 012-019 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
 
 | Migración | Descripción |
 |-----------|-------------|
@@ -168,6 +171,8 @@ mysql -u root -p < mysql/migration-018-stock-transfers-batch.sql
 | `migration-016-pos-locations.sql` | Asocia cada caja (`pos`) a un punto de venta (`locations` tipo `store`) con FK; habilita crear, editar y activar/desactivar cajas desde la pestaña **Cajas** de Almacenes. |
 | `migration-017-purchases-invoice.sql` | Agrega `purchases.invoice_number` (n.º de factura) para compras por factura con entrada múltiple de productos. |
 | `migration-018-stock-transfers-batch.sql` | Agrega `stock_transfers.batch_id` para agrupar de forma definitiva las líneas de un traslado múltiple en el historial y agrupa los traslados existentes por lote. |
+| `migration-018-receipt-printer.sql` | Agrega a `settings` la configuración del ticket: `receipt_printer_width` (57/80 mm), `receipt_print_method` (browser/usb) y `receipt_auto_print`. |
+| `migration-019-printers.sql` | Crea la tabla `printers` para registrar varias impresoras térmicas (vendor/product/serial, clave única `device_key`) y marcar cuál imprime los tickets de venta (`is_default`). |
 
 > **Nota:** Si usaste `node scripts/setup-db.js` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo ejecútalas manualmente si actualizas una BD existente.
 

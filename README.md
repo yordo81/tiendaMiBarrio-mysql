@@ -40,6 +40,7 @@ Sistema de gestión integral para tienda retail. **Sin Supabase.** Todo corre en
 | **Reportes** | Ventas, rentabilidad, variación de precios, proyección de reabastecimiento, cuentas por cobrar |
 | **Auditoría** 🛡️ | Registro detallado de eliminaciones y ajustes críticos: quién, qué, cuándo y detalles del cambio |
 | **Usuarios** | Roles (Dueño, Admin, Vendedor, Bodeguero) + permisos granulares por módulo |
+| **Configuración** ⚙️ | Módulo por pestañas (Negocio, Operación, Impresión): identidad del negocio, modo de operación (días/turnos) y gestión de impresoras de tickets (57/80 mm, WebUSB, impresora predeterminada) |
 
 ### Navegación por rol
 
@@ -145,6 +146,8 @@ mysql -u root -p < mysql/migration-015-pos-gastos-compras.sql
 mysql -u root -p < mysql/migration-016-pos-locations.sql
 mysql -u root -p < mysql/migration-017-purchases-invoice.sql
 mysql -u root -p < mysql/migration-018-stock-transfers-batch.sql
+mysql -u root -p < mysql/migration-018-receipt-printer.sql
+mysql -u root -p < mysql/migration-019-printers.sql
 ```
 
 | Migración | Descripción |
@@ -167,6 +170,8 @@ mysql -u root -p < mysql/migration-018-stock-transfers-batch.sql
 | `migration-016-pos-locations.sql` | Asocia cada caja (`pos`) a un punto de venta (`locations` tipo `store`) con FK; habilita crear, editar y activar/desactivar cajas desde la pestaña **Cajas** de Almacenes. Aplicable con `node scripts/apply-migration-016.js`. |
 | `migration-017-purchases-invoice.sql` | Agrega `purchases.invoice_number` (n.º de factura) para las compras por factura con entrada múltiple de productos. Aplicable con `node scripts/apply-migration-017.js`. |
 | `migration-018-stock-transfers-batch.sql` | Agrega `stock_transfers.batch_id` para agrupar de forma definitiva las líneas de un traslado múltiple en el historial y agrupa los traslados existentes por lote. Aplicable con `node scripts/apply-migration-018.js`. |
+| `migration-018-receipt-printer.sql` | Agrega a `settings` la configuración del ticket: `receipt_printer_width` (57/80 mm), `receipt_print_method` (browser/usb) y `receipt_auto_print`. Aplicable con `node scripts/apply-migration-018.js`. |
+| `migration-019-printers.sql` | Crea la tabla `printers` para registrar varias impresoras térmicas (vendor/product/serial, clave única `device_key`) y marcar cuál imprime los tickets de venta (`is_default`). Aplicable con `node scripts/apply-migration-019.js`. |
 
 > **Nota:** Si usaste `npm run db:setup` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo necesitas ejecutarlas manualmente si actualizas una BD existente.
 
@@ -336,6 +341,7 @@ src/
 │   │   ├── cash-register/      # Caja (saldo inicial, ajustes, capital)
 │   │   ├── audit-logs/         # 🛡️ Auditoría de eliminaciones
 │   │   ├── reservations/       # 📋 Reservaciones + products
+│   │   ├── printers/           # 🖨️ Impresoras registradas (tickets)
 │   │   └── upload/             # Subida de imágenes
 │   ├── inicio/                 # 🌐 Landing page pública
 │   ├── auth/login/             # Página de inicio de sesión
@@ -464,6 +470,12 @@ El dueño puede personalizar permisos por usuario desde el módulo Usuarios.
 ### 📄 Exportación
 - Exportación a Excel (ExcelJS)
 - Exportación a PDF (jsPDF + AutoTable)
+
+### 🖨️ Impresión de tickets
+- Comprobante del cliente al registrar cada venta, en papel térmico de **57 mm u 80 mm**
+- Dos métodos: **diálogo del navegador** (cualquier impresora instalada) o **WebUSB directo** (ESC/POS, Chrome/Edge)
+- **Gestor de impresoras** en Configuración → Impresión: registra varias impresoras, elige la **predeterminada** para los tickets, prueba de impresión, renombrado y eliminación
+- Impresión automática configurable al confirmar cada venta
 
 ### ⚡ UX mejorada
 - Paginación con selector de tamaño de página (10/25/50/100/Todo)
