@@ -147,13 +147,14 @@ export const GET = handle(async (req: Request) => {
       LEFT JOIN sale_items si ON si.product_id=p.id AND si.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)
       WHERE p.active=1${locationFilter}
       GROUP BY p.id,p.name,p.min_stock
-      HAVING COALESCE(${stockSubquery}, p.stock) > 0
       ORDER BY COALESCE(
         ${stockSubquery} / GREATEST(COALESCE(SUM(si.quantity),0.001)/30, 0.001),
         p.stock / GREATEST(COALESCE(SUM(si.quantity),0.001)/30, 0.001)
       ) ASC
     `, restockParams);
-    return ok(rows.map(r => {
+    // Se ocultan los productos sin existencia (stock 0 o negativo) para que el
+    // reporte de reabastecimiento solo muestre productos disponibles.
+    return ok(rows.filter(r => Number(r.stock) > 0).map(r => {
       const avgDaily = r.sold/30;
       const daysLeft = avgDaily>0?Math.floor(r.stock/avgDaily):9999;
       const urgency = daysLeft<=3?'critical':daysLeft<=7?'soon':'ok';
