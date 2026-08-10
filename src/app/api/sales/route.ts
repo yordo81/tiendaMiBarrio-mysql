@@ -180,5 +180,23 @@ export const POST = handle(async (req: Request) => {
       await conn.execute('UPDATE customers SET balance=balance+?,updated_at=? WHERE id=?',[total, ts, customer_id]);
     }
   });
-  return ok({ id: saleId, total, status }, 201);
+
+  // Datos completos de la venta para imprimir el ticket del cliente
+  const sale = await queryOne<Record<string, unknown>>(
+    `SELECT s.*, c.name AS customer_name, u.name AS user_name, p.name AS pos_name
+     FROM sales s
+     LEFT JOIN customers c ON c.id = s.customer_id
+     LEFT JOIN users u ON u.id = s.user_id
+     LEFT JOIN pos p ON p.id = s.pos_id
+     WHERE s.id = ?`,
+    [saleId]
+  );
+  const saleItems = await query<Record<string, unknown>>(
+    `SELECT si.*, p.name AS product_name, p.unit FROM sale_items si
+     LEFT JOIN products p ON p.id = si.product_id
+     WHERE si.sale_id = ?`,
+    [saleId]
+  );
+
+  return ok({ ...(sale ?? {}), id: saleId, total, status, items: saleItems }, 201);
 });

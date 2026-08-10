@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatDateTime, generateId, cn, formatNumber } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usePosSelector } from '@/hooks/use-pos';
+import { useSettingsStore } from '@/lib/stores/settings-store';
 import { api } from '@/lib/api-client';
 import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import Modal from '@/components/ui/Modal';
@@ -11,7 +12,8 @@ import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/toaster';
-import { ShoppingCart, Plus, Search, X, Eye, CreditCard, CheckCircle, Ban } from 'lucide-react';
+import { printReceipt, buildReceiptFromSale } from '@/lib/receipt';
+import { ShoppingCart, Plus, Search, X, Eye, CreditCard, CheckCircle, Ban, Printer } from 'lucide-react';
 
 type AnyRecord = Record<string,unknown>;
 type PayMethod = 'cash'|'transfer'|'mixed'|'credit';
@@ -119,6 +121,29 @@ export default function VentasPage() {
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Error al cancelar venta'); } finally { setCancelling(false); }
   }
 
+  // Imprime el comprobante del cliente con los datos de una venta ya registrada
+  async function printTicketFor(opts: { sale: AnyRecord; items: AnyRecord[]; payMethod: string; cash: number; transfer: number; notes?: string | null }) {
+    await useSettingsStore.getState().load();
+    const s = useSettingsStore.getState().settings;
+    try {
+      await printReceipt(
+        buildReceiptFromSale({
+          sale: opts.sale,
+          items: opts.items,
+          businessName: s?.business_name ?? 'TiendaMiBarrio',
+          logoUrl: s?.logo_url ?? null,
+          payMethod: (opts.payMethod || 'cash') as 'cash' | 'transfer' | 'mixed' | 'credit',
+          cash: opts.cash,
+          transfer: opts.transfer,
+          notes: opts.notes ?? null,
+        }),
+        { method: s?.receipt_print_method ?? 'browser', width: s?.receipt_printer_width ?? '80' }
+      );
+    } catch (e) {
+      toast.error(`No se pudo imprimir el ticket: ${e instanceof Error ? e.message : 'error desconocido'}`);
+    }
+  }
+
   async function handlePaySale() {
     if (!selectedSale || paySaleForm.amount <= 0) return;
     setPaySaleSaving(true);
@@ -149,7 +174,7 @@ export default function VentasPage() {
     setSaving(true);
     try {
       const total = cartTotal;
-      await api.createSale({
+      const res = await api.createSale({
         items: cart.map(i => ({ product_id: i.product.id, quantity: i.quantity, unit_price: i.unit_price, cost: Number(i.product.cost??0) })),
         payment: { method: payMethod, amount_cash: payMethod==='cash'?total:payMethod==='mixed'?amountCash:0, amount_transfer: payMethod==='transfer'?total:payMethod==='mixed'?amountTransfer:0 },
         customer_id: customerId || null,
@@ -157,7 +182,21 @@ export default function VentasPage() {
         pos_id: workMode === 'shifts' ? posId || null : null,
         notes: saleNotes || null,
       });
-      toast.success('Venta registrada'); notifyShiftSummaryChanged(); setShowNew(false); resetForm(); load();
+      toast.success('Venta registrada'); notifyShiftSummaryChanged();
+      // Imprimir ticket automático si está habilitado en Configuración
+      await useSettingsStore.getState().load();
+      if (useSettingsStore.getState().settings?.receipt_auto_print !== false) {
+        const r = res as AnyRecord;
+        await printTicketFor({
+          sale: r,
+          items: (r.items ?? []) as AnyRecord[],
+          payMethod,
+          cash: payMethod==='cash'?total:payMethod==='mixed'?amountCash:0,
+          transfer: payMethod==='transfer'?total:payMethod==='mixed'?amountTransfer:0,
+          notes: saleNotes || null,
+        });
+      }
+      setShowNew(false); resetForm(); load();
     } catch(e) { toast.error(e instanceof Error ? e.message : 'Error al registrar la venta'); } finally { setSaving(false); }
   }
 
@@ -391,6 +430,24 @@ export default function VentasPage() {
       <Modal open={showDetail} onClose={()=>setShowDetail(false)} title="Detalle de venta" size="lg">
         {selectedSale&&(
           <div className="space-y-4">
+            <button
+              onClick={() => {
+                const pays = (selectedSale.payments as AnyRecord[] | undefined) ?? [];
+                const pay = pays[0] as AnyRecord | undefined;
+                printTicketFor({
+                  sale: selectedSale,
+                  items: ((selectedSale.items as AnyRecord[] | undefined) ?? []) as AnyRecord[],
+                  payMethod: String(pay?.method ?? 'cash'),
+                  cash: Number(pay?.amount_cash ?? selectedSale.total ?? 0),
+                  transfer: Number(pay?.amount_transfer ?? 0),
+                  notes: selectedSale.notes ? String(selectedSale.notes) : null,
+                });
+              }}
+              className="btn-secondary w-full flex items-center justify-center gap-2 py-3 text-base"
+            >
+              <Printer className="w-5 h-5" />
+              Imprimir ticket
+            </button>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Fecha</p><p className="text-[var(--text-primary)]">{selectedSale.date?formatDateTime(String(selectedSale.date)):'—'}</p></div>
               <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Estado</p><span className={statusClass[String(selectedSale.status)]??'badge-info'}>{statusLabel[String(selectedSale.status)]??String(selectedSale.status)}</span></div>

@@ -8,6 +8,8 @@ import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
 import { playScanBeep } from '@/lib/scan-beep';
 import { usePosSelector } from '@/hooks/use-pos';
+import { useSettingsStore } from '@/lib/stores/settings-store';
+import { printReceipt, buildReceiptFromSale } from '@/lib/receipt';
 import { Search, X, Barcode } from 'lucide-react';
 
 type AnyRecord = Record<string, unknown>;
@@ -150,7 +152,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
     setSaving(true);
     try {
       const total = cartTotal;
-      await api.createSale({
+      const res = await api.createSale({
         items: cart.map(i => ({
           product_id: i.product.id,
           quantity: i.quantity,
@@ -169,6 +171,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
       });
       toast.success('Venta registrada');
       notifyShiftSummaryChanged();
+      await printSaleTicket(res, total);
       resetForm();
       onClose();
       onSuccess?.();
@@ -176,6 +179,32 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
       toast.error(e instanceof Error ? e.message : 'Error al registrar la venta');
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Imprime el comprobante del cliente según la configuración (método y ancho).
+  // La venta ya quedó registrada: si la impresión falla, solo se avisa.
+  async function printSaleTicket(res: unknown, total: number) {
+    await useSettingsStore.getState().load();
+    const settings = useSettingsStore.getState().settings;
+    if (settings?.receipt_auto_print === false) return;
+    try {
+      const r = res as AnyRecord;
+      await printReceipt(
+        buildReceiptFromSale({
+          sale: r,
+          items: (r.items ?? []) as AnyRecord[],
+          businessName: settings?.business_name ?? 'TiendaMiBarrio',
+          logoUrl: settings?.logo_url ?? null,
+          payMethod,
+          cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? amountCash : 0,
+          transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
+          notes: saleNotes || null,
+        }),
+        { method: settings?.receipt_print_method ?? 'browser', width: settings?.receipt_printer_width ?? '80' }
+      );
+    } catch (e) {
+      toast.error(`Venta registrada, pero no se pudo imprimir el ticket: ${e instanceof Error ? e.message : 'error desconocido'}`);
     }
   }
 
