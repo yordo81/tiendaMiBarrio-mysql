@@ -28,6 +28,17 @@ export interface SettingsDto {
   receipt_auto_print: boolean;
 }
 
+/** Impresora registrada devuelta por /api/printers */
+export interface PrinterDto {
+  id: string;
+  name: string;
+  vendor_id: number;
+  product_id: number;
+  serial_number: string | null;
+  is_default: number | boolean;
+  created_at?: string;
+}
+
 /**
  * Dispara un evento global personalizado para errores 401.
  * Permite que los componentes reaccionen (mostrar toast, limpiar estado de auth)
@@ -185,6 +196,12 @@ export const api = {
   // Settings / Configuración
   getSettings: () => apiFetch<{ settings: SettingsDto }>('/api/settings'),
   updateSettings: (data: unknown) => apiFetch<{ settings: SettingsDto }>('/api/settings', { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Printers / Impresoras registradas
+  getPrinters: (onlyDefault?: boolean) => apiFetch<{ printers: PrinterDto[] }>(`/api/printers${onlyDefault ? '?default=1' : ''}`),
+  registerPrinter: (data: { name: string; vendor_id: number; product_id: number; serial_number?: string; is_default?: boolean }) => apiFetch<PrinterDto>('/api/printers', { method: 'POST', body: JSON.stringify(data) }),
+  updatePrinter: (id: string, data: { name?: string; is_default?: boolean }) => apiFetch<PrinterDto>(`/api/printers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deletePrinter: (id: string) => apiFetch(`/api/printers/${id}`, { method: 'DELETE' }),
 
   // Shifts / Turnos de caja
   getShifts: () => apiFetch<{ pos: Record<string, unknown>[]; open: Record<string, unknown>[]; shifts: Record<string, unknown>[] }>('/api/shifts'),

@@ -9,7 +9,7 @@ import { toast } from '@/components/ui/toaster';
 import { playScanBeep } from '@/lib/scan-beep';
 import { usePosSelector } from '@/hooks/use-pos';
 import { useSettingsStore } from '@/lib/stores/settings-store';
-import { printReceipt, buildReceiptFromSale } from '@/lib/receipt';
+import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
 import { Search, X, Barcode } from 'lucide-react';
 
 type AnyRecord = Record<string, unknown>;
@@ -190,6 +190,10 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
     if (settings?.receipt_auto_print === false) return;
     try {
       const r = res as AnyRecord;
+      const method = settings?.receipt_print_method ?? 'browser';
+      // Con varias impresoras registradas, el ticket va a la impresora
+      // asignada en Configuración (is_default).
+      const printer = method === 'usb' ? await fetchDefaultTicketPrinter() : null;
       await printReceipt(
         buildReceiptFromSale({
           sale: r,
@@ -201,7 +205,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
           transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
           notes: saleNotes || null,
         }),
-        { method: settings?.receipt_print_method ?? 'browser', width: settings?.receipt_printer_width ?? '80' }
+        { method, width: settings?.receipt_printer_width ?? '80', printer }
       );
     } catch (e) {
       toast.error(`Venta registrada, pero no se pudo imprimir el ticket: ${e instanceof Error ? e.message : 'error desconocido'}`);

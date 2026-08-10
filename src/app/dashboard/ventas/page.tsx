@@ -12,7 +12,7 @@ import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/toaster';
-import { printReceipt, buildReceiptFromSale } from '@/lib/receipt';
+import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
 import { ShoppingCart, Plus, Search, X, Eye, CreditCard, CheckCircle, Ban, Printer } from 'lucide-react';
 
 type AnyRecord = Record<string,unknown>;
@@ -126,6 +126,10 @@ export default function VentasPage() {
     await useSettingsStore.getState().load();
     const s = useSettingsStore.getState().settings;
     try {
+      const method = s?.receipt_print_method ?? 'browser';
+      // Con varias impresoras registradas, el ticket va a la impresora
+      // asignada en Configuración (is_default).
+      const printer = method === 'usb' ? await fetchDefaultTicketPrinter() : null;
       await printReceipt(
         buildReceiptFromSale({
           sale: opts.sale,
@@ -137,7 +141,7 @@ export default function VentasPage() {
           transfer: opts.transfer,
           notes: opts.notes ?? null,
         }),
-        { method: s?.receipt_print_method ?? 'browser', width: s?.receipt_printer_width ?? '80' }
+        { method, width: s?.receipt_printer_width ?? '80', printer }
       );
     } catch (e) {
       toast.error(`No se pudo imprimir el ticket: ${e instanceof Error ? e.message : 'error desconocido'}`);

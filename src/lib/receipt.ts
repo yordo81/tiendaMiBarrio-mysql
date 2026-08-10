@@ -251,6 +251,42 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
 // ── WebUSB ───────────────────────────────────────────────────────
 interface UsbDeviceRef { dev: any; iface: any; name: string; }
 
+/** Identidad USB de una impresora (para registrarla y volver a encontrarla). */
+export interface UsbPrinterTarget {
+  vendorId: number;
+  productId: number;
+  serialNumber?: string;
+}
+
+/** Info completa de un dispositivo USB detectado por WebUSB. */
+export interface UsbPrinterInfo extends UsbPrinterTarget {
+  /** Clave estable: vendorId:productId:serial — identifica la impresora en la BD */
+  id: string;
+  name: string;
+}
+
+/** Clave estable de un dispositivo USB (la misma que guarda la BD en device_key). */
+export function usbPrinterId(target: UsbPrinterTarget): string {
+  return `${target.vendorId}:${target.productId}:${target.serialNumber ?? ''}`;
+}
+
+function toUsbInfo(dev: any): UsbPrinterInfo {
+  return {
+    id: usbPrinterId({ vendorId: dev.vendorId, productId: dev.productId, serialNumber: dev.serialNumber ?? '' }),
+    name: String(dev.productName ?? 'Impresora térmica'),
+    vendorId: dev.vendorId,
+    productId: dev.productId,
+    serialNumber: dev.serialNumber ?? '',
+  };
+}
+
+function matchesTarget(target: UsbPrinterTarget) {
+  return (dev: any) =>
+    dev.vendorId === target.vendorId &&
+    dev.productId === target.productId &&
+    (target.serialNumber ? dev.serialNumber === target.serialNumber : true);
+}
+
 let cachedUsb: UsbDeviceRef | null = null;
 let usbListenerAttached = false;
 
@@ -281,26 +317,51 @@ async function setupUsbDevice(dev: any): Promise<UsbDeviceRef> {
   }
   const iface = dev.configuration?.interfaces?.[0];
   if (!iface) throw new Error('La impresora no expone interfaces configurables');
-  try {
-    await dev.claimInterface(iface.interfaceNumber);
-  } catch (e: any) {
-    throw new Error(`No se pudo acceder a la impresora: ${e?.message ?? 'interfaz ocupada'}`);
+  // claimInterface es idempotente aquí: si la interfaz ya fue reclamada por esta
+  // misma sesión (p. ej. tras pickUsbPrinter o una impresión anterior), se
+  // reutiliza sin reclamarla de nuevo (evita InvalidStateError en Chrome).
+  if (!iface.claimed) {
+    try {
+      await dev.claimInterface(iface.interfaceNumber);
+    } catch (e: any) {
+      throw new Error(`No se pudo acceder a la impresora: ${e?.message ?? 'interfaz ocupada'}`);
+    }
   }
   return { dev, iface, name: String(dev.productName ?? 'Impresora térmica') };
 }
 
-/** Pide permiso y conecta la impresora USB (devuelve su nombre). */
-export async function connectUsbPrinter(): Promise<string> {
+/** Abre el selector USB del navegador y devuelve la impresora elegida (sin registrarla). */
+export async function pickUsbPrinter(): Promise<UsbPrinterInfo> {
   const usb = getUsbApi();
-  const granted = await usb.getDevices();
   // filters vacío = mostrar todas las impresoras USB en el selector (Chrome lo soporta)
-  const dev = granted[0] ?? (await usb.requestDevice({ filters: [] }));
+  const dev = await usb.requestDevice({ filters: [] });
   cachedUsb = await setupUsbDevice(dev);
-  return cachedUsb.name;
+  return toUsbInfo(dev);
 }
 
-async function sendEscPos(bytes: Uint8Array): Promise<void> {
+/** Localiza y prepara el dispositivo al que se enviará el ticket (puede ser uno específico). */
+async function resolveUsbRef(target?: UsbPrinterTarget): Promise<UsbDeviceRef> {
   const usb = getUsbApi();
+  // Si el dispositivo ya está preparado en esta sesión y coincide con el objetivo
+  // pedido, se reutiliza sin volver a reclamar la interfaz.
+  if (cachedUsb && target && matchesTarget(target)(cachedUsb.dev)) {
+    return cachedUsb;
+  }
+  if (target) {
+    const granted = await usb.getDevices();
+    const matched = granted.find(matchesTarget(target));
+    if (matched) {
+      cachedUsb = await setupUsbDevice(matched);
+      return cachedUsb;
+    }
+    try {
+      const requested = await usb.requestDevice({ filters: [{ vendorId: target.vendorId, productId: target.productId }] });
+      cachedUsb = await setupUsbDevice(requested);
+      return cachedUsb;
+    } catch {
+      throw new Error('La impresora asignada para los tickets no está conectada. Conéctala por USB y vuelve a intentarlo.');
+    }
+  }
   if (!cachedUsb) {
     const granted = await usb.getDevices();
     if (granted.length === 0) {
@@ -308,15 +369,19 @@ async function sendEscPos(bytes: Uint8Array): Promise<void> {
     }
     cachedUsb = await setupUsbDevice(granted[0]);
   }
-  const { dev, iface } = cachedUsb;
+  return cachedUsb;
+}
+
+async function sendEscPos(bytes: Uint8Array, target?: UsbPrinterTarget): Promise<void> {
+  const { dev, iface } = await resolveUsbRef(target);
   const alt = iface.alternates?.[0];
   const ep = alt?.endpoints?.find((e: any) => e.direction === 'out');
   if (!ep) throw new Error('No se encontró un canal de salida en la impresora');
   await dev.transferOut(ep.endpointNumber, bytes);
 }
 
-/** Imprime un ticket de prueba (para Configuración). */
-export async function printUsbTest(width: '57' | '80'): Promise<void> {
+/** Imprime un ticket de prueba (para Configuración), opcionalmente en una impresora específica. */
+export async function printUsbTest(width: '57' | '80', target?: UsbPrinterTarget): Promise<void> {
   const data: ReceiptData = {
     businessName: 'PRUEBA DE IMPRESION',
     saleId: 'TEST-001',
@@ -329,7 +394,26 @@ export async function printUsbTest(width: '57' | '80'): Promise<void> {
     cashAmount: 120,
     transferAmount: 0,
   };
-  await sendEscPos(encodeEscPos(data, width));
+  await sendEscPos(encodeEscPos(data, width), target);
+}
+
+/** Impresora asignada para los tickets de venta (registrada en Configuración). */
+export async function fetchDefaultTicketPrinter(): Promise<UsbPrinterTarget | null> {
+  try {
+    const res = await fetch('/api/printers?default=1', { headers: { 'Content-Type': 'application/json' } });
+    if (!res.ok) return null;
+    const d = await res.json();
+    const list: Record<string, unknown>[] = Array.isArray(d?.printers) ? d.printers : [];
+    const p = list[0];
+    if (!p) return null;
+    return {
+      vendorId: Number(p.vendor_id),
+      productId: Number(p.product_id),
+      serialNumber: p.serial_number ? String(p.serial_number) : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ── Ensamblado a partir de una venta registrada ─────────────────
@@ -369,10 +453,10 @@ export function buildReceiptFromSale(opts: {
 // ── Dispatcher ───────────────────────────────────────────────────
 export async function printReceipt(
   data: ReceiptData,
-  opts: { method: 'browser' | 'usb'; width: '57' | '80' }
+  opts: { method: 'browser' | 'usb'; width: '57' | '80'; printer?: UsbPrinterTarget | null }
 ): Promise<void> {
   if (opts.method === 'usb') {
-    await sendEscPos(encodeEscPos(data, opts.width));
+    await sendEscPos(encodeEscPos(data, opts.width), opts.printer ?? undefined);
   } else {
     printReceiptViaBrowser(buildReceiptHtml(data, opts.width));
   }
