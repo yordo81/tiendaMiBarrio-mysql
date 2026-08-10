@@ -1,17 +1,21 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '@/components/ui/Modal';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { formatCurrency, formatNumber, formatDate, cn } from '@/lib/utils';
 import { exportToXLSX } from '@/lib/export';
+import { api } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
-import { Printer, FileDown, FileSpreadsheet, RefreshCw, PackageSearch } from 'lucide-react';
+import { Printer, FileDown, FileSpreadsheet, RefreshCw, PackageSearch, Loader2 } from 'lucide-react';
 
 type R = Record<string, unknown>;
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  products: R[]; // productos cargados (según el almacén filtrado)
+  products: R[]; // productos iniciales (del almacén filtrado en la página)
+  locations: R[]; // almacenes para el selector del modal
+  initialLocationId?: string; // almacén seleccionado actualmente en la página
 }
 
 // PRNG determinista (mulberry32) para regenerar la muestra aleatoria
@@ -24,22 +28,51 @@ function mulberry32(seed: number) {
   };
 }
 
-export default function InventoryExportModal({ open, onClose, products }: Props) {
+export default function InventoryExportModal({ open, onClose, products, locations, initialLocationId }: Props) {
   const [scope, setScope] = useState<'100' | 'percent'>('100');
   const [percent, setPercent] = useState(20);
   const [blind, setBlind] = useState(false);
   const [sampleSeed, setSampleSeed] = useState(1);
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null);
 
+  // Productos del almacén elegido dentro del modal (independiente del filtro de la página)
+  const [items, setItems] = useState<R[]>(products);
+  const [locationId, setLocationId] = useState(initialLocationId ?? '');
+  const [loading, setLoading] = useState(false);
+
+  // Al abrir el modal (transición false→true): preseleccionar el almacén de la
+  // página y usar sus productos. No reacciona a cambios de products/locations
+  // mientras el modal está abierto, para no pisar la selección del usuario.
+  const prevOpen = useRef(open);
+  useEffect(() => {
+    if (open && !prevOpen.current) {
+      setLocationId(initialLocationId ?? '');
+      setItems(products);
+    }
+    prevOpen.current = open;
+  }, [open, initialLocationId, products]);
+
+  // Cargar productos del almacén elegido cuando cambie dentro del modal
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    api.getProducts(locationId ? `location_id=${locationId}` : undefined)
+      .then(list => { if (!cancelled) setItems(list as R[]); })
+      .catch(() => { if (!cancelled) setItems([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, locationId]);
+
   // Orden estable por categoría y luego por nombre
   const sorted = useMemo(() => {
-    return [...products].sort((a, b) => {
+    return [...items].sort((a, b) => {
       const ca = String(a.category_name ?? '—').toLowerCase();
       const cb = String(b.category_name ?? '—').toLowerCase();
       if (ca !== cb) return ca < cb ? -1 : 1;
       return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'es');
     });
-  }, [products]);
+  }, [items]);
 
   // Muestra según el alcance elegido: 100% o % aleatorio de la cantidad de productos
   const sample = useMemo(() => {
@@ -80,7 +113,7 @@ export default function InventoryExportModal({ open, onClose, products }: Props)
       doc.setTextColor(80);
       doc.text(`Fecha: ${formatDate(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 23);
       doc.text(
-        `${sample.length} de ${products.length} productos · ${scope === '100' ? '100% del inventario' : `Muestra aleatoria del ${Math.min(100, Math.max(1, Number(percent) || 0))}%`} · ${blind ? 'Conteo ciego (sin existencias)' : 'Con existencias'}`,
+        `${sample.length} de ${items.length} productos · ${scope === '100' ? '100% del inventario' : `Muestra aleatoria del ${Math.min(100, Math.max(1, Number(percent) || 0))}%`} · ${blind ? 'Conteo ciego (sin existencias)' : 'Con existencias'}`,
         14, 28
       );
 
@@ -226,7 +259,7 @@ export default function InventoryExportModal({ open, onClose, products }: Props)
   <h1>Inventario de productos</h1>
   <div class="meta">
     Fecha: ${formatDate(new Date(), 'dd/MM/yyyy HH:mm')} &nbsp;·&nbsp;
-    ${sample.length} de ${products.length} productos · ${scope === '100' ? '100% del inventario' : `Muestra aleatoria del ${Math.min(100, Math.max(1, Number(percent) || 0))}%`} · ${blind ? 'Conteo ciego (sin existencias)' : 'Con existencias'}
+    ${sample.length} de ${items.length} productos · ${scope === '100' ? '100% del inventario' : `Muestra aleatoria del ${Math.min(100, Math.max(1, Number(percent) || 0))}%`} · ${blind ? 'Conteo ciego (sin existencias)' : 'Con existencias'}
     <br/><span class="no-print" style="color:#57606a">— Presiona Ctrl+P o Cmd+P para imprimir esta página —</span>
   </div>
   <table>
@@ -245,10 +278,23 @@ export default function InventoryExportModal({ open, onClose, products }: Props)
   return (
     <Modal open={open} onClose={onClose} title="Imprimir / exportar inventario" size="md">
       <div className="space-y-4">
-        <p className="text-xs text-[var(--text-tertiary)]">
-          Se exportan los <span className="font-medium text-[var(--text-primary)]">{products.length}</span> productos cargados
-          (según el almacén filtrado), <span className="font-medium text-[var(--text-primary)]">siempre ordenados por categoría</span>.
-        </p>
+        {/* Almacén */}
+        <div>
+          <label className="label">Almacén</label>
+          <SearchableSelect
+            options={[
+              { value: '', label: 'Todos los almacenes' },
+              ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
+            ]}
+            value={locationId}
+            onChange={v => setLocationId(v)}
+            placeholder="Todos los almacenes"
+            noResultsMessage="Sin almacenes"
+          />
+          <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+            Elige el almacén a exportar; los productos se cargan de ese almacén, <span className="font-medium text-[var(--text-primary)]">siempre ordenados por categoría</span>.
+          </p>
+        </div>
 
         {/* Alcance */}
         <div>
@@ -259,7 +305,7 @@ export default function InventoryExportModal({ open, onClose, products }: Props)
               className={cn('flex flex-col items-start gap-1 p-3 rounded-xl border text-left transition-colors', scope === '100' ? 'bg-brand-600/15 border-brand-500/50' : 'border-[var(--border-primary)] hover:border-[#6e7681]')}
             >
               <span className={cn('text-sm font-medium', scope === '100' ? 'text-brand-400' : 'text-[var(--text-primary)]')}>100% del inventario</span>
-              <span className="text-[10px] text-[var(--text-tertiary)]">{products.length} productos</span>
+              <span className="text-[10px] text-[var(--text-tertiary)]">{loading ? '…' : `${items.length} productos`}</span>
             </button>
             <button
               onClick={() => setScope('percent')}
@@ -290,7 +336,7 @@ export default function InventoryExportModal({ open, onClose, products }: Props)
               </button>
             </div>
             <p className="text-[10px] text-[var(--text-tertiary)]">
-              Se seleccionan <span className="font-medium text-[var(--text-secondary)]">{sample.length}</span> de {products.length} productos al azar.
+              Se seleccionan <span className="font-medium text-[var(--text-secondary)]">{loading ? '…' : sample.length}</span> de {loading ? '…' : items.length} productos al azar.
               Usa "Regenerar muestra" para cambiar cuáles entran al conteo.
             </p>
           </div>
@@ -312,6 +358,12 @@ export default function InventoryExportModal({ open, onClose, products }: Props)
             </div>
           </button>
         </div>
+
+        {loading && (
+          <p className="text-xs text-[var(--text-tertiary)] flex items-center gap-1.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cargando productos del almacén…
+          </p>
+        )}
 
         {/* Acciones */}
         <div className="flex flex-wrap gap-2">

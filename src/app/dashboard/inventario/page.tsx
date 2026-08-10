@@ -840,6 +840,8 @@ export default function InventarioPage() {
         open={showExportModal}
         onClose={() => setShowExportModal(false)}
         products={products}
+        locations={locations}
+        initialLocationId={locFilter || undefined}
       />
 
       {/* Purchase Modal */}
