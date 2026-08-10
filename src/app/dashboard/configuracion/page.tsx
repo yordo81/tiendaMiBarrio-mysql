@@ -5,7 +5,7 @@ import { api } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSettingsStore, type BusinessSettings } from '@/lib/stores/settings-store';
-import { Store, Settings, Upload, X, CalendarDays, Clock3, Save, Loader2, ShieldAlert } from 'lucide-react';
+import { Store, Settings, Upload, X, CalendarDays, Clock3, Save, Loader2, ShieldAlert, Printer, Usb, CheckCircle2, Ruler, Zap } from 'lucide-react';
 
 // ── Página de Configuración ───────────────────────────────────────
 // Solo el dueño (role = 'owner') puede editar la identidad del negocio
@@ -17,18 +17,20 @@ export default function ConfiguracionPage() {
   const setSettings = useSettingsStore(s => s.setSettings);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState<BusinessSettings>({ business_name: 'TiendaMiBarrio', logo_url: null, work_mode: 'daily' });
+  const [form, setForm] = useState<BusinessSettings>({ business_name: 'TiendaMiBarrio', logo_url: null, work_mode: 'daily', receipt_printer_width: '80', receipt_print_method: 'browser', receipt_auto_print: true });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>('');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [usbName, setUsbName] = useState('');
+  const [usbBusy, setUsbBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const d = await api.getSettings();
       const s = d.settings;
-      setForm({ business_name: s.business_name, logo_url: s.logo_url, work_mode: s.work_mode });
+      setForm({ ...s });
       setLogoPreview(s.logo_url ?? '');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al cargar la configuración');
@@ -65,6 +67,33 @@ export default function ConfiguracionPage() {
     }
   }
 
+  async function handleConnectUsb() {
+    setUsbBusy(true);
+    try {
+      const { connectUsbPrinter } = await import('@/lib/receipt');
+      setUsbName(await connectUsbPrinter());
+      toast.success('Impresora conectada correctamente');
+    } catch (e) {
+      setUsbName('');
+      toast.error(e instanceof Error ? e.message : 'Error al conectar la impresora');
+    } finally {
+      setUsbBusy(false);
+    }
+  }
+
+  async function handleUsbTest() {
+    setUsbBusy(true);
+    try {
+      const { printUsbTest } = await import('@/lib/receipt');
+      await printUsbTest(form.receipt_printer_width);
+      toast.success('Ticket de prueba enviado a la impresora');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al imprimir la prueba');
+    } finally {
+      setUsbBusy(false);
+    }
+  }
+
   async function handleSave() {
     if (!form.business_name.trim()) {
       toast.error('El nombre del negocio es obligatorio');
@@ -74,7 +103,14 @@ export default function ConfiguracionPage() {
     try {
       const logoUrl = await uploadLogo();
       if (logoUrl === null && logoFile) return; // falló la subida del logo
-      const d = await api.updateSettings({ business_name: form.business_name.trim(), logo_url: logoUrl, work_mode: form.work_mode });
+      const d = await api.updateSettings({
+        business_name: form.business_name.trim(),
+        logo_url: logoUrl,
+        work_mode: form.work_mode,
+        receipt_printer_width: form.receipt_printer_width,
+        receipt_print_method: form.receipt_print_method,
+        receipt_auto_print: form.receipt_auto_print,
+      });
       setSettings(d.settings);
       setForm(d.settings);
       setLogoFile(null);
@@ -256,6 +292,134 @@ export default function ConfiguracionPage() {
             <p className="text-[var(--text-secondary)] mt-0.5">Aparecerá el módulo <b>Turnos</b> en el menú, donde podrás abrir y cerrar turnos con arqueo de caja (efectivo esperado vs. contado).</p>
           </div>
         )}
+      </div>
+
+      {/* ── Impresión de tickets ── */}
+      <div className="card p-5">
+        <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Impresión de tickets</h2>
+        <p className="text-xs text-[var(--text-tertiary)] mb-5">
+          Configura la impresora térmica que imprime el comprobante del cliente al registrar cada venta (57 mm u 80 mm).
+        </p>
+
+        {/* Ancho del papel */}
+        <div className="mb-5">
+          <p className="label mb-2">Ancho del papel</p>
+          <div className="grid grid-cols-2 gap-3 max-w-md">
+            {([['57', '57 mm', 'Papel angosto (ticket corto)'], ['80', '80 mm', 'Papel ancho (ticket estándar)']] as const).map(([val, label, desc]) => (
+              <button
+                key={val}
+                onClick={() => setForm(f => ({ ...f, receipt_printer_width: val }))}
+                className={cn(
+                  'text-left p-4 rounded-xl border-2 transition-all duration-200',
+                  form.receipt_printer_width === val
+                    ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-600/10'
+                    : 'border-[var(--border-secondary)] bg-[var(--bg-primary)] hover:border-[#6e7681]'
+                )}
+              >
+                <div className="flex items-center gap-2.5 mb-2">
+                  <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center', form.receipt_printer_width === val ? 'bg-brand-500/20 text-brand-400' : 'bg-[var(--bg-muted)] text-[var(--text-secondary)]')}>
+                    <Ruler className="w-4.5 h-4.5" />
+                  </div>
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">{label}</span>
+                </div>
+                <p className="text-xs text-[var(--text-tertiary)] leading-relaxed">{desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Método de impresión */}
+        <div className="mb-5">
+          <p className="label mb-2">Método de impresión</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+            <button
+              onClick={() => setForm(f => ({ ...f, receipt_print_method: 'browser' }))}
+              className={cn(
+                'text-left p-4 rounded-xl border-2 transition-all duration-200',
+                form.receipt_print_method === 'browser'
+                  ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-600/10'
+                  : 'border-[var(--border-secondary)] bg-[var(--bg-primary)] hover:border-[#6e7681]'
+              )}
+            >
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center', form.receipt_print_method === 'browser' ? 'bg-brand-500/20 text-brand-400' : 'bg-[var(--bg-muted)] text-[var(--text-secondary)]')}>
+                  <Printer className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-sm font-semibold text-[var(--text-primary)]">Diálogo del navegador</span>
+              </div>
+              <p className="text-xs text-[var(--text-tertiary)] leading-relaxed">
+                Al vender se abre el diálogo de impresión y eliges la impresora térmica instalada. Funciona con cualquier impresora (USB, red, Bluetooth) y navegador.
+              </p>
+            </button>
+
+            <button
+              onClick={() => setForm(f => ({ ...f, receipt_print_method: 'usb' }))}
+              className={cn(
+                'text-left p-4 rounded-xl border-2 transition-all duration-200',
+                form.receipt_print_method === 'usb'
+                  ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-600/10'
+                  : 'border-[var(--border-secondary)] bg-[var(--bg-primary)] hover:border-[#6e7681]'
+              )}
+            >
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center', form.receipt_print_method === 'usb' ? 'bg-brand-500/20 text-brand-400' : 'bg-[var(--bg-muted)] text-[var(--text-secondary)]')}>
+                  <Usb className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-sm font-semibold text-[var(--text-primary)]">Directo por USB (ESC/POS)</span>
+              </div>
+              <p className="text-xs text-[var(--text-tertiary)] leading-relaxed">
+                Imprime sin diálogo directamente a la impresora. Requiere Chrome o Edge, impresora conectada por USB y conexión segura (HTTPS).
+              </p>
+            </button>
+          </div>
+
+          {form.receipt_print_method === 'usb' && (
+            <div className="mt-4 bg-brand-500/5 border border-brand-500/20 rounded-xl px-4 py-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <button
+                  onClick={handleConnectUsb}
+                  disabled={usbBusy}
+                  className="btn-primary text-xs px-3 py-2 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {usbBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Usb className="w-3.5 h-3.5" />}
+                  {usbBusy ? 'Conectando...' : usbName ? 'Reconectar impresora' : 'Conectar impresora'}
+                </button>
+                {usbName && (
+                  <span className="flex items-center gap-1.5 text-xs text-green-400">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> {usbName}
+                  </span>
+                )}
+                <button
+                  onClick={handleUsbTest}
+                  disabled={usbBusy}
+                  className="btn-secondary text-xs px-3 py-2 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  Imprimir ticket de prueba
+                </button>
+              </div>
+              <p className="text-[10px] text-[var(--text-secondary)] mt-2">
+                El navegador pedirá permiso para acceder a la impresora la primera vez. El ticket de prueba sirve para verificar el ancho del papel elegido.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Impresión automática */}
+        <label className="flex items-start gap-3 cursor-pointer select-none max-w-2xl">
+          <input
+            type="checkbox"
+            checked={form.receipt_auto_print}
+            onChange={e => setForm(f => ({ ...f, receipt_auto_print: e.target.checked }))}
+            className="mt-0.5 w-4 h-4 accent-brand-500"
+          />
+          <span>
+            <span className="block text-sm font-medium text-[var(--text-primary)]">Imprimir ticket automáticamente</span>
+            <span className="block text-xs text-[var(--text-tertiary)] mt-0.5">
+              Al confirmar cada venta se imprime el comprobante del cliente sin pasos adicionales. Desactiva esta opción para imprimir solo cuando lo solicites.
+            </span>
+          </span>
+        </label>
       </div>
 
       {/* ── Guardar ── */}
