@@ -7,7 +7,8 @@ import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/toaster';
-import { UserCog, Plus, UserX, UserCheck, Shield } from 'lucide-react';
+import { UserCog, Plus, UserX, UserCheck, Shield, KeyRound } from 'lucide-react';
+import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 type R = Record<string,unknown>;
 type Role = 'owner'|'admin'|'seller'|'warehouse';
 
@@ -30,11 +31,20 @@ export default function UsuariosPage() {
   const [showPerms, setShowPerms] = useState(false);
   const [editUser, setEditUser] = useState<R|null>(null);
   const [toggleTarget, setToggleTarget] = useState<R|null>(null);
+  const [passwordTarget, setPasswordTarget] = useState<R|null>(null);
   const [saving, setSaving] = useState(false);
   const [permissions, setPermissions] = useState<{module:string;actions:string[]}[]>([]);
   const [inviteForm, setInviteForm] = useState({ email:'', name:'', role:'seller' as Role, password:'' });
   const [editRole, setEditRole] = useState<Role>('seller');
   const { user: me } = useAuthStore();
+
+  // Permisos por rol: el dueño gestiona todo; el admin solo cambia contraseñas
+  // de vendedores y bodegueros (no de otros admins ni del dueño).
+  const isOwner = me?.role === 'owner';
+  const canManageUser = (u: R) =>
+    isOwner || (me?.role === 'admin' && (u.role === 'seller' || u.role === 'warehouse'));
+  const canEditPerms = (u: R) => isOwner && String(u.role) !== 'owner';
+  const canToggleActive = (u: R) => isOwner && String(u.id) !== me?.id;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,7 +114,7 @@ export default function UsuariosPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div><h2 className="text-base font-semibold text-[var(--text-primary)]">Gestión de usuarios</h2><p className="text-xs text-[var(--text-tertiary)] mt-0.5">{users.length} usuario(s)</p></div>
-        {me?.role==='owner'&&<button onClick={()=>setShowInvite(true)} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4"/>Nuevo usuario</button>}
+        {isOwner&&<button onClick={()=>setShowInvite(true)} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4"/>Nuevo usuario</button>}
       </div>
 
       {users.length===0?<EmptyState icon={UserCog} title="Sin usuarios" description="No se encontraron usuarios"/>:(
@@ -128,12 +138,13 @@ export default function UsuariosPage() {
                   </p>
                 )}
               </div>
-              {me?.role==='owner'&&String(u.id)!==me.id&&(
+              {canManageUser(u)&&(
                 <div className="flex items-center gap-2 shrink-0">
-                  {String(u.role)!=='owner'&&<button onClick={()=>openPerms(u)} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors" title="Editar permisos"><Shield className="w-4 h-4"/></button>}
-                  <button onClick={()=>setToggleTarget(u)} className={cn('p-2 rounded-lg transition-colors',u.active?'text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10':'text-[var(--text-tertiary)] hover:text-green-400 hover:bg-green-500/10')} title={u.active?'Desactivar':'Activar'}>
+                  {canEditPerms(u)&&<button onClick={()=>openPerms(u)} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors" title="Editar permisos"><Shield className="w-4 h-4"/></button>}
+                  <button onClick={()=>setPasswordTarget(u)} className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors" title="Cambiar contraseña"><KeyRound className="w-4 h-4"/></button>
+                  {canToggleActive(u)&&<button onClick={()=>setToggleTarget(u)} className={cn('p-2 rounded-lg transition-colors',u.active?'text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10':'text-[var(--text-tertiary)] hover:text-green-400 hover:bg-green-500/10')} title={u.active?'Desactivar':'Activar'}>
                     {u.active?<UserX className="w-4 h-4"/>:<UserCheck className="w-4 h-4"/>}
-                  </button>
+                  </button>}
                 </div>
               )}
             </div>
@@ -196,6 +207,14 @@ export default function UsuariosPage() {
         title={toggleTarget?.active?'Desactivar usuario':'Activar usuario'}
         message={toggleTarget?.active?`¿Desactivar a ${String(toggleTarget?.name)}?`:`¿Activar a ${String(toggleTarget?.name)}?`}
         confirmLabel={toggleTarget?.active?'Desactivar':'Activar'} loading={saving}/>
+
+      {/* Cambio de contraseña de un usuario (dueño o admin) */}
+      <ChangePasswordModal
+        open={!!passwordTarget}
+        onClose={()=>setPasswordTarget(null)}
+        mode="other"
+        targetUser={passwordTarget}
+      />
     </div>
   );
 }

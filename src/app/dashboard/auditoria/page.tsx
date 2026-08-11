@@ -17,6 +17,7 @@ const entityLabels: Record<string, string> = {
   supplier: 'Proveedor',
   stock_movement: 'Ajuste de stock',
   shift: 'Turno',
+  user: 'Usuario',
 };
 
 const entityColors: Record<string, string> = {
@@ -27,6 +28,7 @@ const entityColors: Record<string, string> = {
   supplier: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
   stock_movement: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
   shift: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+  user: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
 };
 
 const actionLabels: Record<string, string> = {
@@ -37,6 +39,7 @@ const actionLabels: Record<string, string> = {
   adjust_decrease: 'Ajuste (-)',
   open: 'Apertura',
   close: 'Cierre',
+  password_change: 'Cambio de contraseña',
 };
 
 const actionColors: Record<string, string> = {
@@ -47,6 +50,7 @@ const actionColors: Record<string, string> = {
   adjust_decrease: 'badge-warning',
   open: 'badge-success',
   close: 'badge-info',
+  password_change: 'badge-warning',
 };
 
 export default function AuditoriaPage() {

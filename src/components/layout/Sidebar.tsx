@@ -60,7 +60,7 @@ const navGroups: NavGroup[] = [
       { href: '/dashboard/reportes', icon: BarChart2, label: 'Reportes', roles: ['owner','admin'] },
       { href: '/dashboard/auditoria', icon: Shield, label: 'Auditoría', roles: ['owner','admin'] },
       { href: '/dashboard/notificaciones', icon: Bell, label: 'Notificaciones', roles: ['owner','admin','warehouse','seller'] },
-      { href: '/dashboard/usuarios', icon: UserCog, label: 'Usuarios', roles: ['owner'] },
+      { href: '/dashboard/usuarios', icon: UserCog, label: 'Usuarios', roles: ['owner','admin'] },
       { href: '/dashboard/configuracion', icon: Settings, label: 'Configuración', roles: ['owner'] },
     ],
   },

@@ -12,7 +12,8 @@ function parseUser(r: Record<string,unknown>) {
 
 export const GET = handle(async () => {
   const me = await requireAuth();
-  if (me.role !== 'owner') return forbidden('Sin permiso');
+  // Dueño y administrador pueden listar usuarios (el admin solo para cambiar contraseñas)
+  if (me.role !== 'owner' && me.role !== 'admin') return forbidden('Sin permiso');
   const rows = await query<Record<string,unknown>>('SELECT id,name,email,role,permissions,active,created_at,updated_at FROM users ORDER BY name');
   return ok(rows.map(parseUser));
 });
