@@ -149,10 +149,12 @@ export default function Sidebar() {
           </Link>
         )}
         {navGroups.map(group => {
-          // Filtrar enlaces por rol y modo de operación (Turnos solo en modo por turnos)
+          // Filtrar enlaces por rol, modo de operación (Turnos solo en modo
+          // por turnos) y módulos desactivados (Reservaciones oculto)
           const items = group.items.filter(item =>
             (!user ? true : item.roles.includes(user.role)) &&
-            (!item.workMode || settings?.work_mode === item.workMode)
+            (!item.workMode || settings?.work_mode === item.workMode) &&
+            (item.href !== '/dashboard/reservaciones' || settings?.show_reservations !== false)
           );
           if (items.length === 0) return null;
           const open = openGroup === group.title;

@@ -12,6 +12,8 @@ export interface BusinessSettings {
   receipt_printer_width: '57' | '80';
   receipt_print_method: 'browser' | 'usb';
   receipt_auto_print: boolean;
+  // Módulo de reservaciones: true = visible (catálogo público + menú), false = oculto
+  show_reservations: boolean;
 }
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
@@ -21,6 +23,7 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   receipt_printer_width: '80',
   receipt_print_method: 'browser',
   receipt_auto_print: true,
+  show_reservations: true,
 };
 
 interface SettingsState {
@@ -49,6 +52,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
             receipt_printer_width: s?.receipt_printer_width === '57' ? '57' : '80',
             receipt_print_method: s?.receipt_print_method === 'usb' ? 'usb' : 'browser',
             receipt_auto_print: s?.receipt_auto_print !== false,
+            show_reservations: s?.show_reservations !== false,
           },
           loaded: true,
         });

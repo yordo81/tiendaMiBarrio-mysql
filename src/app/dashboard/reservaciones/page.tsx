@@ -6,6 +6,7 @@ import { toast } from '@/components/ui/toaster';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
 import { CalendarCheck, X, Check, Search, Package } from 'lucide-react';
+import { useSettingsStore } from '@/lib/stores/settings-store';
 import type { Reservation } from '@/types';
 
 const statusLabels: Record<string, { label: string; color: string }> = {
@@ -15,6 +16,12 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 };
 
 export default function ReservacionesPage() {
+  // Módulo desactivado desde Configuración → la página muestra un aviso
+  const settings = useSettingsStore(s => s.settings);
+  const settingsLoaded = useSettingsStore(s => s.loaded);
+  const loadSettings = useSettingsStore(s => s.load);
+  useEffect(() => { loadSettings(); }, [loadSettings]);
+
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -137,6 +144,16 @@ export default function ReservacionesPage() {
     confirmed: reservations.filter(r => r.status === 'confirmed').length,
     cancelled: reservations.filter(r => r.status === 'cancelled').length,
   };
+
+  if (settingsLoaded && settings?.show_reservations === false) {
+    return (
+      <EmptyState
+        icon={CalendarCheck}
+        title="Módulo desactivado"
+        description="El módulo de reservaciones está oculto. Puedes activarlo desde Configuración → Operación → Módulos del sistema."
+      />
+    );
+  }
 
   return (
     <div className="space-y-5">

@@ -87,7 +87,10 @@ export default function SellerDashboard() {
 
   // ── Turno de caja (solo relevante en modo por turnos) ──
   const workMode = useWorkMode();
+  const settings = useSettingsStore(s => s.settings);
   const loadSettings = useSettingsStore(s => s.load);
+  // Módulo de reservaciones: se oculta del panel si está desactivado
+  const showReservations = settings?.show_reservations !== false;
   const [shifts, setShifts] = useState<{ open: R[]; pos: R[] }>({ open: [], pos: [] });
   const [shiftsLoading, setShiftsLoading] = useState(true);
   const [showOpenShift, setShowOpenShift] = useState(false);
@@ -359,7 +362,7 @@ export default function SellerDashboard() {
 
       {/* ── Accesos rápidos ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {QUICK_LINKS.map(({ href, icon: Icon, label, sub, color, iconColor }) => (
+        {QUICK_LINKS.filter(l => l.href !== '/dashboard/reservaciones' || showReservations).map(({ href, icon: Icon, label, sub, color, iconColor }) => (
           <Link
             key={href}
             href={href}
@@ -389,14 +392,16 @@ export default function SellerDashboard() {
         />
         <StatCard title="Mis ventas esta semana" value={formatCurrency(data?.mySalesWeek ?? 0)} icon={TrendingUp} variant="success" loading={loading} />
         <StatCard title="Mis ventas este mes" value={formatCurrency(data?.mySalesMonth ?? 0)} icon={Receipt} variant="info" loading={loading} />
-        <StatCard
-          title="Reservaciones pendientes"
-          value={String(pendingCount)}
-          subtitle="Pedidos por atender"
-          icon={CalendarCheck}
-          variant={pendingCount > 0 ? 'warning' : 'default'}
-          loading={reservationsLoading}
-        />
+        {showReservations && (
+          <StatCard
+            title="Reservaciones pendientes"
+            value={String(pendingCount)}
+            subtitle="Pedidos por atender"
+            icon={CalendarCheck}
+            variant={pendingCount > 0 ? 'warning' : 'default'}
+            loading={reservationsLoading}
+          />
+        )}
         <StatCard
           title="Clientes con deuda"
           value={formatNumber(data?.debtorsCount ?? 0, 0)}
@@ -466,6 +471,7 @@ export default function SellerDashboard() {
 
       {/* ── Reservaciones pendientes + Mis últimas ventas ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {showReservations && (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">
@@ -516,8 +522,9 @@ export default function SellerDashboard() {
             </div>
           )}
         </div>
+        )}
 
-        <div className="card p-5">
+        <div className={cn('card p-5', !showReservations && 'lg:col-span-2')}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">Mis últimas ventas</h3>
             <Link href="/dashboard/ventas" className="text-xs text-brand-400 hover:text-brand-300 flex items-center gap-1 transition-colors">

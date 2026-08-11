@@ -10,6 +10,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import {
   Store, Settings, Upload, X, CalendarDays, Clock3, Save, Loader2, ShieldAlert,
   Printer, Usb, CheckCircle2, Ruler, Zap, Plus, Star, Pencil, Trash2, Info,
+  CalendarCheck,
 } from 'lucide-react';
 import { pickUsbPrinter, printUsbTest, isWebUsbSupported, type UsbPrinterInfo } from '@/lib/receipt';
 
@@ -32,7 +33,7 @@ export default function ConfiguracionPage() {
   const [tab, setTab] = useState<TabKey>('negocio');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState<BusinessSettings>({ business_name: 'TiendaMiBarrio', logo_url: null, work_mode: 'daily', receipt_printer_width: '80', receipt_print_method: 'browser', receipt_auto_print: true });
+  const [form, setForm] = useState<BusinessSettings>({ business_name: 'TiendaMiBarrio', logo_url: null, work_mode: 'daily', receipt_printer_width: '80', receipt_print_method: 'browser', receipt_auto_print: true, show_reservations: true });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>('');
   const [uploading, setUploading] = useState(false);
@@ -125,6 +126,7 @@ export default function ConfiguracionPage() {
         receipt_printer_width: form.receipt_printer_width,
         receipt_print_method: form.receipt_print_method,
         receipt_auto_print: form.receipt_auto_print,
+        show_reservations: form.show_reservations,
       });
       setSettings(d.settings);
       setForm(d.settings);
@@ -373,6 +375,7 @@ export default function ConfiguracionPage() {
 
       {/* ════ PESTAÑA: OPERACIÓN ════ */}
       {tab === 'operacion' && (
+        <>
         <div className="card p-5">
           <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Modo de operación</h2>
           <p className="text-xs text-[var(--text-tertiary)] mb-5">Define cómo el sistema organiza la jornada de caja.</p>
@@ -426,6 +429,32 @@ export default function ConfiguracionPage() {
             </div>
           )}
         </div>
+
+        {/* ── Módulos del sistema ── */}
+        <div className="card p-5">
+          <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Módulos del sistema</h2>
+          <p className="text-xs text-[var(--text-tertiary)] mb-5">Activa o desactiva módulos según las necesidades de tu negocio.</p>
+
+          <label className="flex items-start gap-3 cursor-pointer select-none max-w-2xl">
+            <input
+              type="checkbox"
+              checked={form.show_reservations}
+              onChange={e => setForm(f => ({ ...f, show_reservations: e.target.checked }))}
+              className="mt-0.5 w-4 h-4 accent-brand-500"
+            />
+            <span>
+              <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+                <CalendarCheck className="w-4 h-4 text-brand-400" />
+                Reservaciones y catálogo público
+              </span>
+              <span className="block text-xs text-[var(--text-tertiary)] mt-1">
+                Muestra el catálogo de productos con pedidos de clientes en la <b>página de entrada</b> y el módulo <b>Reservaciones</b> en el menú del dashboard.
+                Al desactivarlo, la página de entrada será la de <b>inicio</b> y el módulo desaparecerá del sistema.
+              </span>
+            </span>
+          </label>
+        </div>
+        </>
       )}
 
       {/* ════ PESTAÑA: IMPRESIÓN ════ */}

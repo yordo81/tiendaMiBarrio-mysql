@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSettingsStore } from '@/lib/stores/settings-store';
 import ThemeToggle from '@/components/ui/ThemeToggle';
@@ -50,8 +51,17 @@ export default function HomePage() {
   const { user } = useAuthStore();
   const settings = useSettingsStore(s => s.settings);
   const loadSettings = useSettingsStore(s => s.load);
+  const router = useRouter();
   // Cargar la configuración del negocio para mostrar nombre y logotipo
   useEffect(() => { loadSettings(); }, [loadSettings]);
+
+  // Si el módulo de reservaciones está desactivado, la página de entrada
+  // pasa a ser la de inicio (/inicio) y el catálogo público no se muestra.
+  const settingsLoaded = useSettingsStore(s => s.loaded);
+  const reservsHidden = settingsLoaded && settings?.show_reservations === false;
+  useEffect(() => {
+    if (reservsHidden) router.replace('/inicio');
+  }, [reservsHidden, router]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [productsByCategory, setProductsByCategory] = useState<ProductsByCategory[]>([]);
@@ -217,6 +227,15 @@ export default function HomePage() {
   const totalFilteredProducts = useMemo(() => {
     return filteredProducts.reduce((sum, cat) => sum + cat.products.length, 0);
   }, [filteredProducts]);
+
+  // Mientras se redirige a /inicio no se muestra el catálogo
+  if (reservsHidden) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">

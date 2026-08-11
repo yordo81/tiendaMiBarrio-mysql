@@ -26,6 +26,7 @@ export interface SettingsDto {
   receipt_printer_width: '57' | '80';
   receipt_print_method: 'browser' | 'usb';
   receipt_auto_print: boolean;
+  show_reservations: boolean;
 }
 
 /** Impresora registrada devuelta por /api/printers */

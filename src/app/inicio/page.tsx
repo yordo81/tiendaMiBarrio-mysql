@@ -37,6 +37,10 @@ export default function InicioPage() {
   const loadSettings = useSettingsStore(s => s.load);
   // Cargar la configuración del negocio para mostrar nombre y logotipo
   useEffect(() => { loadSettings(); }, [loadSettings]);
+
+  // Módulo de reservaciones: si está desactivado se ocultan el enlace al
+  // catálogo público (que redirige a /inicio) y toda referencia al módulo.
+  const showReservations = settings?.show_reservations !== false;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -100,12 +104,16 @@ export default function InicioPage() {
     },
   ];
 
+  // Si el módulo de reservaciones está desactivado se oculta la
+  // diapositiva que lo promociona
+  const visibleSlides = showReservations ? slides : slides.filter(s => s.title !== 'Clientes y Reservaciones');
+
   // ── Carousel state ──
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const touchStartX = useRef(0);
   const touchEndX = useRef(0);
-  const totalSlides = slides.length;
+  const totalSlides = visibleSlides.length;
 
   const goToSlide = (index: number) => {
     setCurrentSlide(((index % totalSlides) + totalSlides) % totalSlides);
@@ -121,6 +129,11 @@ export default function InicioPage() {
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSlide, isPaused]);
+
+  // Al ocultar diapositivas (módulo desactivado) mantener el índice válido
+  useEffect(() => {
+    if (totalSlides > 0 && currentSlide >= totalSlides) setCurrentSlide(totalSlides - 1);
+  }, [totalSlides, currentSlide]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -151,7 +164,7 @@ export default function InicioPage() {
 
   const navLinks = [
     { id: 'hero', label: 'Inicio' },
-    { id: 'productos', label: 'Productos', isExternal: true },
+    ...(showReservations ? [{ id: 'productos', label: 'Productos', isExternal: true }] : []),
     { id: 'features', label: 'Características' },
     { id: 'modules', label: 'Módulos' },
     { id: 'cta', label: 'Contacto' },
@@ -520,7 +533,7 @@ export default function InicioPage() {
                 className="flex transition-transform duration-500 ease-in-out"
                 style={{ transform: `translateX(-${currentSlide * 100}%)` }}
               >
-                {slides.map((slide, index) => {
+                {visibleSlides.map((slide, index) => {
                   const Icon = slide.icon;
                   return (
                     <div
@@ -596,7 +609,7 @@ export default function InicioPage() {
 
             {/* Dot indicators */}
             <div className="flex items-center justify-center gap-2 mt-8">
-              {slides.map((_, index) => (
+              {visibleSlides.map((_, index) => (
                 <button
                   key={index}
                   onClick={() => goToSlide(index)}
@@ -771,7 +784,7 @@ export default function InicioPage() {
               { icon: Shield, name: 'Auditoría', desc: 'Registro de cambios' },
               { icon: CalendarCheck, name: 'Reservaciones', desc: 'Pedidos de clientes' },
               { icon: UserCog, name: 'Usuarios', desc: 'Roles y permisos' },
-            ].map(({ icon: Icon, name, desc }, i) => (
+            ].filter(m => showReservations || m.name !== 'Reservaciones').map(({ icon: Icon, name, desc }, i) => (
               <div
                 key={i}
                 className="group card p-5 text-center hover:border-brand-500/30 transition-all duration-300 hover:-translate-y-0.5 cursor-default"
@@ -896,7 +909,7 @@ export default function InicioPage() {
                 Módulos
               </h4>
               <ul className="space-y-2.5">
-                {['Inventario', 'Ventas', 'Compras', 'Clientes', 'Reservaciones'].map((item) => (
+                {['Inventario', 'Ventas', 'Compras', 'Clientes', ...(showReservations ? ['Reservaciones'] : [])].map((item) => (
                   <li key={item}>
                     <span className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-default">
                       {item}

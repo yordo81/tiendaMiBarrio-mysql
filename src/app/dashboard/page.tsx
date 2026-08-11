@@ -9,7 +9,7 @@ import SaleModal from '@/components/sales/SaleModal';
 import PurchaseModal from '@/components/purchases/PurchaseModal';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuthStore } from '@/lib/stores/auth-store';
-import { useWorkMode } from '@/lib/stores/settings-store';
+import { useSettingsStore, useWorkMode } from '@/lib/stores/settings-store';
 import { SHIFT_CHANGED_EVENT } from '@/lib/shift-events';
 import SellerDashboard from '@/components/dashboard/SellerDashboard';
 
@@ -58,6 +58,11 @@ function GeneralDashboard() {
 
   // Modo por turnos: aviso cuando no hay turno abierto (las ventas están bloqueadas)
   const workMode = useWorkMode();
+  // Módulo de reservaciones: se oculta del dashboard si está desactivado
+  const settings = useSettingsStore(s => s.settings);
+  const loadSettings = useSettingsStore(s => s.load);
+  const showReservations = settings?.show_reservations !== false;
+  useEffect(() => { loadSettings(); }, [loadSettings]);
   const { user } = useAuthStore();
   const isManager = user?.role === 'owner' || user?.role === 'admin';
   const [openShifts, setOpenShifts] = useState<Record<string, unknown>[]>([]);
@@ -287,8 +292,8 @@ function GeneralDashboard() {
         </div>
       </div>
 
-      {/* ── Pending Reservations Widget ── */}
-      <div className="card p-5">
+      {/* ── Pending Reservations Widget (oculto si el módulo está desactivado) ── */}
+      {showReservations && <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">
             Reservaciones pendientes
@@ -347,7 +352,7 @@ function GeneralDashboard() {
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Modals */}
       <SaleModal

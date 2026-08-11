@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getIronSession } from 'iron-session';
 import { sessionOptions } from '@/lib/auth/config';
 import { findActiveUserCached } from '@/lib/auth/user-active';
+import { showReservationsEnabled } from '@/lib/settings-server';
 
 // ── Proxy de autenticación (Next.js 16) ────────────────────────────
 // En Next.js 16 este archivo se renombró de middleware.ts a proxy.ts y
@@ -28,6 +29,24 @@ import { findActiveUserCached } from '@/lib/auth/user-active';
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Página de entrada: si el módulo de reservaciones está desactivado en
+  // la configuración, se redirige a /inicio sin esperar al cliente. El
+  // valor viene cacheado con TTL corto (showReservationsEnabled) y ya es
+  // fail-open por defecto (nunca lanza); el try/catch protege al resto de
+  // rutas ante cualquier error inesperado aquí.
+  if (pathname === '/') {
+    try {
+      if (!(await showReservationsEnabled())) {
+        const url = request.nextUrl.clone();
+        url.pathname = '/inicio';
+        return NextResponse.redirect(url);
+      }
+    } catch (err) {
+      // Fail-open: no bloquear la entrada si la BD falla
+      console.error('[proxy] Error leyendo show_reservations:', err);
+    }
+  }
 
   // Solo se valida la sesión cuando la ruta lo requiere (dashboard o
   // auth), para no añadir latencia al resto de rutas (APIs, assets).

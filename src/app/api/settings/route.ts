@@ -30,21 +30,35 @@ export const PUT = handle(async (req: Request) => {
   const receiptPrintMethod = body.receipt_print_method === 'usb' ? 'usb' : 'browser';
   const receiptAutoPrint = body.receipt_auto_print !== false;
 
+  // Módulo de reservaciones (catálogo público en la página de entrada + menú)
+  const showReservations = body.show_reservations !== false;
+
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  await execute(
-    `INSERT INTO settings (id, business_name, logo_url, work_mode, receipt_printer_width, receipt_print_method, receipt_auto_print, updated_by, updated_at)
-     VALUES ('1', ?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       business_name = VALUES(business_name),
-       logo_url = VALUES(logo_url),
-       work_mode = VALUES(work_mode),
-       receipt_printer_width = VALUES(receipt_printer_width),
-       receipt_print_method = VALUES(receipt_print_method),
-       receipt_auto_print = VALUES(receipt_auto_print),
-       updated_by = VALUES(updated_by),
-       updated_at = VALUES(updated_at)`,
-    [businessName, logoUrl, workMode, receiptPrinterWidth, receiptPrintMethod, receiptAutoPrint ? 1 : 0, user.id, ts]
-  );
+  try {
+    await execute(
+      `INSERT INTO settings (id, business_name, logo_url, work_mode, receipt_printer_width, receipt_print_method, receipt_auto_print, show_reservations, updated_by, updated_at)
+       VALUES ('1', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         business_name = VALUES(business_name),
+         logo_url = VALUES(logo_url),
+         work_mode = VALUES(work_mode),
+         receipt_printer_width = VALUES(receipt_printer_width),
+         receipt_print_method = VALUES(receipt_print_method),
+         receipt_auto_print = VALUES(receipt_auto_print),
+         show_reservations = VALUES(show_reservations),
+         updated_by = VALUES(updated_by),
+         updated_at = VALUES(updated_at)`,
+      [businessName, logoUrl, workMode, receiptPrinterWidth, receiptPrintMethod, receiptAutoPrint ? 1 : 0, showReservations ? 1 : 0, user.id, ts]
+    );
+  } catch (e) {
+    // La columna show_reservations viene de la migración 020: si falta es
+    // porque la BD no está migrada. Mensaje claro en lugar del error SQL
+    // crudo (ER_BAD_FIELD_ERROR).
+    if (e && typeof e === 'object' && 'code' in e && (e as { code?: string }).code === 'ER_BAD_FIELD_ERROR') {
+      return err('La base de datos no está migrada. Ejecuta: node scripts/apply-migration-020.js', 500);
+    }
+    throw e;
+  }
 
   // Si se cambió a modo diario, cerrar turnos abiertos sin reconciliar
   if (workMode === 'daily') {
@@ -61,7 +75,7 @@ export const PUT = handle(async (req: Request) => {
     entity_type: 'settings',
     entity_id: '1',
     entity_name: 'Configuración del negocio',
-    details: { business_name: businessName, work_mode: workMode, logo_updated: !!logoUrl },
+    details: { business_name: businessName, work_mode: workMode, logo_updated: !!logoUrl, show_reservations: showReservations },
   });
 
   return ok({ settings: await getBusinessSettings() });
