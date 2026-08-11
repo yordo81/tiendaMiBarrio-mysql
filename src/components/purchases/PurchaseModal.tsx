@@ -7,7 +7,8 @@ import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
 import { playScanBeep } from '@/lib/scan-beep';
 import { usePosSelector } from '@/hooks/use-pos';
-import { ShoppingBag, Barcode } from 'lucide-react';
+import { ShoppingBag, Barcode, PackagePlus } from 'lucide-react';
+import QuickProductCreate from '@/components/products/QuickProductCreate';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -21,6 +22,9 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
   const [products, setProducts] = useState<AnyRecord[]>([]);
   const [suppliers, setSuppliers] = useState<AnyRecord[]>([]);
   const [locations, setLocations] = useState<AnyRecord[]>([]);
+  const [categories, setCategories] = useState<AnyRecord[]>([]);
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const [quickCreateBarcode, setQuickCreateBarcode] = useState('');
   const [saving, setSaving] = useState(false);
   const [purchaseLocStockMap, setPurchaseLocStockMap] = useState<Record<string, number>>({});
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(open);
@@ -46,11 +50,12 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
 
   useEffect(() => {
     if (!open) return;
-    Promise.all([api.getProducts(), api.getSuppliers(), api.getLocations()])
-      .then(([p, s, l]) => {
+    Promise.all([api.getProducts(), api.getSuppliers(), api.getLocations(), api.getCategories()])
+      .then(([p, s, l, c]) => {
         setProducts(p);
         setSuppliers(s);
         setLocations(l);
+        setCategories(c);
         setForm(f => ({
           ...f,
           location_id: l.length > 0 ? String(l[0].id) : '',
@@ -82,14 +87,17 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
     onClose();
   }
 
-  // Escaneo rápido: al presionar Enter busca coincidencia exacta y selecciona el producto
+  // Escaneo rápido: al presionar Enter busca coincidencia exacta y selecciona el producto.
+  // Si el código no existe, ofrece crearlo al momento con ese código precargado.
   function handleBarcodeSubmit(e: React.FormEvent) {
     e.preventDefault();
     const code = barcodeSearch.trim();
     if (!code) return;
     const found = findProductByBarcode(products, code);
     if (!found) {
-      toast.error(`No se encontró producto con el código ${code}`);
+      setQuickCreateBarcode(code);
+      setShowQuickCreate(true);
+      toast.info(`El código ${code} no existe — crea el producto y se seleccionará en la compra`);
       return;
     }
     setForm(f => ({
@@ -99,6 +107,18 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
     }));
     setBarcodeSearch('');
     playScanBeep();
+    quantityInputRef.current?.focus();
+  }
+
+  // Producto creado al vuelo: agregarlo a la lista y seleccionarlo en la compra
+  function handleQuickCreated(p: AnyRecord) {
+    setProducts(prev => [...prev, p]);
+    setForm(f => ({
+      ...f,
+      product_id: String(p.id),
+      expiration_date: p.expiration_date ? String(p.expiration_date) : '',
+    }));
+    setBarcodeSearch('');
     quantityInputRef.current?.focus();
   }
 
@@ -173,7 +193,17 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
           <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Escanea el código y presiona Enter para seleccionar el producto automáticamente</p>
         </div>
         <div>
-          <label className="label">Producto *</label>
+          <div className="flex items-center justify-between">
+            <label className="label">Producto *</label>
+            <button
+              type="button"
+              onClick={() => { setQuickCreateBarcode(''); setShowQuickCreate(true); }}
+              className="inline-flex items-center gap-1 text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors"
+            >
+              <PackagePlus className="w-3.5 h-3.5" />
+              Crear producto nuevo
+            </button>
+          </div>
           <SearchableSelect
             options={products.map(p => {
               const locStock = form.location_id ? (purchaseLocStockMap[String(p.id)] ?? 0) : Number(p.stock ?? 0);
@@ -183,7 +213,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
               return {
                 value: String(p.id),
                 // Incluir el código de barras para poder buscarlo también desde el selector
-                label: String(p.barcode) ? `${String(p.name)} — ${String(p.barcode)}` : String(p.name),
+                label: p.barcode ? `${String(p.name)} — ${String(p.barcode)}` : String(p.name),
                 sublabel: lowS ? `${stockLabel} · ${costLabel} ⚠️` : `${stockLabel} · ${costLabel}`,
               };
             })}
@@ -356,6 +386,16 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
           </button>
         </div>
       </div>
+
+      {/* Creación rápida de producto inexistente */}
+      <QuickProductCreate
+        open={showQuickCreate}
+        onClose={() => setShowQuickCreate(false)}
+        categories={categories}
+        initialBarcode={quickCreateBarcode}
+        initialCost={form.price > 0 ? form.price : undefined}
+        onCreated={handleQuickCreated}
+      />
     </Modal>
   );
 }

@@ -8,7 +8,8 @@ import { toast } from '@/components/ui/toaster';
 import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import { playScanBeep } from '@/lib/scan-beep';
 import { usePosSelector } from '@/hooks/use-pos';
-import { Receipt, Plus, Trash2, Barcode } from 'lucide-react';
+import { Receipt, Plus, Trash2, Barcode, PackagePlus } from 'lucide-react';
+import QuickProductCreate from '@/components/products/QuickProductCreate';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -33,6 +34,9 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
   const [products, setProducts] = useState<AnyRecord[]>([]);
   const [suppliers, setSuppliers] = useState<AnyRecord[]>([]);
   const [locations, setLocations] = useState<AnyRecord[]>([]);
+  const [categories, setCategories] = useState<AnyRecord[]>([]);
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const [quickCreateBarcode, setQuickCreateBarcode] = useState('');
   const [saving, setSaving] = useState(false);
   const [lines, setLines] = useState<InvoiceLine[]>([]);
   const [form, setForm] = useState({ invoice_number: '', supplier_id: '', location_id: '', notes: '', is_capital: false });
@@ -49,11 +53,12 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
 
   useEffect(() => {
     if (!open) return;
-    Promise.all([api.getProducts(), api.getSuppliers(), api.getLocations()])
-      .then(([p, s, l]) => {
+    Promise.all([api.getProducts(), api.getSuppliers(), api.getLocations(), api.getCategories()])
+      .then(([p, s, l, c]) => {
         setProducts(p);
         setSuppliers(s);
         setLocations(l);
+        setCategories(c);
         setForm(f => ({
           ...f,
           supplier_id: s.length > 0 ? String(s[0].id) : '',
@@ -90,14 +95,17 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
     onClose();
   }
 
-  // Escaneo rápido: selecciona el producto en la línea en edición
+  // Escaneo rápido: selecciona el producto en la línea en edición.
+  // Si el código no existe, ofrece crearlo al momento con ese código precargado.
   function handleBarcodeSubmit(e: React.FormEvent) {
     e.preventDefault();
     const code = barcodeSearch.trim();
     if (!code) return;
     const found = findProductByBarcode(products, code);
     if (!found) {
-      toast.error(`No se encontró producto con el código ${code}`);
+      setQuickCreateBarcode(code);
+      setShowQuickCreate(true);
+      toast.info(`El código ${code} no existe — crea el producto y se agregará a la factura`);
       return;
     }
     setDraft(d => ({
@@ -107,6 +115,17 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
     }));
     setBarcodeSearch('');
     playScanBeep();
+  }
+
+  // Producto creado al vuelo: agregarlo a la lista y seleccionarlo en la línea
+  function handleQuickCreated(p: AnyRecord) {
+    setProducts(prev => [...prev, p]);
+    setDraft(d => ({
+      ...d,
+      product_id: String(p.id),
+      expiration_date: p.expiration_date ? String(p.expiration_date) : '',
+    }));
+    setBarcodeSearch('');
   }
 
   function addLine() {
@@ -246,7 +265,17 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
         <div className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-secondary)] p-3 space-y-3">
           <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Agregar producto de la factura</p>
           <div>
-            <label className="label">Producto *</label>
+            <div className="flex items-center justify-between">
+              <label className="label">Producto *</label>
+              <button
+                type="button"
+                onClick={() => { setQuickCreateBarcode(''); setShowQuickCreate(true); }}
+                className="inline-flex items-center gap-1 text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                <PackagePlus className="w-3.5 h-3.5" />
+                Crear producto nuevo
+              </button>
+            </div>
             <SearchableSelect
               options={products.map(p => {
                 const locStock = form.location_id ? (locStockMap[String(p.id)] ?? 0) : Number(p.stock ?? 0);
@@ -255,7 +284,7 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
                 const costLabel = `Costo: ${formatCurrency(Number(p.cost))}`;
                 return {
                   value: String(p.id),
-                  label: String(p.barcode) ? `${String(p.name)} — ${String(p.barcode)}` : String(p.name),
+                  label: p.barcode ? `${String(p.name)} — ${String(p.barcode)}` : String(p.name),
                   sublabel: lowS ? `${stockLabel} · ${costLabel} ⚠️` : `${stockLabel} · ${costLabel}`,
                 };
               })}
@@ -399,6 +428,16 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
           </button>
         </div>
       </div>
+
+      {/* Creación rápida de producto inexistente */}
+      <QuickProductCreate
+        open={showQuickCreate}
+        onClose={() => setShowQuickCreate(false)}
+        categories={categories}
+        initialBarcode={quickCreateBarcode}
+        initialCost={draft.price > 0 ? draft.price : undefined}
+        onCreated={handleQuickCreated}
+      />
     </Modal>
   );
 }
