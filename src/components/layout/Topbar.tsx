@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { WifiOff, LogOut, ChevronDown, User, Clock3 } from 'lucide-react';
+import { WifiOff, LogOut, ChevronDown, User, Clock3, KeyRound } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/use-online';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSettingsStore, useWorkMode } from '@/lib/stores/settings-store';
@@ -12,6 +12,7 @@ import { SHIFT_CHANGED_EVENT, SHIFT_SUMMARY_CHANGED_EVENT } from '@/lib/shift-ev
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import NotificationBell from '@/components/notifications/NotificationBell';
 import OpenShiftModal from '@/components/shifts/OpenShiftModal';
+import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 
 const titles: Record<string,string> = {
   '/dashboard':'Dashboard','/dashboard/inventario':'Inventario','/dashboard/ventas':'Ventas',
@@ -44,6 +45,8 @@ export default function Topbar() {
   const shiftsFetching = useRef(false);
   // Modal de apertura directa desde el Topbar
   const [showOpenShift, setShowOpenShift] = useState(false);
+  // Cambio de contraseña del propio usuario
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
   // Cargar la configuración del negocio para mostrar su nombre en el título
@@ -232,6 +235,15 @@ export default function Topbar() {
                 </div>
               </div>
 
+              {/* Cambiar contraseña */}
+              <button
+                onClick={() => { setUserMenuOpen(false); setShowChangePassword(true); }}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors hover:bg-brand-500/10 text-[var(--text-secondary)] hover:text-brand-400 border-b border-[var(--border-primary)]"
+              >
+                <KeyRound className="w-4 h-4 flex-shrink-0" />
+                <span>Cambiar contraseña</span>
+              </button>
+
               {/* Logout */}
               <button
                 onClick={handleLogout}
@@ -256,6 +268,13 @@ export default function Topbar() {
       openPosIds={openPosIds}
       onClose={() => setShowOpenShift(false)}
       onOpened={refreshShifts}
+    />
+
+    {/* Modal: Cambiar mi contraseña */}
+    <ChangePasswordModal
+      open={showChangePassword}
+      onClose={() => setShowChangePassword(false)}
+      mode="self"
     />
     </>
   );

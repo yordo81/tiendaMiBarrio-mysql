@@ -136,6 +136,7 @@ export const api = {
   getUsers: () => apiFetch<Record<string,unknown>[]>('/api/users'),
   createUser: (data: unknown) => apiFetch('/api/users', { method: 'POST', body: JSON.stringify(data) }),
   updateUser: (id: string, data: unknown) => apiFetch(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  changeOwnPassword: (data: { current_password: string; new_password: string }) => apiFetch('/api/auth/change-password', { method: 'POST', body: JSON.stringify(data) }),
 
   // Reports
   getReport: (type: string, params?: Record<string, string>) => {
