@@ -1,15 +1,4 @@
-import Sidebar from '@/components/layout/Sidebar';
-import MobileNav from '@/components/layout/MobileNav';
-import Topbar from '@/components/layout/Topbar';
+import DashboardChrome from '@/components/layout/DashboardChrome';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)' }}>
-      <Sidebar/>
-      <div className="md:ml-60 flex flex-col min-h-screen">
-        <Topbar/>
-        <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6">{children}</main>
-      </div>
-      <MobileNav/>
-    </div>
-  );
+  return <DashboardChrome>{children}</DashboardChrome>;
 }

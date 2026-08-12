@@ -36,9 +36,10 @@ export default function MobileNav() {
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40" style={{ backgroundColor: 'var(--bg-secondary)', borderTop: '1px solid var(--border-primary)' }}>
       <ul className="flex">
         {/* Filtrar enlaces según el rol y el modo de operación (Turnos solo en modo por turnos) */}
-        {nav.filter(item => (!item.roles || (user && item.roles.includes(user.role))) && (!item.workMode || workMode === item.workMode)).map(item => { const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href)); return (
+        {nav.filter(item => (!item.roles || (user && item.roles.includes(user.role))) && (!item.workMode || workMode === item.workMode)).map(item => { const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href)); // El rol vendedor usa el punto de venta táctil en lugar de la página con modal
+        const linkHref = item.href === '/dashboard/ventas' && user?.role === 'seller' ? '/dashboard/ventas/touch' : item.href; return (
           <li key={item.href} className="flex-1">
-            <Link href={item.href} className={cn('flex flex-col items-center gap-1 py-3 text-[10px] transition-colors', active ? 'text-brand-400' : '')} style={!active ? { color: 'var(--text-tertiary)' } : undefined}>
+            <Link href={linkHref} className={cn('flex flex-col items-center gap-1 py-3 text-[10px] transition-colors', active ? 'text-brand-400' : '')} style={!active ? { color: 'var(--text-tertiary)' } : undefined}>
               <item.icon size={20}/>{item.label}
             </Link>
           </li>

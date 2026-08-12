@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { formatCurrency, formatNumber, timeAgo, formatDateTime, cn } from '@/lib/utils';
 import { api, apiFetch } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/stores/auth-store';
@@ -12,7 +13,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import StatCard from '@/components/ui/StatCard';
-import SaleModal from '@/components/sales/SaleModal';
 import Modal from '@/components/ui/Modal';
 import { toast } from '@/components/ui/toaster';
 import { SHIFT_CHANGED_EVENT, SHIFT_SUMMARY_CHANGED_EVENT, notifyShiftChanged } from '@/lib/shift-events';
@@ -57,7 +57,7 @@ const PAYMENT_COLORS: Record<string, string> = {
 };
 
 const QUICK_LINKS: { href: string; icon: LucideIcon; label: string; sub: string; color: string; iconColor: string }[] = [
-  { href: '/dashboard/ventas', icon: ShoppingCart, label: 'Ventas', sub: 'Historial y nueva venta', color: 'hover:border-brand-500/30', iconColor: 'bg-brand-500/10 border-brand-500/20 text-brand-400' },
+  { href: '/dashboard/ventas/touch', icon: ShoppingCart, label: 'Ventas', sub: 'POS táctil — registra ventas al instante', color: 'hover:border-brand-500/30', iconColor: 'bg-brand-500/10 border-brand-500/20 text-brand-400' },
   { href: '/dashboard/reservaciones', icon: CalendarCheck, label: 'Reservaciones', sub: 'Pedidos de clientes', color: 'hover:border-yellow-500/30', iconColor: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400' },
   { href: '/dashboard/clientes', icon: Users, label: 'Clientes', sub: 'Cartera y deudas', color: 'hover:border-purple-500/30', iconColor: 'bg-purple-500/10 border-purple-500/20 text-purple-400' },
 ];
@@ -78,12 +78,12 @@ function fmtInTz(date: Date, tz: string, options: Intl.DateTimeFormatOptions): s
 
 export default function SellerDashboard() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const [data, setData] = useState<SellerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState<Date | null>(null);
   const [reservations, setReservations] = useState<PendingReservation[]>([]);
   const [reservationsLoading, setReservationsLoading] = useState(true);
-  const [showSaleModal, setShowSaleModal] = useState(false);
 
   // ── Turno de caja (solo relevante en modo por turnos) ──
   const workMode = useWorkMode();
@@ -137,12 +137,6 @@ export default function SellerDashboard() {
     ? Math.max(...data.salesChart.map(d => d.total))
     : 0;
   const yMax = Math.ceil(maxSales * 1.15 / 1000) * 1000 || 1000;
-
-  const refresh = () => {
-    apiFetch<SellerData>('/api/reports?type=seller&days=30')
-      .then(d => setData(d))
-      .catch(() => {});
-  };
 
   const loadShifts = useCallback(() => {
     api.getShifts()
@@ -199,13 +193,14 @@ export default function SellerDashboard() {
 
   // En modo turnos la venta requiere un turno abierto: si está bloqueada,
   // guía al vendedor a abrir el turno desde el propio dashboard.
+  // La venta se registra en el punto de venta táctil (/dashboard/ventas/touch).
   const handleNewSale = () => {
     if (sellingBlocked) {
       toast.warning('Debes abrir un turno de caja antes de poder vender');
       setShowOpenShift(true);
       return;
     }
-    setShowSaleModal(true);
+    router.push('/dashboard/ventas/touch');
   };
 
   return (
@@ -622,18 +617,6 @@ export default function SellerDashboard() {
         </div>
       </Modal>
 
-      {/* Modal de venta */}
-      <SaleModal
-        open={showSaleModal}
-        onClose={() => setShowSaleModal(false)}
-        onSuccess={() => {
-          refresh();
-          // Refrescar también las reservaciones (pueden convertirse en venta)
-          apiFetch<PendingReservation[]>('/api/reservations?status=pending')
-            .then(d => setReservations(Array.isArray(d) ? d : []))
-            .catch(() => {});
-        }}
-      />
     </div>
   );
 }

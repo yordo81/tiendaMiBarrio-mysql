@@ -176,8 +176,11 @@ export default function Sidebar() {
                   <div className="space-y-0.5 pt-0.5 pl-1.5">
                     {items.map(({ href, icon: Icon, label }) => {
                       const active = isActive(href);
+                      // El rol vendedor usa el punto de venta táctil en lugar
+                      // de la página de ventas con modal
+                      const linkHref = href === '/dashboard/ventas' && user?.role === 'seller' ? '/dashboard/ventas/touch' : href;
                       return (
-                        <Link key={href} href={href} className={cn('flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150', active ? 'bg-brand-600/20 text-brand-400 border border-brand-500/30' : 'hover:bg-[var(--bg-tertiary)]')} style={!active ? { color: 'var(--text-secondary)' } : undefined}>
+                        <Link key={href} href={linkHref} className={cn('flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150', active ? 'bg-brand-600/20 text-brand-400 border border-brand-500/30' : 'hover:bg-[var(--bg-tertiary)]')} style={!active ? { color: 'var(--text-secondary)' } : undefined}>
                           <Icon className={cn('w-4 h-4 flex-shrink-0', active ? 'text-brand-400' : 'text-[var(--text-tertiary)]')} />
                           {label}
                         </Link>

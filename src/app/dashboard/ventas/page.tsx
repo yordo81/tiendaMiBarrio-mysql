@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { formatCurrency, formatDateTime, generateId, cn, formatNumber } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usePosSelector } from '@/hooks/use-pos';
@@ -47,6 +48,18 @@ export default function VentasPage() {
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showNew);
   const { user } = useAuthStore();
+  const router = useRouter();
+
+  // Los vendedores usan el punto de venta táctil en lugar de la modal;
+  // el resto de roles conserva la ventana modal de nueva venta.
+  function startNewSale() {
+    if (user?.role === 'seller') {
+      router.push('/dashboard/ventas/touch');
+      return;
+    }
+    resetForm();
+    setShowNew(true);
+  }
 
   // Date range filter — default to current month
   const today = new Date();
@@ -273,12 +286,12 @@ export default function VentasPage() {
             </div>
           )}
         </div>
-        <button onClick={()=>{resetForm();setShowNew(true);}} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nueva venta</button>
+        <button onClick={startNewSale} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nueva venta</button>
       </div>
 
       <div className="card overflow-hidden">
         {loading?<div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"/></div>
-        :paginatedSales.length===0?<EmptyState icon={ShoppingCart} title="Sin ventas" description="Registra tu primera venta" action={<button onClick={()=>setShowNew(true)} className="btn-primary">Nueva venta</button>}/>:(
+        :paginatedSales.length===0?<EmptyState icon={ShoppingCart} title="Sin ventas" description="Registra tu primera venta" action={<button onClick={startNewSale} className="btn-primary">Nueva venta</button>}/>:(
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Cliente',...(workMode==='shifts'?['Caja']:[]),'Total','Tipo','Estado',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
