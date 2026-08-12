@@ -15,6 +15,8 @@ export interface BusinessSettings {
   receipt_auto_print: boolean;
   // Módulo de reservaciones: 1 = visible (catálogo público + menú), 0 = oculto
   show_reservations: boolean;
+  // Punto de venta táctil para vendedores: 1 = visible, 0 = oculto
+  enable_touch_pos: boolean;
 }
 
 export const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
@@ -25,6 +27,7 @@ export const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
   receipt_print_method: 'browser',
   receipt_auto_print: true,
   show_reservations: true,
+  enable_touch_pos: true,
 };
 
 export async function getBusinessSettings(): Promise<BusinessSettings> {
@@ -37,8 +40,9 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
       receipt_print_method: string | null;
       receipt_auto_print: number | null;
       show_reservations: number | null;
+      enable_touch_pos: number | null;
     }>(
-      'SELECT business_name, logo_url, work_mode, receipt_printer_width, receipt_print_method, receipt_auto_print, show_reservations FROM settings WHERE id = ? LIMIT 1',
+      'SELECT business_name, logo_url, work_mode, receipt_printer_width, receipt_print_method, receipt_auto_print, show_reservations, enable_touch_pos FROM settings WHERE id = ? LIMIT 1',
       ['1']
     );
     if (row) {
@@ -50,6 +54,7 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
         receipt_print_method: row.receipt_print_method === 'usb' ? 'usb' : 'browser',
         receipt_auto_print: row.receipt_auto_print == null ? DEFAULT_BUSINESS_SETTINGS.receipt_auto_print : Number(row.receipt_auto_print) === 1,
         show_reservations: row.show_reservations == null ? DEFAULT_BUSINESS_SETTINGS.show_reservations : Number(row.show_reservations) === 1,
+        enable_touch_pos: row.enable_touch_pos == null ? DEFAULT_BUSINESS_SETTINGS.enable_touch_pos : Number(row.enable_touch_pos) === 1,
       };
     }
   } catch {

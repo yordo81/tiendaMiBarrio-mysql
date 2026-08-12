@@ -14,6 +14,8 @@ export interface BusinessSettings {
   receipt_auto_print: boolean;
   // Módulo de reservaciones: true = visible (catálogo público + menú), false = oculto
   show_reservations: boolean;
+  // Punto de venta táctil para vendedores: true = visible, false = oculto
+  enable_touch_pos: boolean;
 }
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
@@ -24,6 +26,7 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   receipt_print_method: 'browser',
   receipt_auto_print: true,
   show_reservations: true,
+  enable_touch_pos: true,
 };
 
 interface SettingsState {
@@ -53,6 +56,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
             receipt_print_method: s?.receipt_print_method === 'usb' ? 'usb' : 'browser',
             receipt_auto_print: s?.receipt_auto_print !== false,
             show_reservations: s?.show_reservations !== false,
+            enable_touch_pos: s?.enable_touch_pos !== false,
           },
           loaded: true,
         });

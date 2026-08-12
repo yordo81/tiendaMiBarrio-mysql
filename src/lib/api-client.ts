@@ -27,6 +27,7 @@ export interface SettingsDto {
   receipt_print_method: 'browser' | 'usb';
   receipt_auto_print: boolean;
   show_reservations: boolean;
+  enable_touch_pos: boolean;
 }
 
 /** Impresora registrada devuelta por /api/printers */

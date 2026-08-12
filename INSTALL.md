@@ -42,7 +42,7 @@
 | **Reportes** | Ventas, rentabilidad, variación de precios, proyección de reabastecimiento, cuentas |
 | **Auditoría** | Registro de eliminaciones y ajustes críticos con detalles de quién, qué y cuándo |
 | **Usuarios** | Roles (Dueño, Admin, Vendedor, Bodeguero) + permisos granulares |
-| **Configuración** | Módulo por pestañas (Negocio, Operación, Impresión): identidad del negocio, modo de operación (días/turnos), activar/desactivar el módulo de Reservaciones (al desactivarlo la página de entrada pasa a ser la de inicio) y gestión de impresoras de tickets (57/80 mm, WebUSB, impresora predeterminada) |
+| **Configuración** | Módulo por pestañas (Negocio, Operación, Impresión): identidad del negocio, modo de operación (días/turnos), activar/desactivar los módulos de Reservaciones y del POS táctil para vendedores, y gestión de impresoras de tickets (57/80 mm, WebUSB, impresora predeterminada) |
 
 ## Pasos de instalación
 
@@ -148,6 +148,7 @@ mysql -u root -p < mysql/migration-018-stock-transfers-batch.sql
 mysql -u root -p < mysql/migration-018-receipt-printer.sql
 mysql -u root -p < mysql/migration-019-printers.sql
 mysql -u root -p < mysql/migration-020-reservations-toggle.sql
+mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
 ```
 
 > 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` a `node scripts/apply-migration-020.js` aplican las migraciones 012-020 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
@@ -175,6 +176,7 @@ mysql -u root -p < mysql/migration-020-reservations-toggle.sql
 | `migration-018-receipt-printer.sql` | Agrega a `settings` la configuración del ticket: `receipt_printer_width` (57/80 mm), `receipt_print_method` (browser/usb) y `receipt_auto_print`. |
 | `migration-019-printers.sql` | Crea la tabla `printers` para registrar varias impresoras térmicas (vendor/product/serial, clave única `device_key`) y marcar cuál imprime los tickets de venta (`is_default`). |
 | `migration-020-reservations-toggle.sql` | Agrega a `settings` la columna `show_reservations`: permite mostrar u ocultar el módulo de Reservaciones (catálogo público en la página de entrada + menú del dashboard) desde Configuración → Operación. |
+| `migration-021-pos-touch-toggle.sql` | Agrega a `settings` la columna `enable_touch_pos`: permite activar o desactivar el punto de venta táctil para vendedores (al desactivarlo, los vendedores vuelven a la página de Ventas con la ventana modal) desde Configuración → Operación. |
 
 > **Nota:** Si usaste `node scripts/setup-db.js` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo ejecútalas manualmente si actualizas una BD existente.
 

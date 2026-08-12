@@ -10,7 +10,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import {
   Store, Settings, Upload, X, CalendarDays, Clock3, Save, Loader2, ShieldAlert,
   Printer, Usb, CheckCircle2, Ruler, Zap, Plus, Star, Pencil, Trash2, Info,
-  CalendarCheck,
+  CalendarCheck, TabletSmartphone,
 } from 'lucide-react';
 import { pickUsbPrinter, printUsbTest, isWebUsbSupported, type UsbPrinterInfo } from '@/lib/receipt';
 
@@ -33,7 +33,7 @@ export default function ConfiguracionPage() {
   const [tab, setTab] = useState<TabKey>('negocio');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState<BusinessSettings>({ business_name: 'TiendaMiBarrio', logo_url: null, work_mode: 'daily', receipt_printer_width: '80', receipt_print_method: 'browser', receipt_auto_print: true, show_reservations: true });
+  const [form, setForm] = useState<BusinessSettings>({ business_name: 'TiendaMiBarrio', logo_url: null, work_mode: 'daily', receipt_printer_width: '80', receipt_print_method: 'browser', receipt_auto_print: true, show_reservations: true, enable_touch_pos: true });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>('');
   const [uploading, setUploading] = useState(false);
@@ -127,6 +127,7 @@ export default function ConfiguracionPage() {
         receipt_print_method: form.receipt_print_method,
         receipt_auto_print: form.receipt_auto_print,
         show_reservations: form.show_reservations,
+        enable_touch_pos: form.enable_touch_pos,
       });
       setSettings(d.settings);
       setForm(d.settings);
@@ -450,6 +451,25 @@ export default function ConfiguracionPage() {
               <span className="block text-xs text-[var(--text-tertiary)] mt-1">
                 Muestra el catálogo de productos con pedidos de clientes en la <b>página de entrada</b> y el módulo <b>Reservaciones</b> en el menú del dashboard.
                 Al desactivarlo, la página de entrada será la de <b>inicio</b> y el módulo desaparecerá del sistema.
+              </span>
+            </span>
+          </label>
+
+          <label className="mt-5 pt-5 border-t border-[var(--border-primary)] flex items-start gap-3 cursor-pointer select-none max-w-2xl">
+            <input
+              type="checkbox"
+              checked={form.enable_touch_pos}
+              onChange={e => setForm(f => ({ ...f, enable_touch_pos: e.target.checked }))}
+              className="mt-0.5 w-4 h-4 accent-brand-500"
+            />
+            <span>
+              <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
+                <TabletSmartphone className="w-4 h-4 text-brand-400" />
+                Punto de venta táctil para vendedores
+              </span>
+              <span className="block text-xs text-[var(--text-tertiary)] mt-1">
+                Los vendedores registran sus ventas en el <b>POS táctil</b> (pantalla completa con catálogo por categorías y carrito) en lugar de la ventana modal.
+                Al desactivarlo, los vendedores usan la página de <b>Ventas</b> con la ventana de nueva venta.
               </span>
             </span>
           </label>

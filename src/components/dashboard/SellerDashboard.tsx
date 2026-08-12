@@ -91,6 +91,9 @@ export default function SellerDashboard() {
   const loadSettings = useSettingsStore(s => s.load);
   // Módulo de reservaciones: se oculta del panel si está desactivado
   const showReservations = settings?.show_reservations !== false;
+  // POS táctil: si está desactivado, el acceso rápido y el botón de nueva
+  // venta llevan a la página de ventas con la ventana modal
+  const posEnabled = settings?.enable_touch_pos !== false;
   const [shifts, setShifts] = useState<{ open: R[]; pos: R[] }>({ open: [], pos: [] });
   const [shiftsLoading, setShiftsLoading] = useState(true);
   const [showOpenShift, setShowOpenShift] = useState(false);
@@ -193,14 +196,15 @@ export default function SellerDashboard() {
 
   // En modo turnos la venta requiere un turno abierto: si está bloqueada,
   // guía al vendedor a abrir el turno desde el propio dashboard.
-  // La venta se registra en el punto de venta táctil (/dashboard/ventas/touch).
+  // La venta se registra en el punto de venta táctil (/dashboard/ventas/touch)
+  // o, si está desactivado, en la página de ventas con la ventana modal.
   const handleNewSale = () => {
     if (sellingBlocked) {
       toast.warning('Debes abrir un turno de caja antes de poder vender');
       setShowOpenShift(true);
       return;
     }
-    router.push('/dashboard/ventas/touch');
+    router.push(posEnabled ? '/dashboard/ventas/touch' : '/dashboard/ventas');
   };
 
   return (
@@ -357,22 +361,28 @@ export default function SellerDashboard() {
 
       {/* ── Accesos rápidos ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {QUICK_LINKS.filter(l => l.href !== '/dashboard/reservaciones' || showReservations).map(({ href, icon: Icon, label, sub, color, iconColor }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn('card p-4 flex items-center gap-3 transition-all duration-200 hover:-translate-y-0.5 group', color)}
-          >
-            <div className={cn('w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 transition-colors group-hover:brightness-125', iconColor)}>
-              <Icon className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
-              <p className="text-xs text-[var(--text-tertiary)] truncate">{sub}</p>
-            </div>
-            <ArrowRight className="w-4 h-4 text-[var(--text-tertiary)] ml-auto flex-shrink-0 transition-all group-hover:text-brand-400 group-hover:translate-x-0.5" />
-          </Link>
-        ))}
+        {QUICK_LINKS.filter(l => l.href !== '/dashboard/reservaciones' || showReservations).map(({ href, icon: Icon, label, sub, color, iconColor }) => {
+          // POS táctil desactivado → el acceso rápido apunta a la página de ventas
+          const isTouchLink = href === '/dashboard/ventas/touch';
+          const linkHref = isTouchLink && !posEnabled ? '/dashboard/ventas' : href;
+          const linkSub = isTouchLink && !posEnabled ? 'Historial y nueva venta' : sub;
+          return (
+            <Link
+              key={href}
+              href={linkHref}
+              className={cn('card p-4 flex items-center gap-3 transition-all duration-200 hover:-translate-y-0.5 group', color)}
+            >
+              <div className={cn('w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 transition-colors group-hover:brightness-125', iconColor)}>
+                <Icon className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
+                <p className="text-xs text-[var(--text-tertiary)] truncate">{linkSub}</p>
+              </div>
+              <ArrowRight className="w-4 h-4 text-[var(--text-tertiary)] ml-auto flex-shrink-0 transition-all group-hover:text-brand-400 group-hover:translate-x-0.5" />
+            </Link>
+          );
+        })}
       </div>
 
       {/* ── Métricas de la jornada ── */}

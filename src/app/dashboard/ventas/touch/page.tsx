@@ -6,7 +6,9 @@ import {
   Search, ScanBarcode, Minus, Plus, Trash2, ShoppingCart, X, CheckCircle,
   Banknote, Landmark, CreditCard, Wallet, Package, ArrowLeft, History,
   Receipt, AlertTriangle, Loader2, Store, User, Keyboard, Delete,
+  TabletSmartphone,
 } from 'lucide-react';
+import EmptyState from '@/components/ui/EmptyState';
 import { formatCurrency, formatNumber, cn, findProductByBarcode } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/stores/auth-store';
@@ -120,6 +122,7 @@ export default function TouchPosPage() {
   const { user } = useAuthStore();
   const router = useRouter();
   const settings = useSettingsStore(s => s.settings);
+  const settingsLoaded = useSettingsStore(s => s.loaded);
   const loadSettings = useSettingsStore(s => s.load);
 
   const [mounted, setMounted] = useState(false);
@@ -676,6 +679,24 @@ export default function TouchPosPage() {
           })()}
         </div>
       </>
+    );
+  }
+
+  // ── Módulo desactivado desde Configuración ──
+  // El dueño puede ocultar el POS táctil (Configuración → Operación →
+  // Módulos del sistema): la página muestra un aviso con salida a Ventas.
+  if (isSeller && settingsLoaded && settings?.enable_touch_pos === false) {
+    return (
+      <div className="flex h-screen items-center justify-center p-6" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <div className="card w-full max-w-md">
+          <EmptyState
+            icon={TabletSmartphone}
+            title="POS táctil desactivado"
+            description="El punto de venta táctil está desactivado. Registra tus ventas desde la página de ventas, o pídele al dueño activarlo en Configuración → Operación → Módulos del sistema."
+            action={<Link href="/dashboard/ventas" className="btn-primary">Ir a Ventas</Link>}
+          />
+        </div>
+      </div>
     );
   }
 

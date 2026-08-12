@@ -49,11 +49,13 @@ export default function VentasPage() {
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showNew);
   const { user } = useAuthStore();
   const router = useRouter();
+  // POS táctil: solo se usa si está activado en Configuración → Operación
+  const posEnabled = useSettingsStore(s => s.settings?.enable_touch_pos !== false);
 
-  // Los vendedores usan el punto de venta táctil en lugar de la modal;
-  // el resto de roles conserva la ventana modal de nueva venta.
+  // Los vendedores usan el punto de venta táctil en lugar de la modal (si
+  // está activado); el resto de roles conserva la ventana modal de nueva venta.
   function startNewSale() {
-    if (user?.role === 'seller') {
+    if (user?.role === 'seller' && posEnabled) {
       router.push('/dashboard/ventas/touch');
       return;
     }

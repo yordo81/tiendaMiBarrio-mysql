@@ -381,6 +381,7 @@ CREATE TABLE IF NOT EXISTS settings (
   receipt_print_method ENUM('browser','usb') NOT NULL DEFAULT 'browser' COMMENT 'browser = diálogo del navegador, usb = ESC/POS directo por WebUSB',
   receipt_auto_print TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Imprimir el ticket automáticamente al registrar una venta',
   show_reservations TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1 = mostrar el módulo de reservaciones y el catálogo público en la página de entrada',
+  enable_touch_pos TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1 = mostrar el punto de venta táctil para vendedores',
   updated_by    VARCHAR(36) DEFAULT NULL,
   updated_at    DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
