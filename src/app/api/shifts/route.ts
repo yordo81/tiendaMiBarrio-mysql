@@ -80,6 +80,12 @@ export const POST = handle(async (req: Request) => {
   const posId = String(body.pos_id ?? '').trim();
   if (!posId) return err('Debes seleccionar la caja (punto de venta) donde abrirás el turno');
 
+  // Un vendedor asociado a una caja solo puede abrir turnos en SU caja:
+  // trabaja fijo en el punto de venta (almacén) que se le asignó.
+  if (user.role === 'seller' && user.pos_id && user.pos_id !== posId) {
+    return err('Solo puedes abrir turnos en la caja (punto de venta) a la que estás asociado');
+  }
+
   const openingCash = Number(body.opening_cash ?? 0);
   if (isNaN(openingCash) || openingCash < 0) return err('El fondo inicial debe ser un monto válido');
 
@@ -91,9 +97,19 @@ export const POST = handle(async (req: Request) => {
   // aperturas de la MISMA caja (dos peticiones simultáneas no pueden
   // pasar ambas la comprobación) y valida fecha y turno abierto.
   const outcome = await transaction<{ error?: string }>(async (conn) => {
-    const [posRows] = await conn.execute('SELECT id, name FROM pos WHERE id = ? AND active = 1 FOR UPDATE', [posId]);
+    // Los turnos solo se abren en cajas vinculadas a un almacén tipo 'store'
+    // (punto de venta activo): la caja suelta no puede abrir turnos.
+    const [posRows] = await conn.execute(
+      `SELECT p.id, p.name FROM pos p
+       JOIN locations l ON l.id = p.location_id
+       WHERE p.id = ? AND p.active = 1 AND l.type = 'store' AND l.active = 1
+       FOR UPDATE`,
+      [posId]
+    );
     const pos = (posRows as { id: string; name: string }[])[0];
-    if (!pos) return { error: 'La caja seleccionada no existe o está desactivada' };
+    if (!pos) {
+      return { error: 'La caja seleccionada no existe, está desactivada o no pertenece a un punto de venta activo' };
+    }
 
     // A) No abrir dos turnos a la vez en la misma caja
     const [openRows] = await conn.execute(

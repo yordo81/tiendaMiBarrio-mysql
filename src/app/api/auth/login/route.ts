@@ -9,14 +9,14 @@ export const POST = handle(async (request: Request) => {
   const { email, password } = await request.json();
   if (!email || !password) return err('Email y contraseña requeridos');
 
-  const row = await queryOne<{ id:string; name:string; email:string; password_hash:string; role:string; permissions:string; active:boolean }>(
+  const row = await queryOne<{ id:string; name:string; email:string; password_hash:string; role:string; pos_id:string|null; permissions:string; active:boolean }>(
     'SELECT * FROM users WHERE email = ? AND active = 1 LIMIT 1', [email.toLowerCase().trim()]
   );
   if (!row || !(await bcrypt.compare(password, row.password_hash)))
     return err('Credenciales incorrectas', 401);
 
   const permissions = typeof row.permissions === 'string' ? JSON.parse(row.permissions) : (row.permissions ?? []);
-  const user: AppUser = { id: row.id, name: row.name, email: row.email, role: row.role as AppUser['role'], permissions, active: Boolean(row.active), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const user: AppUser = { id: row.id, name: row.name, email: row.email, role: row.role as AppUser['role'], pos_id: row.pos_id ?? null, permissions, active: Boolean(row.active), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   const session = await getSession();
   session.user = user;
   await session.save();

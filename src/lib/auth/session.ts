@@ -9,7 +9,7 @@ import { findActiveUser } from '@/lib/auth/user-active';
 // No se usa JWT ni localStorage.
 
 export interface SessionData {
-  user?: Pick<AppUser, 'id' | 'name' | 'email' | 'role' | 'permissions' | 'active'>;
+  user?: Pick<AppUser, 'id' | 'name' | 'email' | 'role' | 'pos_id' | 'permissions' | 'active'>;
 }
 
 // Obtiene la sesión desde la cookie (servidor)
@@ -57,6 +57,7 @@ export async function requireAuth(): Promise<NonNullable<SessionData['user']>> {
     name: dbUser.name,
     email: dbUser.email,
     role: dbUser.role as AppUser['role'],
+    pos_id: dbUser.pos_id ?? null,
     permissions,
     active: Boolean(dbUser.active),
   };

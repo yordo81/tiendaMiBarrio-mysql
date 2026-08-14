@@ -10,6 +10,7 @@ export interface ActiveUser {
   name: string;
   email: string;
   role: string;
+  pos_id: string | null;
   permissions: string;
   active: boolean;
 }
@@ -17,7 +18,7 @@ export interface ActiveUser {
 // Retorna el usuario si existe y está activo, o null en caso contrario
 export function findActiveUser(id: string): Promise<ActiveUser | null> {
   return queryOne<ActiveUser>(
-    'SELECT id, name, email, role, permissions, active FROM users WHERE id = ? AND active = 1 LIMIT 1',
+    'SELECT id, name, email, role, pos_id, permissions, active FROM users WHERE id = ? AND active = 1 LIMIT 1',
     [id]
   );
 }

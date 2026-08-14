@@ -149,6 +149,9 @@ mysql -u root -p < mysql/migration-018-receipt-printer.sql
 mysql -u root -p < mysql/migration-019-printers.sql
 mysql -u root -p < mysql/migration-020-reservations-toggle.sql
 mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
+mysql -u root -p < mysql/migration-022-users-pos.sql
+mysql -u root -p < mysql/migration-020-reservations-toggle.sql
+mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
 ```
 
 > 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` a `node scripts/apply-migration-020.js` aplican las migraciones 012-020 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).

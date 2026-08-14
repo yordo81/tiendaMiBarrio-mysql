@@ -17,7 +17,7 @@ export const POST = handle(async (request: Request) => {
 
   const row = await queryOne<{
     id: string; name: string; email: string;
-    password_hash: string; role: string; permissions: string; active: boolean
+    password_hash: string; role: string; pos_id: string | null; permissions: string; active: boolean
   }>(
     'SELECT * FROM users WHERE email = ? AND active = 1 LIMIT 1',
     [email.toLowerCase().trim()]
@@ -31,14 +31,14 @@ export const POST = handle(async (request: Request) => {
 
   const user: AppUser = {
     id: row.id, name: row.name, email: row.email,
-    role: row.role as AppUser['role'], permissions,
+    role: row.role as AppUser['role'], pos_id: row.pos_id ?? null, permissions,
     active: Boolean(row.active),
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
 
   const session = await getSession();
-  session.user = { id: user.id, name: user.name, email: user.email, role: user.role, permissions: user.permissions, active: user.active };
+  session.user = { id: user.id, name: user.name, email: user.email, role: user.role, pos_id: user.pos_id, permissions: user.permissions, active: user.active };
   await session.save();
 
   return ok({

@@ -148,6 +148,9 @@ mysql -u root -p < mysql/migration-017-purchases-invoice.sql
 mysql -u root -p < mysql/migration-018-stock-transfers-batch.sql
 mysql -u root -p < mysql/migration-018-receipt-printer.sql
 mysql -u root -p < mysql/migration-019-printers.sql
+mysql -u root -p < mysql/migration-020-reservations-toggle.sql
+mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
+mysql -u root -p < mysql/migration-022-users-pos.sql
 ```
 
 | Migración | Descripción |

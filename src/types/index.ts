@@ -12,6 +12,8 @@ export interface AppUser {
   email: string;
   name: string;
   role: UserRole;
+  /** Caja (punto de venta) asociada al usuario. En modo turnos el vendedor asociado trabaja fijo en su almacén. */
+  pos_id: string | null;
   permissions: Permission[];
   active: boolean;
   created_at: string;

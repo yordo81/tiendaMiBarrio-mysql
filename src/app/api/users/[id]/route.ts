@@ -33,6 +33,15 @@ export const PUT = handle(async (req: Request, ctx) => {
   if (body.role !== undefined)        { fields.push('role=?');        values.push(validateUserRole(body.role)); }
   if (body.active !== undefined)      { fields.push('active=?');      values.push(body.active?1:0); }
   if (body.permissions !== undefined) { fields.push('permissions=?'); values.push(JSON.stringify(body.permissions)); }
+  if (body.pos_id !== undefined) {
+    // Asociar (o desvincular) la caja del usuario; solo dueño (el admin no llega aquí)
+    const posId = String(body.pos_id ?? '').trim();
+    if (posId) {
+      const pos = await query('SELECT id FROM pos WHERE id = ? AND active = 1', [posId]);
+      if (!pos.length) return err('La caja seleccionada no existe o está desactivada');
+    }
+    fields.push('pos_id=?'); values.push(posId || null);
+  }
   if (body.password) { if (String(body.password).length < 6) return err('La contraseña debe tener al menos 6 caracteres'); fields.push('password_hash=?'); values.push(await bcrypt.hash(body.password,12)); }
   if (!fields.length) return err('Nada que actualizar');
   fields.push('updated_at=?'); values.push(ts); values.push(id);
@@ -53,7 +62,11 @@ export const PUT = handle(async (req: Request, ctx) => {
     });
   }
 
-  const rows = await query<Record<string,unknown>>('SELECT id,name,email,role,permissions,active,created_at,updated_at FROM users WHERE id=?',[id]);
+  const rows = await query<Record<string,unknown>>(
+    `SELECT u.id,u.name,u.email,u.role,u.permissions,u.active,u.pos_id,p.name AS pos_name,u.created_at,u.updated_at
+     FROM users u LEFT JOIN pos p ON p.id = u.pos_id WHERE u.id=?`,
+    [id]
+  );
   const r = rows[0];
   return ok({ ...r, active: Boolean(r.active), permissions: typeof r.permissions==='string'?JSON.parse(r.permissions as string):(r.permissions??[]) });
 });

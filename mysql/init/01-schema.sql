@@ -12,11 +12,13 @@ CREATE TABLE IF NOT EXISTS users (
   email         VARCHAR(255) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   role          ENUM('owner','admin','seller','warehouse') NOT NULL DEFAULT 'seller',
+  pos_id        VARCHAR(36)  NULL COMMENT 'Caja (punto de venta) asociada; en modo turnos el vendedor trabaja fijo en su almacén',
   permissions   JSON         NOT NULL DEFAULT (JSON_ARRAY()),
   active        TINYINT(1)   NOT NULL DEFAULT 1,
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_email (email)
+  INDEX idx_email (email),
+  INDEX idx_users_pos (pos_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -450,3 +452,9 @@ CREATE TABLE IF NOT EXISTS printers (
 -- Las cajas (pos) pertenecen a un punto de venta (locations type='store')
 -- ============================================================
 ALTER TABLE pos ADD CONSTRAINT fk_pos_location FOREIGN KEY (location_id) REFERENCES locations(id);
+
+-- ============================================================
+-- Los usuarios pueden estar asociados a una caja (pos)
+-- (constraint añadido aquí porque users se crea antes que pos)
+-- ============================================================
+ALTER TABLE users ADD CONSTRAINT fk_users_pos FOREIGN KEY (pos_id) REFERENCES pos(id);
