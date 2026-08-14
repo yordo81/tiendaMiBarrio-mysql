@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse, Calendar } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse, Calendar, Landmark, FileDown } from 'lucide-react';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import InfoTooltip from '@/components/ui/Tooltip';
 import { exportToCSV } from '@/lib/export';
@@ -11,12 +11,13 @@ import { toast } from '@/components/ui/toaster';
 
 function exportCSV(data: R[], filename: string) { exportToCSV(data as Record<string, unknown>[], filename); }
 
-type TabKey = 'ventas'|'rentabilidad'|'precios'|'reabastecimiento'|'cuentas'|'vencimientos';
+type TabKey = 'ventas'|'rentabilidad'|'precios'|'reabastecimiento'|'cuentas'|'vencimientos'|'transferencias';
 type R = Record<string,unknown>;
 
 const tabs: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key:'ventas', label:'Ventas', icon:TrendingUp },
   { key:'rentabilidad', label:'Rentabilidad', icon:BarChart3 },
+  { key:'transferencias', label:'Transferencias', icon:Landmark },
   { key:'precios', label:'Variación Precios', icon:TrendingDown },
   { key:'reabastecimiento', label:'Reabastecimiento', icon:Package },
   { key:'vencimientos', label:'Vencimientos', icon:Calendar },
@@ -48,6 +49,7 @@ export default function ReportesPage() {
   const [debts, setDebts] = useState<R[]>([]);
   const [totalDebt, setTotalDebt] = useState(0);
   const [expirationData, setExpirationData] = useState<R[]>([]);
+  const [transfers, setTransfers] = useState<R[]>([]);
   const [locations, setLocations] = useState<R[]>([]);
   const [locationFilter, setLocationFilter] = useState('');
 
@@ -176,6 +178,16 @@ export default function ReportesPage() {
     finally { setLoading(false); }
   }, []);
 
+  const loadTransfers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
+      const d = await apiFetch<R[]>(`/api/reports?type=transfers&days=${days}${locQ}`);
+      setTransfers(Array.isArray(d) ? d : []);
+    } catch(e) { console.error('[loadTransfers]', e); toast.error('Error al cargar transferencias'); }
+    finally { setLoading(false); }
+  }, [days, locationFilter]);
+
   // Cargar ubicaciones al montar
   useEffect(() => {
     api.getLocations().then(setLocations).catch(() => {});
@@ -184,6 +196,7 @@ export default function ReportesPage() {
   useEffect(() => {
     if (tab==='ventas') loadSales();
     else if (tab==='rentabilidad') loadMargins();
+    else if (tab==='transferencias') loadTransfers();
     else if (tab==='precios') loadProducts();
     else if (tab==='reabastecimiento') loadForecasts();
     else if (tab==='vencimientos') loadExpirations();
@@ -191,6 +204,79 @@ export default function ReportesPage() {
   }, [tab, range, locationFilter]);
 
   const urgencyBadge = (u: string) => u==='critical'?<span className="badge-danger">Crítico</span>:u==='soon'?<span className="badge-warning">Pronto</span>:<span className="badge-success">OK</span>;
+
+  // Exportar el reporte de transferencias a PDF (jsPDF + autotable)
+  async function exportTransfersPDF() {
+    if (transfers.length === 0) return;
+    const { jsPDF } = await import('jspdf');
+    const autoTable = (await import('jspdf-autotable')).default;
+    const doc = new jsPDF();
+
+    const rangeLabel = days === 7 ? 'últimos 7 días' : days === 30 ? 'últimos 30 días' : 'últimos 90 días';
+    const locName = locationFilter
+      ? String(locations.find(l => String(l.id) === locationFilter)?.name ?? '—')
+      : null;
+
+    // Totales agrupando por pago (una venta puede tener varias líneas)
+    const seen = new Set<string>();
+    let totalTransfer = 0;
+    let totalSubtotal = 0;
+    transfers.forEach(r => {
+      totalSubtotal += Number(r.subtotal ?? 0);
+      const pid = String(r.payment_id ?? '');
+      if (pid && !seen.has(pid)) { seen.add(pid); totalTransfer += Number(r.amount_transfer ?? 0); }
+    });
+
+    // Encabezado
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Reporte de Pagos por Transferencia', 14, 16);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(80);
+    doc.text(`Período: ${rangeLabel}${locName ? ` · Almacén: ${locName}` : ''}`, 14, 23);
+    doc.text(`Generado: ${new Date().toLocaleString('es')}`, 14, 28);
+
+    // Resumen
+    autoTable(doc, {
+      startY: 33,
+      head: [['Concepto', 'Valor']],
+      body: [
+        ['Total transferido', formatCurrency(totalTransfer)],
+        ['Ventas por transferencia', String(seen.size)],
+        ['Total productos', formatCurrency(totalSubtotal)],
+        ['Líneas', String(transfers.length)],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [38, 101, 245], fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+    });
+    let y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+
+    // Detalle por producto
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(`Pagos por transferencia (${transfers.length})`, 14, y);
+    doc.setFont('helvetica', 'normal');
+    autoTable(doc, {
+      startY: y + 2,
+      head: [['Fecha', 'Producto', 'Precio venta', 'Cant.', 'Subtotal', 'Teléfono', 'Ref. bancaria']],
+      body: transfers.map(t => [
+        String(t.date ?? '').slice(0, 16).replace('T', ' '),
+        String(t.product_name ?? '—'),
+        formatCurrency(Number(t.unit_price ?? 0)),
+        formatNumber(Number(t.quantity ?? 0), 2),
+        formatCurrency(Number(t.subtotal ?? 0)),
+        String(t.phone ?? '—'),
+        String(t.bank_ref ?? '—'),
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: [38, 101, 245], fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+    });
+
+    doc.save(`transferencias-${days}d.pdf`);
+  }
 
   const maxSalesTotal = salesData.length ? Math.max(...salesData.map(d => Number(d.total ?? 0))) : 0;
   const yMaxSales = Math.ceil(maxSalesTotal * 1.15 / 1000) * 1000 || 1000;
@@ -205,7 +291,7 @@ export default function ReportesPage() {
             </button>
           ))}
           <div className="flex-1" />
-          {(tab==='ventas'||tab==='rentabilidad'||tab==='reabastecimiento')&&locations.length>0&&(
+          {(tab==='ventas'||tab==='rentabilidad'||tab==='transferencias'||tab==='reabastecimiento')&&locations.length>0&&(
             <div className="flex items-center gap-2">
               <Warehouse size={14} className="text-[var(--text-tertiary)] shrink-0" />
               <div className="max-w-[180px]">
@@ -224,7 +310,7 @@ export default function ReportesPage() {
           )}
         </div>
 
-      {(tab==='ventas'||tab==='rentabilidad')&&(
+      {(tab==='ventas'||tab==='rentabilidad'||tab==='transferencias')&&(
         <div className="flex gap-2">
           {(['7d','30d','90d'] as const).map(r=>(
             <button key={r} onClick={()=>setRange(r)} className={cn('px-3 py-1.5 text-xs rounded-lg border transition-colors', range===r?'bg-brand-600 border-brand-600 text-white':'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]')}>
@@ -340,6 +426,65 @@ export default function ReportesPage() {
                       <td className="px-3 py-2.5"><span className={cn('font-medium',gProfit>=0?'text-green-400':'text-red-400')}>{formatCurrency(gProfit)}</span></td>
                     </tr>
                   )})}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!loading&&tab==='transferencias'&&(
+        <div className="space-y-5">
+          {(() => {
+            // Total transferido agrupando por pago (una venta puede tener varias líneas)
+            const seen = new Set<string>();
+            let totalTransfer = 0;
+            let totalSubtotal = 0;
+            transfers.forEach(r => {
+              totalSubtotal += Number(r.subtotal ?? 0);
+              const pid = String(r.payment_id ?? '');
+              if (pid && !seen.has(pid)) { seen.add(pid); totalTransfer += Number(r.amount_transfer ?? 0); }
+            });
+            return (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                  { label:'Total transferido', value:formatCurrency(totalTransfer), color:'text-brand-400', tip:'Suma de los pagos por transferencia en el período (una vez por venta)' },
+                  { label:'Ventas por transferencia', value:String(seen.size), color:'text-[var(--text-primary)]', tip:'Número de ventas pagadas total o parcialmente por transferencia' },
+                  { label:'Total productos', value:formatCurrency(totalSubtotal), color:'text-blue-400', tip:'Suma de los subtotales de las líneas de producto vendidas' },
+                  { label:'Líneas', value:String(transfers.length), color:'text-purple-400', tip:'Número de líneas de producto en el reporte' },
+                ].map(c=>(
+                  <div key={c.label} className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">{c.tip ? <InfoTooltip content={c.tip} iconClassName="w-3 h-3 ml-0.5 inline-block -mt-0.5">{c.label}</InfoTooltip> : c.label}</p><p className={cn('text-lg font-semibold',c.color)}>{c.value}</p></div>
+                ))}
+              </div>
+            );
+          })()}
+
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Pagos por transferencia</h3>
+                <p className="text-xs text-[var(--text-tertiary)] mt-0.5">Productos vendidos con pago por transferencia, teléfono del cliente y referencia bancaria</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={()=>exportCSV(transfers,'transferencias')} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
+                <button onClick={exportTransfersPDF} disabled={transfers.length===0} className="btn-secondary flex items-center gap-1.5 text-xs"><FileDown size={13}/>PDF</button>
+              </div>
+            </div>
+            {transfers.length===0?<p className="text-center text-[var(--text-tertiary)] py-8 text-sm">Sin pagos por transferencia en este período</p>:(
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Producto','Precio venta','Cant.','Subtotal','Teléfono','Ref. bancaria'].map(h=><th key={h} className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                  <tbody>{transfers.map((t,i)=>(
+                    <tr key={`${String(t.payment_id)}-${i}`} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                      <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs whitespace-nowrap">{String(t.date ?? '').slice(0,16).replace('T',' ')}</td>
+                      <td className="px-3 py-2.5 text-[var(--text-primary)] font-medium">{String(t.product_name)}</td>
+                      <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{formatCurrency(Number(t.unit_price))}</td>
+                      <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{formatNumber(Number(t.quantity),2)}</td>
+                      <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{formatCurrency(Number(t.subtotal))}</td>
+                      <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{String(t.phone ?? '—')}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs text-[var(--text-secondary)]">{String(t.bank_ref ?? '—')}</td>
+                    </tr>
+                  ))}</tbody>
                 </table>
               </div>
             )}

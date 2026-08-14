@@ -186,6 +186,55 @@ export const GET = handle(async (req: Request) => {
     return ok(await query(sql, pid?[pid]:[]));
   }
 
+  if (type === 'transfers') {
+    // Reporte de pagos por transferencia: cada fila es una línea de producto
+    // de una venta pagada (total o parcialmente) por transferencia. El
+    // teléfono del cliente y la referencia bancaria se extraen de las notas
+    // del pago (formato del POS táctil: "ID pago: XXX · Tel: XXX") o del
+    // teléfono del cliente asociado a la venta.
+    let sql = `
+      SELECT p.id AS payment_id, p.method, p.amount_transfer, p.notes AS payment_notes,
+             p.date AS payment_date, s.id AS sale_id, s.date AS sale_date,
+             pr.name AS product_name, si.quantity, si.unit_price,
+             c.name AS customer_name, c.phone AS customer_phone
+      FROM payments p
+      JOIN sales s ON s.id = p.sale_id
+      JOIN sale_items si ON si.sale_id = s.id
+      JOIN products pr ON pr.id = si.product_id
+      LEFT JOIN customers c ON c.id = s.customer_id`;
+    const tp: unknown[] = [];
+    if (locationId) {
+      sql += ` JOIN location_movements lm ON lm.reference_id = s.id AND lm.type='venta' AND lm.location_id=?`;
+      tp.push(locationId);
+    }
+    sql += ` WHERE p.method IN ('transfer','mixed') AND p.amount_transfer > 0
+            AND s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL ? DAY)
+            ORDER BY p.date DESC, p.id DESC`;
+    tp.push(days);
+    const rows = await query<Record<string, unknown>>(sql, tp);
+    const out = rows.map(r => {
+      const notes = String(r.payment_notes ?? '');
+      const phoneFromNotes = notes.match(/Tel:\s*([^·\n]+)/i)?.[1]?.trim() ?? null;
+      const refFromNotes = notes.match(/ID pago:\s*([^·\n]+)/i)?.[1]?.trim() ?? null;
+      const phone = String(r.customer_phone ?? '').trim() || phoneFromNotes;
+      return {
+        payment_id: r.payment_id,
+        sale_id: r.sale_id,
+        date: r.payment_date,
+        product_name: r.product_name,
+        quantity: Number(r.quantity ?? 0),
+        unit_price: Number(r.unit_price ?? 0),
+        subtotal: Number(r.quantity ?? 0) * Number(r.unit_price ?? 0),
+        amount_transfer: Number(r.amount_transfer ?? 0),
+        method: r.method,
+        customer_name: r.customer_name ?? null,
+        phone: phone || null,
+        bank_ref: refFromNotes,
+      };
+    });
+    return ok(out);
+  }
+
   if (type === 'expiration') {
     const rows = await query<Record<string, unknown>>(`
       SELECT p.id, p.name, p.expiration_date, p.is_perishable, p.stock, p.unit,
