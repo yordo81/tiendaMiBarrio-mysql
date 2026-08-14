@@ -4,23 +4,26 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Search, ScanBarcode, Minus, Plus, Trash2, ShoppingCart, X, CheckCircle,
-  Banknote, Landmark, CreditCard, Wallet, Package, ArrowLeft, History,
+  Banknote, Landmark, Wallet, Package, History,
   Receipt, AlertTriangle, Loader2, Store, User, Keyboard, Delete,
-  TabletSmartphone,
+  TabletSmartphone, Phone, PhoneOff, ChevronDown, KeyRound, LogOut, Play, Square, Clock3,
 } from 'lucide-react';
 import EmptyState from '@/components/ui/EmptyState';
-import { formatCurrency, formatNumber, cn, findProductByBarcode } from '@/lib/utils';
+import { formatCurrency, formatNumber, cn, findProductByBarcode, formatDateTime } from '@/lib/utils';
+import { normalizePhone } from '@/lib/validate';
 import { api } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSettingsStore } from '@/lib/stores/settings-store';
 import { usePosSelector } from '@/hooks/use-pos';
 import { toast } from '@/components/ui/toaster';
 import { playScanBeep } from '@/lib/scan-beep';
-import { notifyShiftSummaryChanged } from '@/lib/shift-events';
+import { notifyShiftChanged, notifyShiftSummaryChanged, SHIFT_CHANGED_EVENT, SHIFT_SUMMARY_CHANGED_EVENT } from '@/lib/shift-events';
 import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
 import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import ThemeToggle from '@/components/ui/ThemeToggle';
+import OpenShiftModal from '@/components/shifts/OpenShiftModal';
+import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 
 // ── Punto de venta táctil ─────────────────────────────────────────
 // Interfaz adaptada de "touch-point-shop" para pantallas táctiles:
@@ -29,14 +32,13 @@ import ThemeToggle from '@/components/ui/ThemeToggle';
 // roles conserva la ventana modal de venta en /dashboard/ventas.
 
 type AnyRecord = Record<string, unknown>;
-type PayMethod = 'cash' | 'transfer' | 'mixed' | 'credit';
+type PayMethod = 'cash' | 'transfer' | 'mixed';
 interface CartLine { product: AnyRecord; quantity: number; unit_price: number; }
 
 const PAY_METHODS: { id: PayMethod; label: string; icon: typeof Banknote; desc: string }[] = [
   { id: 'cash', label: 'Efectivo', icon: Banknote, desc: 'Billetes o monedas' },
   { id: 'transfer', label: 'Transferencia', icon: Landmark, desc: 'Pago bancario' },
   { id: 'mixed', label: 'Mixto', icon: Wallet, desc: 'Efectivo + transferencia' },
-  { id: 'credit', label: 'Crédito', icon: CreditCard, desc: 'Se registra como deuda' },
 ];
 
 // Billetes rápidos para el cálculo de cambio en efectivo (DOP)
@@ -117,7 +119,7 @@ function ProductImage({ product }: { product: AnyRecord }) {
 }
 
 export default function TouchPosPage() {
-  const { user } = useAuthStore();
+  const { user, setUser } = useAuthStore();
   const router = useRouter();
   const settings = useSettingsStore(s => s.settings);
   const settingsLoaded = useSettingsStore(s => s.loaded);
@@ -133,6 +135,10 @@ export default function TouchPosPage() {
   // Marca que ya se intentó restaurar el pedido guardado (evita borrarlo
   // con el carrito vacío antes de que carguen los datos)
   const draftRestoredRef = useRef(false);
+  // Arrastre horizontal de la fila de categorías (clic y deslizar)
+  const categoriesRef = useRef<HTMLDivElement>(null);
+  const categoryDragRef = useRef<{ startX: number; scrollLeft: number; moved: number; pointerId: number } | null>(null);
+  const categorySuppressClickRef = useRef(false);
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [locationId, setLocationId] = useState('');
@@ -147,8 +153,23 @@ export default function TouchPosPage() {
   const [keypadOpen, setKeypadOpen] = useState(false); // teclado numérico en pantalla
   const [lastSale, setLastSale] = useState<{ id: string; total: number; change: number; method: PayMethod } | null>(null);
 
+  // Menú de usuario y turno de caja
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [showOpenShift, setShowOpenShift] = useState(false);
+  const [showCloseShift, setShowCloseShift] = useState(false);
+  const [closeShift, setCloseShift] = useState<AnyRecord | null>(null);
+  const [closeForm, setCloseForm] = useState({ closing_cash: 0, notes: '' });
+  const [shiftBusy, setShiftBusy] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuButtonRef = useRef<HTMLButtonElement>(null);
+
   const isSeller = mounted && user?.role === 'seller';
-  const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(isSeller);
+  const { workMode, posId, setPosId, posOptions, openShifts, hasOpenShift, resetPos, refreshPos } = usePosSelector(isSeller);
+
+  // En modo por turnos solo se puede cobrar si la caja seleccionada tiene un
+  // turno de ventas abierto. Sin turno, el botón Cobrar queda bloqueado.
+  const canCharge = workMode !== 'shifts' || (!!posId && hasOpenShift(posId));
 
   // Vendedor asociado a una caja: en modo por turnos trabaja fijo en su punto
   // de venta (almacén). No puede cambiar de caja ni de almacén en el POS táctil.
@@ -160,6 +181,82 @@ export default function TouchPosPage() {
   const assignedPosName = posLocked
     ? String(posOptions.find(p => String(p.id) === assignedPosId)?.name ?? 'Tu caja')
     : '';
+
+  // ── Turno de caja del vendedor ─────────────────────────────────
+  // El turno propio es el de la caja asignada al vendedor (o el que él
+  // mismo abrió si no tiene caja fija).
+  const myOpenShift = workMode === 'shifts'
+    ? (openShifts.find(s => String(s.pos_id) === String(assignedPosId ?? '')) ?? openShifts.find(s => String(s.user_id) === user?.id) ?? null)
+    : null;
+  const myShiftSummary = (myOpenShift?.summary ?? null) as { total_sales: number; sales_count?: number; total_cash: number; expected_cash: number } | null;
+  const openPosIds = new Set(openShifts.map(s => String(s.pos_id)));
+
+  // Abre el modal de cobro. En modo turnos refresca el estado de las cajas
+  // para que el bloqueo por turno cerrado esté siempre al día.
+  const openPayModal = useCallback(() => {
+    if (workMode === 'shifts') refreshPos();
+    setShowPay(true);
+    setCartOpen(false);
+  }, [workMode, refreshPos]);
+
+  // Mantener el turno y su resumen al día: al abrir/cerrar turno desde el
+  // menú de usuario o al registrar ventas, se refrescan cajas y turnos.
+  useEffect(() => {
+    if (!isSeller) return;
+    const onShiftEvent = () => refreshPos();
+    window.addEventListener(SHIFT_CHANGED_EVENT, onShiftEvent);
+    window.addEventListener(SHIFT_SUMMARY_CHANGED_EVENT, onShiftEvent);
+    return () => {
+      window.removeEventListener(SHIFT_CHANGED_EVENT, onShiftEvent);
+      window.removeEventListener(SHIFT_SUMMARY_CHANGED_EVENT, onShiftEvent);
+    };
+  }, [isSeller, refreshPos]);
+
+  // Cerrar el menú de usuario al hacer clic fuera
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => {
+      if (
+        userMenuRef.current && !userMenuRef.current.contains(e.target as Node) &&
+        userMenuButtonRef.current && !userMenuButtonRef.current.contains(e.target as Node)
+      ) {
+        setUserMenuOpen(false);
+      }
+    };
+    if (userMenuOpen) document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [userMenuOpen]);
+
+  // Cierra el turno propio con arqueo de caja
+  function openCloseShift() {
+    if (!myOpenShift) return;
+    setCloseShift(myOpenShift);
+    setCloseForm({ closing_cash: 0, notes: '' });
+    setShowCloseShift(true);
+  }
+
+  async function handleCloseShift() {
+    if (!closeShift) return;
+    setShiftBusy(true);
+    try {
+      await api.closeShift(String(closeShift.id), { closing_cash: closeForm.closing_cash, notes: closeForm.notes });
+      toast.success('Turno cerrado con arqueo');
+      setShowCloseShift(false);
+      setCloseShift(null);
+      setCloseForm({ closing_cash: 0, notes: '' });
+      refreshPos();
+      notifyShiftChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al cerrar el turno');
+    } finally {
+      setShiftBusy(false);
+    }
+  }
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+    router.push('/auth/login');
+  }
 
   // Cargar configuración del negocio (nombre/logo) una sola vez
   useEffect(() => { loadSettings(); }, [loadSettings]);
@@ -260,8 +357,11 @@ export default function TouchPosPage() {
           toast.error('Revisa el stock del pedido antes de cobrar');
           return;
         }
-        setShowPay(true);
-        setCartOpen(false);
+        if (!canCharge) {
+          toast.error('No hay un turno de ventas abierto. Abre un turno para poder cobrar.');
+          return;
+        }
+        openPayModal();
         return;
       }
       if (e.key === 'Escape') {
@@ -288,7 +388,7 @@ export default function TouchPosPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSeller, cart, query, cartOpen, keypadOpen, showPay, lastSale, locations]);
+  }, [isSeller, cart, query, cartOpen, keypadOpen, showPay, lastSale, locations, canCharge, openPayModal]);
 
   // Stock por almacén de salida
   useEffect(() => {
@@ -364,7 +464,11 @@ export default function TouchPosPage() {
   }, [products]);
 
   const filteredProducts = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    // "Cantidad por código" (2*75012345): filtrar por el código, no por la
+    // cadena completa, para que el producto se muestre mientras se escribe.
+    const raw = query.trim();
+    const qtyMatch = raw.match(/^(\d+)\s*[*x]\s*(.+)$/i);
+    const q = (qtyMatch ? qtyMatch[2].trim() : raw).toLowerCase();
     return products
       .filter(p => {
         const inCat = category === 'Todo' || String(p.category_name ?? '') === category;
@@ -460,6 +564,15 @@ export default function TouchPosPage() {
         searchRef.current?.focus();
         return;
       }
+      // Código parcial (p. ej. sin ceros a la izquierda): si solo hay una
+      // coincidencia por código de barras, se agrega esa.
+      const byBarcode = products.filter(p => getAvailableStock(p) > 0 && String(p.barcode ?? '').toLowerCase().includes(rest.toLowerCase()));
+      if (byBarcode.length === 1) {
+        addToCart(byBarcode[0], qty);
+        setQuery('');
+        searchRef.current?.focus();
+        return;
+      }
       toast.error(`No se encontró "${rest}"`);
       return;
     }
@@ -488,6 +601,36 @@ export default function TouchPosPage() {
     commitSearch();
   }
 
+  // ── Arrastre horizontal de categorías ─────────────────────────
+  // Mantén presionado y desliza (clic + mover) para recorrer la fila de
+  // categorías. Un deslizamiento no cambia la categoría seleccionada.
+  function startCategoryDrag(e: React.PointerEvent<HTMLDivElement>) {
+    const el = categoriesRef.current;
+    if (!el) return;
+    try { el.setPointerCapture(e.pointerId); } catch { /* sin captura de puntero */ }
+    categoryDragRef.current = { startX: e.clientX, scrollLeft: el.scrollLeft, moved: 0, pointerId: e.pointerId };
+  }
+
+  function moveCategoryDrag(e: React.PointerEvent<HTMLDivElement>) {
+    const st = categoryDragRef.current;
+    const el = categoriesRef.current;
+    if (!st || !el || e.pointerId !== st.pointerId) return;
+    const dx = e.clientX - st.startX;
+    st.moved = Math.max(st.moved, Math.abs(dx));
+    el.scrollLeft = st.scrollLeft - dx;
+  }
+
+  function endCategoryDrag(e: React.PointerEvent<HTMLDivElement>) {
+    const st = categoryDragRef.current;
+    if (!st || e.pointerId !== st.pointerId) return;
+    categoryDragRef.current = null;
+    // Si hubo arrastre, el clic posterior no debe cambiar de categoría
+    if (st.moved > 6) {
+      categorySuppressClickRef.current = true;
+      setTimeout(() => { categorySuppressClickRef.current = false; }, 0);
+    }
+  }
+
   // Vacía el carrito y elimina el pedido guardado en el navegador
   function emptyCart() {
     setCart([]);
@@ -512,7 +655,11 @@ export default function TouchPosPage() {
   const cashDue = payMethod === 'cash' ? cartTotal : payMethod === 'mixed' ? (amountTransfer > 0 ? cartTotal - amountTransfer : 0) : 0;
   const change = cashReceived - cashDue;
 
-  // Referencia de la transferencia (opcional): ID de pago + teléfono del cliente
+  // Teléfono celular cubano: +53 opcional + 5 + 7 dígitos (8 en total)
+  const transferPhoneNormalized = transferPhone.trim() ? normalizePhone(transferPhone) : '';
+  const transferPhoneValid = !!transferPhoneNormalized && /^(\+?53)?5\d{7}$/.test(transferPhoneNormalized);
+
+  // Referencia de la transferencia: ID de pago + teléfono del cliente
   function transferDetails(): string | null {
     const parts: string[] = [];
     if (transferRef.trim()) parts.push(`ID pago: ${transferRef.trim().toUpperCase()}`);
@@ -558,6 +705,20 @@ export default function TouchPosPage() {
     if ((payMethod === 'transfer' || payMethod === 'mixed') && transferRef.trim() && !/^[A-Za-z0-9]{1,13}$/.test(transferRef.trim())) {
       toast.error('El ID de pago solo puede contener letras y números (máximo 13)');
       return;
+    }
+    // En modo turnos se requiere un turno de ventas abierto en la caja
+    if (workMode === 'shifts' && !canCharge) {
+      toast.error('No hay un turno de ventas abierto en esta caja. Abre un turno para poder cobrar.');
+      return;
+    }
+    // Teléfono celular cubano obligatorio para los pagos con transferencia
+    const hasTransfer = payMethod === 'transfer' || (payMethod === 'mixed' && amountTransfer > 0);
+    if (hasTransfer) {
+      const phone = normalizePhone(transferPhone);
+      if (!phone || !/^(\+?53)?5\d{7}$/.test(phone)) {
+        toast.error('Ingresa un teléfono celular cubano válido para la transferencia (Ej: +53 55280263)');
+        return;
+      }
     }
     const stockErrors = cart.filter(i => i.quantity > getAvailableStock(i.product));
     if (stockErrors.length > 0) {
@@ -627,47 +788,49 @@ export default function TouchPosPage() {
             </div>
           ) : (
             cart.map(line => (
-              <div key={String(line.product.id)} className="flex items-center gap-3 rounded-xl border p-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
-                <div className="w-12 h-12 flex-shrink-0 overflow-hidden rounded-lg border" style={{ borderColor: 'var(--border-primary)' }}>
-                  <ProductImage product={line.product} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{String(line.product.name)}</p>
-                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                    {formatCurrency(line.unit_price)}
-                    {line.product.unit ? <span className="uppercase"> / {String(line.product.unit)}</span> : null}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 rounded-lg border p-1" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-secondary)' }}>
+              <div key={String(line.product.id)} className="rounded-xl border p-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+                <div className="flex items-start gap-3">
+                  <div className="w-12 h-12 flex-shrink-0 overflow-hidden rounded-lg border" style={{ borderColor: 'var(--border-primary)' }}>
+                    <ProductImage product={line.product} />
+                  </div>
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <p className="truncate text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{String(line.product.name)}</p>
+                    <p className="mt-0.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                      {formatCurrency(line.unit_price)}
+                      {line.product.unit ? <span className="uppercase"> / {String(line.product.unit)}</span> : null}
+                    </p>
+                  </div>
                   <button
-                    aria-label={`Quitar una unidad de ${String(line.product.name)}`}
-                    onClick={() => changeQty(line.product.id, -1)}
-                    className="flex w-8 h-8 items-center justify-center rounded-md text-sm active:bg-[var(--bg-muted)]"
-                    style={{ color: 'var(--text-primary)' }}
+                    aria-label={`Eliminar ${String(line.product.name)} del pedido`}
+                    onClick={() => removeLine(line.product.id)}
+                    className="-m-1 p-1.5 rounded-md transition-colors hover:text-red-400 flex-shrink-0"
+                    style={{ color: 'var(--text-tertiary)' }}
                   >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                  <span className="w-7 text-center text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{formatNumber(line.quantity, 0)}</span>
-                  <button
-                    aria-label={`Agregar una unidad de ${String(line.product.name)}`}
-                    onClick={() => changeQty(line.product.id, 1)}
-                    className="flex w-8 h-8 items-center justify-center rounded-md text-sm active:bg-[var(--bg-muted)]"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    <Plus className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="hidden xs:flex w-20 justify-end text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {formatCurrency(line.quantity * line.unit_price)}
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 rounded-lg border p-1" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-secondary)' }}>
+                    <button
+                      aria-label={`Quitar una unidad de ${String(line.product.name)}`}
+                      onClick={() => changeQty(line.product.id, -1)}
+                      className="flex w-8 h-8 items-center justify-center rounded-md text-sm active:bg-[var(--bg-muted)]"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <span className="w-7 text-center text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{formatNumber(line.quantity, 0)}</span>
+                    <button
+                      aria-label={`Agregar una unidad de ${String(line.product.name)}`}
+                      onClick={() => changeQty(line.product.id, 1)}
+                      className="flex w-8 h-8 items-center justify-center rounded-md text-sm active:bg-[var(--bg-muted)]"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(line.quantity * line.unit_price)}</span>
                 </div>
-                <button
-                  aria-label={`Eliminar ${String(line.product.name)} del pedido`}
-                  onClick={() => removeLine(line.product.id)}
-                  className="p-1.5 rounded-md transition-colors hover:text-red-400"
-                  style={{ color: 'var(--text-tertiary)' }}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
               </div>
             ))
           )}
@@ -692,9 +855,15 @@ export default function TouchPosPage() {
                     Algunos productos exceden el stock disponible. Revisa el pedido.
                   </p>
                 )}
+                {!canCharge && (
+                  <p className="text-xs flex items-center gap-1.5 text-yellow-400">
+                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                    No hay un turno de ventas abierto en la caja. Abre un turno para poder cobrar.
+                  </p>
+                )}
                 <button
-                  onClick={() => { setShowPay(true); setCartOpen(false); }}
-                  disabled={cart.length === 0 || issues || saving}
+                  onClick={openPayModal}
+                  disabled={cart.length === 0 || issues || saving || !canCharge}
                   className="w-full rounded-xl py-4 text-lg font-semibold text-white transition-all active:scale-[0.98] disabled:opacity-40 shadow-lg"
                   style={{ backgroundColor: 'var(--brand-600)', boxShadow: '0 10px 25px -5px color-mix(in srgb, var(--brand-500) 40%, transparent)' }}
                 >
@@ -757,6 +926,19 @@ export default function TouchPosPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Total de ventas del turno (solo modo por turnos, con turno abierto) */}
+          {workMode === 'shifts' && myOpenShift && (
+            <div
+              className="hidden md:flex items-center gap-2 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-3 py-1.5 rounded-xl"
+              title={`Turno abierto en ${String(myOpenShift.pos_name ?? 'la caja')} · ${formatNumber(myShiftSummary?.sales_count ?? 0, 0)} venta(s) · ${formatCurrency(myShiftSummary?.total_sales ?? 0)} en ventas`}
+            >
+              <Clock3 className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate max-w-[190px]">
+                {String(myOpenShift.pos_name ?? 'Caja')} · {formatNumber(myShiftSummary?.sales_count ?? 0, 0)} venta(s) · {formatCurrency(myShiftSummary?.total_sales ?? 0)}
+              </span>
+            </div>
+          )}
+
           <div className="hidden sm:flex items-center" title="Cambiar tema">
             <ThemeToggle compact />
           </div>
@@ -768,19 +950,102 @@ export default function TouchPosPage() {
             <History className="w-4 h-4" />
             Historial
           </Link>
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-[var(--bg-tertiary)]"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Salir</span>
-          </Link>
-          <div className="hidden md:flex items-center gap-2 pl-2 ml-1 border-l" style={{ borderColor: 'var(--border-primary)' }}>
-            <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-              <User className="w-3.5 h-3.5" style={{ color: 'var(--text-tertiary)' }} />
-            </div>
-            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{String(user?.name ?? 'Vendedor')}</span>
+
+          {/* Menú de usuario: turno de caja, contraseña y sesión */}
+          <div className="relative">
+            <button
+              ref={userMenuButtonRef}
+              onClick={() => setUserMenuOpen(v => !v)}
+              className={cn(
+                'flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-all duration-200 border',
+                userMenuOpen
+                  ? 'bg-brand-500/15 text-brand-400 border-brand-500/30'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] border-transparent'
+              )}
+              title="Menú de usuario"
+            >
+              <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+                <User className="w-3.5 h-3.5" style={{ color: 'var(--text-tertiary)' }} />
+              </div>
+              <span className="hidden sm:block text-sm font-medium max-w-[100px] truncate" style={{ color: 'var(--text-primary)' }}>
+                {String(user?.name ?? 'Vendedor')}
+              </span>
+              <ChevronDown className={cn('w-3 h-3 transition-transform duration-200', userMenuOpen && 'rotate-180')} style={{ color: 'var(--text-tertiary)' }} />
+            </button>
+
+            {userMenuOpen && (
+              <div
+                ref={userMenuRef}
+                className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-primary)] shadow-2xl shadow-black/30 z-50 overflow-hidden"
+              >
+                {/* Cabecera con datos del usuario */}
+                <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-primary)]">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+                    <span className="text-sm font-semibold" style={{ color: 'var(--brand-400)' }}>
+                      {user?.name?.charAt(0)?.toUpperCase() ?? 'V'}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{String(user?.name ?? 'Vendedor')}</p>
+                    <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>Vendedor{assignedPosName ? ` · ${assignedPosName}` : ''}</p>
+                  </div>
+                </div>
+
+                {/* Abrir / cerrar turno en la caja del vendedor (modo por turnos) */}
+                {workMode === 'shifts' && (
+                  myOpenShift ? (
+                    <button
+                      onClick={() => { setUserMenuOpen(false); openCloseShift(); }}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors hover:bg-red-500/10 border-b border-[var(--border-primary)]"
+                    >
+                      <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-red-500/10 border border-red-500/20 flex-shrink-0">
+                        <Square className="w-3.5 h-3.5 text-red-400" />
+                      </span>
+                      <span className="flex-1 text-left">
+                        <span className="block text-[var(--text-primary)] font-medium">Cerrar turno</span>
+                        <span className="block text-[11px] text-[var(--text-tertiary)] truncate">
+                          Turno abierto en {String(myOpenShift.pos_name ?? 'la caja')}
+                          {myShiftSummary ? ` · ${formatNumber(myShiftSummary.sales_count ?? 0, 0)} venta(s)` : ''}
+                        </span>
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { setUserMenuOpen(false); setShowOpenShift(true); }}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors hover:bg-green-500/10 border-b border-[var(--border-primary)]"
+                    >
+                      <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-green-500/10 border border-green-500/20 flex-shrink-0">
+                        <Play className="w-3.5 h-3.5 text-green-400" />
+                      </span>
+                      <span className="flex-1 text-left">
+                        <span className="block text-[var(--text-primary)] font-medium">Abrir turno</span>
+                        <span className="block text-[11px] text-[var(--text-tertiary)] truncate">
+                          {assignedPosName ? `Caja asignada: ${assignedPosName}` : 'Abre un turno para poder cobrar'}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                )}
+
+                {/* Cambiar contraseña */}
+                <button
+                  onClick={() => { setUserMenuOpen(false); setShowChangePassword(true); }}
+                  className="flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors hover:bg-brand-500/10 border-b border-[var(--border-primary)]"
+                >
+                  <KeyRound className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-secondary)' }} />
+                  <span className="text-[var(--text-secondary)]">Cambiar contraseña</span>
+                </button>
+
+                {/* Cerrar sesión */}
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors hover:bg-red-500/10"
+                >
+                  <LogOut className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-secondary)' }} />
+                  <span className="text-[var(--text-secondary)]">Cerrar sesión</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -852,13 +1117,20 @@ export default function TouchPosPage() {
             )}
             </div>
 
-            <div className="flex gap-2.5 overflow-x-auto pb-2 pt-4 [scrollbar-width:none]">
+            <div
+              ref={categoriesRef}
+              onPointerDown={startCategoryDrag}
+              onPointerMove={moveCategoryDrag}
+              onPointerUp={endCategoryDrag}
+              onPointerCancel={endCategoryDrag}
+              className="flex gap-2.5 overflow-x-auto pb-2 pt-4 [scrollbar-width:none] cursor-grab active:cursor-grabbing touch-pan-x select-none"
+            >
               {categories.map(c => {
                 const active = c === category;
                 return (
                   <button
                     key={c}
-                    onClick={() => setCategory(c)}
+                    onClick={() => { if (categorySuppressClickRef.current) return; setCategory(c); }}
                     className={cn(
                       'flex-none rounded-full px-5 py-2.5 text-sm font-medium transition-transform active:scale-95',
                       active ? 'text-white' : ''
@@ -1101,8 +1373,8 @@ export default function TouchPosPage() {
                   noResultsMessage="No hay cajas creadas"
                 />
               )}
-              {posId && !hasOpenShift(posId) && (
-                <p className="text-[10px] text-yellow-400 mt-1">Esta caja no tiene un turno abierto. La venta no se incluirá en ningún arqueo.</p>
+              {workMode === 'shifts' && !canCharge && (
+                <p className="text-[10px] text-yellow-400 mt-1">Esta caja no tiene un turno de ventas abierto. Abre un turno para poder cobrar.</p>
               )}
             </div>
           )}
@@ -1133,7 +1405,7 @@ export default function TouchPosPage() {
           {/* Método de pago */}
           <div>
             <label className="label">Método de pago</label>
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-2 xl:grid-cols-3 gap-2.5">
               {PAY_METHODS.map(m => (
                 <button
                   key={m.id}
@@ -1224,26 +1496,42 @@ export default function TouchPosPage() {
 
           {payMethod === 'transfer' && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Se cobrará el total ({formatCurrency(cartTotal)}) por transferencia bancaria.
+              Se cobrará el total ({formatCurrency(cartTotal)}) por transferencia bancaria. El teléfono celular del cliente es obligatorio.
             </div>
           )}
 
-          {/* Datos de la transferencia (opcionales) */}
+          {/* Datos de la transferencia */}
           {(payMethod === 'transfer' || payMethod === 'mixed') && (
             <div className="rounded-xl border p-4" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
-              <p className="label mb-3">Datos de la transferencia (opcional)</p>
+              <p className="label mb-3">Datos de la transferencia</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Teléfono del cliente</label>
-                  <input
-                    type="tel"
-                    inputMode="tel"
-                    className="input"
-                    placeholder="Ej: 8095551234"
-                    value={transferPhone}
-                    maxLength={20}
-                    onChange={e => setTransferPhone(e.target.value)}
-                  />
+                  <label className="label">Teléfono celular del cliente *</label>
+                  <div className="relative">
+                    {transferPhone.trim() ? (
+                      transferPhoneValid ? (
+                        <CheckCircle className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-400" />
+                      ) : (
+                        <PhoneOff className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400" />
+                      )
+                    ) : (
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+                    )}
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      className={`input pl-10 ${transferPhone.trim() ? (transferPhoneValid ? 'border-green-500/50 focus:border-green-500' : 'border-amber-500/50 focus:border-amber-500') : ''}`}
+                      placeholder="Ej: +53 55280263"
+                      value={transferPhone}
+                      maxLength={20}
+                      onChange={e => setTransferPhone(e.target.value)}
+                    />
+                  </div>
+                  {transferPhone.trim() && (
+                    <p className={`text-[10px] mt-1 ${transferPhoneValid ? 'text-green-400' : 'text-amber-400'}`}>
+                      {transferPhoneValid ? 'Teléfono válido' : 'Formato inválido. Ejemplo: +53 55280263'}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="label">ID de pago</label>
@@ -1262,17 +1550,11 @@ export default function TouchPosPage() {
             </div>
           )}
 
-          {payMethod === 'credit' && (
-            <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-xs text-yellow-400">
-              ⚠ Se registrará como deuda. La venta quedará <b>pendiente</b> en el historial de ventas.
-            </div>
-          )}
-
           <div className="flex gap-3 pt-1">
             <button onClick={() => setShowPay(false)} className="btn-secondary flex-1 py-3.5 text-base">Volver</button>
             <button
               onClick={handleConfirm}
-              disabled={saving || cart.length === 0 || hasStockIssues()}
+              disabled={saving || cart.length === 0 || hasStockIssues() || !canCharge}
               className="btn-primary flex-1 py-3.5 text-base disabled:opacity-50"
             >
               {saving ? 'Registrando...' : `Confirmar — ${formatCurrency(cartTotal)}`}
@@ -1280,6 +1562,70 @@ export default function TouchPosPage() {
           </div>
         </div>
       </Modal>
+
+      {/* ── Modal: Abrir turno (caja del vendedor) ── */}
+      <OpenShiftModal
+        open={showOpenShift}
+        pos={posOptions}
+        openPosIds={openPosIds}
+        onClose={() => setShowOpenShift(false)}
+        onOpened={refreshPos}
+        preferredPosId={assignedPosId ?? undefined}
+      />
+
+      {/* ── Modal: Cerrar turno (arqueo de caja) ── */}
+      <Modal open={showCloseShift} onClose={() => setShowCloseShift(false)} title="Cerrar turno — arqueo de caja">
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--text-secondary)]">
+            Cuenta el efectivo en caja y regístralo. El sistema calculará el efectivo esperado según los
+            movimientos del turno y la diferencia.
+          </p>
+          <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-3 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-[var(--text-tertiary)]">Caja</p>
+              <p className="font-medium text-[var(--text-primary)] truncate">{String(closeShift?.pos_name ?? '—')}</p>
+            </div>
+            <div>
+              <p className="text-xs text-[var(--text-tertiary)]">Fondo inicial</p>
+              <p className="font-medium text-[var(--text-primary)]">{formatCurrency(Number(closeShift?.opening_cash ?? 0))}</p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-xs text-[var(--text-tertiary)]">Abierto desde</p>
+              <p className="font-medium text-[var(--text-primary)] truncate">{closeShift?.opened_at ? formatDateTime(String(closeShift.opened_at)) : '—'}</p>
+            </div>
+          </div>
+          <div>
+            <label className="label">Efectivo contado en caja *</label>
+            <div className="relative">
+              <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+              <input type="number" min="0" step="1" className="input pl-9"
+                value={closeForm.closing_cash || ''}
+                onChange={e => setCloseForm(f => ({ ...f, closing_cash: parseFloat(e.target.value) || 0 }))}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">Nota (opcional)</label>
+            <input type="text" className="input" placeholder="Ej: Turno cerrado sin novedades"
+              value={closeForm.notes}
+              onChange={e => setCloseForm(f => ({ ...f, notes: e.target.value }))}
+            />
+          </div>
+          <div className="flex flex-col xs:flex-row gap-2 justify-end pt-2">
+            <button onClick={() => setShowCloseShift(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
+            <button onClick={handleCloseShift} disabled={shiftBusy} className="btn-primary flex-1 xs:flex-none disabled:opacity-50">
+              {shiftBusy ? 'Cerrando...' : 'Cerrar turno'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal: Cambiar mi contraseña ── */}
+      <ChangePasswordModal
+        open={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+        mode="self"
+      />
 
       {/* ── Pantalla de éxito ── */}
       {lastSale && (
