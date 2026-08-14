@@ -3,7 +3,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, transaction } from '@/lib/db/mysql';
 import { handle, ok, err } from '@/lib/api-helpers';
 import { getBusinessSettings } from '@/lib/settings-server';
-import { nowUtc } from '@/lib/shift-time';
+import { nowUtc, utcToLocal } from '@/lib/shift-time';
 import { getOpenShiftLiveSummary } from '@/lib/shift-summary';
 import { logAudit } from '@/lib/db/audit';
 const randomUUID = () => crypto.randomUUID();
@@ -40,7 +40,6 @@ export const GET = handle(async () => {
      WHERE s.status = 'open'
      ORDER BY s.opened_at DESC`
   );
-
   // Acumulado en vivo de cada turno abierto (ventas, efectivo y esperado)
   // para mostrarlo en el Topbar y en los widgets de turnos sin recargar.
   // Un fallo en el resumen no debe romper el listado de turnos abiertos.
@@ -53,6 +52,12 @@ export const GET = handle(async () => {
       }
     })
   );
+  // Hora de apertura en hora local del negocio (las ventas se guardan en
+  // hora local, así el historial del vendedor puede filtrar desde la apertura)
+  const openLocal = openWithSummary.map((s: Record<string, unknown>) => ({
+    ...s,
+    opened_at_local: s.opened_at_raw ? utcToLocal(String(s.opened_at_raw)) : null,
+  }));
   // Historial: solo turnos cerrados (los abiertos ya van en `open`)
   const shifts = await query(
     `SELECT s.*, u.name AS user_name, cu.name AS closed_by_name, p.name AS pos_name
@@ -63,7 +68,7 @@ export const GET = handle(async () => {
      WHERE s.status = 'closed'
      ORDER BY s.opened_at DESC LIMIT 20`
   );
-  return ok({ pos, open: openWithSummary, shifts });
+  return ok({ pos, open: openLocal, shifts });
 });
 
 export const POST = handle(async (req: Request) => {

@@ -14,7 +14,7 @@ import Pagination from '@/components/ui/Pagination';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/toaster';
 import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
-import { ShoppingCart, Plus, Search, X, Eye, CreditCard, CheckCircle, Ban, Printer } from 'lucide-react';
+import { ShoppingCart, Plus, Search, X, Eye, CreditCard, CheckCircle, Ban, Printer, Clock3 } from 'lucide-react';
 
 type AnyRecord = Record<string,unknown>;
 type PayMethod = 'cash'|'transfer'|'mixed'|'credit';
@@ -67,6 +67,11 @@ export default function VentasPage() {
   const today = new Date();
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
   const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
+  // Fecha local del navegador (para el rango "hoy" del vendedor en modo días)
+  const localToday = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
   const [fromDate, setFromDate] = useState(fmtDate(firstOfMonth));
   const [toDate, setToDate] = useState(fmtDate(today));
 
@@ -78,10 +83,63 @@ export default function VentasPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
+  // ── Historial propio del vendedor ──────────────────────────────
+  // Cada vendedor ve únicamente sus ventas: en modo turnos las de su turno
+  // abierto (desde la apertura de la caja), en modo días las de hoy.
+  const isSeller = user?.role === 'seller';
+  const [myOpenShift, setMyOpenShift] = useState<AnyRecord | null>(null);
+  const [myShiftLoaded, setMyShiftLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!isSeller || workMode !== 'shifts') {
+      setMyOpenShift(null);
+      setMyShiftLoaded(true);
+      return;
+    }
+    setMyShiftLoaded(false);
+    api.getShifts()
+      .then(d => {
+        const open = (d.open ?? []) as AnyRecord[];
+        // El turno propio: el de la caja asignada al vendedor (o el que él abrió)
+        const mine = open.find(s => String(s.pos_id) === String(user?.pos_id ?? ''))
+          ?? open.find(s => String(s.user_id) === String(user?.id ?? ''))
+          ?? null;
+        setMyOpenShift(mine);
+      })
+      .catch(() => setMyOpenShift(null))
+      .finally(() => setMyShiftLoaded(true));
+  }, [isSeller, workMode, user?.id, user?.pos_id]);
+
   const load = useCallback(async () => {
+    // En modo turnos, esperar a conocer el turno abierto del vendedor antes
+    // de consultar (evita mostrar "sin ventas" mientras se carga el turno).
+    if (isSeller && workMode === 'shifts' && !myShiftLoaded) return;
     try {
-      const qs = new URLSearchParams({ from: fromDate, to: toDate, limit: '200' });
-      if (posFilter) qs.set('pos_id', posFilter);
+      const qs = new URLSearchParams({ limit: '200' });
+      if (isSeller) {
+        // Solo mis ventas, según el modo de trabajo
+        qs.set('user_id', String(user?.id ?? ''));
+        if (workMode === 'shifts') {
+          if (myOpenShift) {
+            // Desde la apertura del turno en hora local del negocio (las
+            // ventas se guardan en hora local; opened_at de la BD es UTC)
+            const opened = String(myOpenShift.opened_at_local ?? myOpenShift.opened_at_raw ?? '');
+            if (opened) qs.set('from', opened.slice(0, 19));
+          } else {
+            // Sin turno abierto no hay ventas del turno que mostrar
+            qs.set('from', '9999-01-01');
+          }
+        } else {
+          // Modo días: solo las ventas de hoy (fecha local del navegador)
+          const todayStr = localToday();
+          qs.set('from', todayStr);
+          qs.set('to', todayStr);
+        }
+      } else {
+        qs.set('from', fromDate);
+        qs.set('to', toDate);
+        if (posFilter) qs.set('pos_id', posFilter);
+      }
       const [s, p, c, l] = await Promise.all([api.getSales(qs.toString()), api.getProducts(), api.getCustomers(), api.getLocations()]);
       setSales(s); setProducts(p); setCustomers(c); setLocations(l);
     } catch (e) {
@@ -89,8 +147,15 @@ export default function VentasPage() {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate, posFilter]);
+  }, [fromDate, toDate, posFilter, isSeller, user?.id, workMode, myOpenShift, myShiftLoaded]);
   useEffect(() => { load(); }, [load]);
+
+  // Rótulo del rango que ve el vendedor (turno abierto o día de hoy)
+  const myRangeLabel = workMode === 'shifts'
+    ? (myOpenShift
+      ? `Turno abierto desde ${String(myOpenShift.opened_at_local ?? myOpenShift.opened_at_raw ?? '').slice(0, 16).replace('T', ' ')}`
+      : 'Sin turno abierto — no hay ventas del turno')
+    : `Ventas de hoy (${localToday()})`;
 
   // Cajas para el filtro: se cargan aparte para no bloquear el historial si falla
   useEffect(() => {
@@ -252,40 +317,49 @@ export default function VentasPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/>
             <input className="input pl-9" placeholder="Buscar ventas..." value={search} onChange={e=>setSearch(e.target.value)}/>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">Desde</label>
-            <input
-              type="date"
-              className="input py-1.5 px-2 text-xs w-36"
-              value={fromDate}
-              onChange={e => { setFromDate(e.target.value); setPage(1); }}
-            />
-            <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">Hasta</label>
-            <input
-              type="date"
-              className="input py-1.5 px-2 text-xs w-36"
-              value={toDate}
-              onChange={e => { setToDate(e.target.value); setPage(1); }}
-            />
-          </div>
-          {posList.length > 0 && (
-            <div className="w-44">
-              <SearchableSelect
-                options={[
-                  { value: '', label: 'Todas las cajas' },
-                  ...posList.map(p => ({
-                    value: String(p.id),
-                    label: String(p.name),
-                    sublabel: p.location_name ? String(p.location_name) : undefined,
-                  })),
-                  { value: 'none', label: 'Sin caja asignada' },
-                ]}
-                value={posFilter}
-                onChange={v => { setPosFilter(v); setPage(1); }}
-                placeholder="Filtrar por caja"
-                noResultsMessage="Sin cajas"
-              />
+          {isSeller ? (
+            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg px-3 py-2">
+              <Clock3 className="w-3.5 h-3.5 text-brand-400" />
+              <span>{myRangeLabel}</span>
             </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">Desde</label>
+                <input
+                  type="date"
+                  className="input py-1.5 px-2 text-xs w-36"
+                  value={fromDate}
+                  onChange={e => { setFromDate(e.target.value); setPage(1); }}
+                />
+                <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">Hasta</label>
+                <input
+                  type="date"
+                  className="input py-1.5 px-2 text-xs w-36"
+                  value={toDate}
+                  onChange={e => { setToDate(e.target.value); setPage(1); }}
+                />
+              </div>
+              {posList.length > 0 && (
+                <div className="w-44">
+                  <SearchableSelect
+                    options={[
+                      { value: '', label: 'Todas las cajas' },
+                      ...posList.map(p => ({
+                        value: String(p.id),
+                        label: String(p.name),
+                        sublabel: p.location_name ? String(p.location_name) : undefined,
+                      })),
+                      { value: 'none', label: 'Sin caja asignada' },
+                    ]}
+                    value={posFilter}
+                    onChange={v => { setPosFilter(v); setPage(1); }}
+                    placeholder="Filtrar por caja"
+                    noResultsMessage="Sin cajas"
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
         <button onClick={startNewSale} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nueva venta</button>
@@ -296,11 +370,12 @@ export default function VentasPage() {
         :paginatedSales.length===0?<EmptyState icon={ShoppingCart} title="Sin ventas" description="Registra tu primera venta" action={<button onClick={startNewSale} className="btn-primary">Nueva venta</button>}/>:(
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Cliente',...(workMode==='shifts'?['Caja']:[]),'Total','Tipo','Estado',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Cliente','Vendedor',...(workMode==='shifts'?['Caja']:[]),'Total','Tipo','Estado',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
               <tbody>{paginatedSales.map(s=>(
                 <tr key={String(s.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
                   <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{s.date?formatDateTime(String(s.date)):'—'}</td>
                   <td className="px-4 py-3 text-[var(--text-primary)]">{s.customer_name?String(s.customer_name):<span className="text-[var(--text-tertiary)] italic">Sin cliente</span>}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{s.user_name?String(s.user_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>
                   {workMode==='shifts'&&<td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{s.pos_name?String(s.pos_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>}
                   <td className="px-4 py-3 text-[var(--text-primary)] font-semibold">{formatCurrency(Number(s.total))}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{s.status==='pending'?'Crédito':'Contado'}</td>
