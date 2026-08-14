@@ -38,7 +38,8 @@ export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
   const { items, payment, customer_id, location_id, notes, date, pos_id } = await req.json();
   if (!items?.length) return err('La venta debe tener al menos un producto');
-  if (payment?.method === 'credit' && !customer_id) return err('Las ventas a crédito requieren cliente');
+  // Nota: las ventas a crédito pueden registrarse sin cliente (el POS táctil
+  // de los vendedores no pide cliente; la deuda queda pendiente en el historial).
 
   // Caja (punto de venta) opcional: atribuye la venta a la caja para el arqueo del turno
   const posId = pos_id ? String(pos_id).trim() : '';

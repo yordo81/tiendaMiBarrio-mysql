@@ -44,16 +44,14 @@ const CASH_DENOMS = [100, 200, 500, 1000, 2000];
 
 // ── Borrador del pedido (localStorage, por usuario) ─────────────
 // Conserva el pedido en curso entre recargas: líneas con cantidad por
-// producto, almacén de salida, cliente y notas. Se limpia al completar
-// la venta, al vaciar el carrito o al iniciar una nueva.
+// producto y almacén de salida. Se limpia al completar la venta, al
+// vaciar el carrito o al iniciar una nueva.
 const DRAFT_PREFIX = 'tmb-pos-draft';
 
 interface PosDraft {
   v: 1;
   cart: { productId: string; quantity: number }[];
   locationId?: string;
-  customerId?: string;
-  saleNotes?: string;
   savedAt: number;
 }
 
@@ -127,7 +125,6 @@ export default function TouchPosPage() {
 
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<AnyRecord[]>([]);
-  const [customers, setCustomers] = useState<AnyRecord[]>([]);
   const [locations, setLocations] = useState<AnyRecord[]>([]);
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
   const [query, setQuery] = useState('');
@@ -139,11 +136,11 @@ export default function TouchPosPage() {
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [locationId, setLocationId] = useState('');
-  const [customerId, setCustomerId] = useState('');
   const [payMethod, setPayMethod] = useState<PayMethod>('cash');
   const [cashReceived, setCashReceived] = useState(0);
   const [amountTransfer, setAmountTransfer] = useState(0);
-  const [saleNotes, setSaleNotes] = useState('');
+  const [transferPhone, setTransferPhone] = useState('');
+  const [transferRef, setTransferRef] = useState('');
   const [saving, setSaving] = useState(false);
   const [showPay, setShowPay] = useState(false);
   const [cartOpen, setCartOpen] = useState(false); // carrito en móvil
@@ -169,11 +166,10 @@ export default function TouchPosPage() {
   useEffect(() => {
     if (!isSeller) return;
     let alive = true;
-    Promise.all([api.getProducts(), api.getCustomers(), api.getLocations()])
-      .then(([p, c, l]) => {
+    Promise.all([api.getProducts(), api.getLocations()])
+      .then(([p, l]) => {
         if (!alive) return;
         setProducts(p);
-        setCustomers(c);
         setLocations(l);
         setLocationId(prev => prev || (l.length > 0 ? String(l[0].id) : ''));
       })
@@ -311,12 +307,8 @@ export default function TouchPosPage() {
     if (draft.locationId && locations.some(l => String(l.id) === draft.locationId)) {
       setLocationId(draft.locationId);
     }
-    if (draft.customerId && customers.some(c => String(c.id) === draft.customerId)) {
-      setCustomerId(draft.customerId);
-    }
-    setSaleNotes(draft.saleNotes ?? '');
     toast.info('Pedido en curso restaurado');
-  }, [isSeller, user, products, locations, customers]);
+  }, [isSeller, user, products, locations]);
 
   // ── Guardar el pedido en curso en cada cambio ─────────────────
   useEffect(() => {
@@ -326,11 +318,9 @@ export default function TouchPosPage() {
       v: 1,
       cart: cart.map(i => ({ productId: String(i.product.id), quantity: i.quantity })),
       locationId: locationId || undefined,
-      customerId: customerId || undefined,
-      saleNotes: saleNotes || undefined,
       savedAt: Date.now(),
     });
-  }, [isSeller, user, cart, locationId, customerId, saleNotes]);
+  }, [isSeller, user, cart, locationId]);
 
   const getAvailableStock = useCallback((product: AnyRecord): number => {
     if (locationId) {
@@ -485,17 +475,25 @@ export default function TouchPosPage() {
   function resetSale() {
     emptyCart();
     setLocationId(locations.length > 0 ? String(locations[0].id) : '');
-    setCustomerId('');
     setPayMethod('cash');
     setCashReceived(0);
     setAmountTransfer(0);
-    setSaleNotes('');
+    setTransferPhone('');
+    setTransferRef('');
     resetPos();
   }
 
   // Efectivo que aplica al total según el método (para el cálculo de cambio)
   const cashDue = payMethod === 'cash' ? cartTotal : payMethod === 'mixed' ? (amountTransfer > 0 ? cartTotal - amountTransfer : 0) : 0;
   const change = cashReceived - cashDue;
+
+  // Referencia de la transferencia (opcional): ID de pago + teléfono del cliente
+  function transferDetails(): string | null {
+    const parts: string[] = [];
+    if (transferRef.trim()) parts.push(`ID pago: ${transferRef.trim().toUpperCase()}`);
+    if (transferPhone.trim()) parts.push(`Tel: ${transferPhone.trim()}`);
+    return parts.length ? parts.join(' · ') : null;
+  }
 
   async function printSaleTicket(res: unknown, total: number) {
     await loadSettings();
@@ -514,7 +512,7 @@ export default function TouchPosPage() {
           payMethod,
           cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? cartTotal - amountTransfer : 0,
           transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
-          notes: saleNotes || null,
+          notes: transferDetails() || null,
         }),
         { method, width: s?.receipt_printer_width ?? '80', printer }
       );
@@ -525,15 +523,16 @@ export default function TouchPosPage() {
 
   async function handleConfirm() {
     if (cart.length === 0) return;
-    if (payMethod === 'credit' && !customerId) {
-      toast.error('Las ventas a crédito requieren cliente');
-      return;
-    }
     if (payMethod === 'mixed') {
       if (amountTransfer <= 0 || amountTransfer >= cartTotal) {
         toast.error('Indica un monto de transferencia menor que el total');
         return;
       }
+    }
+    // ID de pago opcional: solo letras y números, hasta 13 caracteres
+    if ((payMethod === 'transfer' || payMethod === 'mixed') && transferRef.trim() && !/^[A-Za-z0-9]{1,13}$/.test(transferRef.trim())) {
+      toast.error('El ID de pago solo puede contener letras y números (máximo 13)');
+      return;
     }
     const stockErrors = cart.filter(i => i.quantity > getAvailableStock(i.product));
     if (stockErrors.length > 0) {
@@ -555,11 +554,13 @@ export default function TouchPosPage() {
           method: payMethod,
           amount_cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? cartTotal - amountTransfer : 0,
           amount_transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
+          // La referencia (ID de pago + teléfono) se guarda en el pago
+          notes: (payMethod === 'transfer' || payMethod === 'mixed') ? transferDetails() : null,
         },
-        customer_id: customerId || null,
+        customer_id: null,
         location_id: locationId || null,
         pos_id: workMode === 'shifts' ? posId || null : null,
-        notes: saleNotes || null,
+        notes: null,
       });
       toast.success('Venta registrada');
       notifyShiftSummaryChanged();
@@ -1076,7 +1077,7 @@ export default function TouchPosPage() {
               {PAY_METHODS.map(m => (
                 <button
                   key={m.id}
-                  onClick={() => { setPayMethod(m.id); setCashReceived(0); setAmountTransfer(0); }}
+                  onClick={() => { setPayMethod(m.id); setCashReceived(0); setAmountTransfer(0); setTransferPhone(''); setTransferRef(''); }}
                   className={cn(
                     'rounded-xl border p-3.5 text-left transition-all active:scale-[0.97]',
                     payMethod === m.id ? 'text-white shadow-lg' : 'hover:brightness-105'
@@ -1167,38 +1168,45 @@ export default function TouchPosPage() {
             </div>
           )}
 
-          {/* Cliente */}
-          <div>
-            <label className="label">
-              Cliente {payMethod === 'credit' && <span className="text-red-400 normal-case">* (obligatorio en crédito)</span>}
-            </label>
-            <SearchableSelect
-              options={[
-                { value: '', label: 'Sin cliente' },
-                ...customers.map(c => ({
-                  value: String(c.id),
-                  label: String(c.name),
-                  sublabel: Number(c.balance) > 0 ? `Debe ${formatCurrency(Number(c.balance))}` : undefined,
-                })),
-              ]}
-              value={customerId}
-              onChange={v => setCustomerId(v)}
-              placeholder="Sin cliente"
-              noResultsMessage="Sin clientes"
-            />
-          </div>
-
-          {payMethod === 'credit' && (
-            <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-xs text-yellow-400">
-              ⚠ Se registrará como deuda a favor del cliente. Debes seleccionar un cliente.
+          {/* Datos de la transferencia (opcionales) */}
+          {(payMethod === 'transfer' || payMethod === 'mixed') && (
+            <div className="rounded-xl border p-4" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+              <p className="label mb-3">Datos de la transferencia (opcional)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Teléfono del cliente</label>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    className="input"
+                    placeholder="Ej: 8095551234"
+                    value={transferPhone}
+                    maxLength={20}
+                    onChange={e => setTransferPhone(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">ID de pago</label>
+                  <input
+                    className="input font-mono uppercase"
+                    placeholder="Ej: BHD1234567890"
+                    value={transferRef}
+                    maxLength={13}
+                    onChange={e => setTransferRef(e.target.value.replace(/[^A-Za-z0-9]/g, ''))}
+                  />
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                    Solo letras y números, máximo 13 caracteres.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Notas */}
-          <div>
-            <label className="label">Notas</label>
-            <input className="input" placeholder="Notas opcionales..." value={saleNotes} onChange={e => setSaleNotes(e.target.value)} />
-          </div>
+          {payMethod === 'credit' && (
+            <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-xs text-yellow-400">
+              ⚠ Se registrará como deuda. La venta quedará <b>pendiente</b> en el historial de ventas.
+            </div>
+          )}
 
           <div className="flex gap-3 pt-1">
             <button onClick={() => setShowPay(false)} className="btn-secondary flex-1 py-3.5 text-base">Volver</button>
