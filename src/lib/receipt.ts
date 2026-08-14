@@ -31,13 +31,6 @@ export interface ReceiptData {
   notes?: string | null;
 }
 
-const METHOD_LABEL: Record<ReceiptData['payMethod'], string> = {
-  cash: 'Efectivo',
-  transfer: 'Transferencia',
-  mixed: 'Mixto',
-  credit: 'Crédito',
-};
-
 // ── Formato común ────────────────────────────────────────────────
 function money(n: number): string {
   return '$' + n.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -83,14 +76,6 @@ export function buildReceiptHtml(data: ReceiptData, width: '57' | '80'): string 
       <div class="row sub"><span>${esc(qtyLine)}</span><span class="right">${money(it.quantity * it.unit_price)}</span></div>`;
   }).join('');
 
-  const payLines = (() => {
-    const m = data.payMethod;
-    if (m === 'mixed') return `<div class="row"><span>Efectivo</span><span class="right">${money(data.cashAmount)}</span></div><div class="row"><span>Transferencia</span><span class="right">${money(data.transferAmount)}</span></div>`;
-    if (m === 'cash') return `<div class="row"><span>Efectivo</span><span class="right">${money(data.cashAmount)}</span></div>`;
-    if (m === 'transfer') return `<div class="row"><span>Transferencia</span><span class="right">${money(data.transferAmount)}</span></div>`;
-    return `<div class="row"><span>Crédito (saldo pendiente)</span></div>`;
-  })();
-
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <title>Ticket ${esc(data.saleId)}</title>
 <style>
@@ -114,17 +99,11 @@ export function buildReceiptHtml(data: ReceiptData, width: '57' | '80'): string 
   <div class="center title">${esc(data.businessName)}</div>
   <div class="sep"></div>
   <div class="row"><span>Fecha:</span><span>${esc(dateLabel)}</span></div>
-  <div class="row"><span>Ticket:</span><span>${esc(data.saleId)}</span></div>
-  ${data.sellerName ? `<div class="row"><span>Vendedor:</span><span>${esc(data.sellerName)}</span></div>` : ''}
-  ${data.posName ? `<div class="row"><span>Caja:</span><span>${esc(data.posName)}</span></div>` : ''}
   ${data.customerName ? `<div class="row"><span>Cliente:</span><span>${esc(data.customerName)}</span></div>` : ''}
   <div class="sep"></div>
   ${itemRows}
   <div class="sep"></div>
   <div class="row total"><span>TOTAL</span><span>${money(data.total)}</span></div>
-  <div class="sep"></div>
-  <div class="row"><span>Método:</span><span>${METHOD_LABEL[data.payMethod]}</span></div>
-  ${payLines}
   ${data.notes ? `<div class="row"><span>Nota:</span><span>${esc(data.notes)}</span></div>` : ''}
   <div class="sep"></div>
   <div class="center">¡Gracias por su compra!</div>
@@ -193,9 +172,6 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
   push(center(data.businessName || 'MI NEGOCIO'), { bold: true });
   push(sep);
   push(kv('Fecha', data.date ? formatDateTime(data.date) : '—'));
-  push(kv('Ticket', data.saleId));
-  if (data.sellerName) push(kv('Vendedor', data.sellerName));
-  if (data.posName) push(kv('Caja', data.posName));
   if (data.customerName) push(kv('Cliente', data.customerName));
   push(sep);
 
@@ -213,17 +189,6 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
   // impresora maneja la alineación; el padding manual desbordaría el papel).
   push('TOTAL', { bold: true });
   push(money(data.total), { bold: true, double: true, align: 'right' });
-
-  // Pago
-  push(kv('Metodo', METHOD_LABEL[data.payMethod]));
-  if (data.payMethod === 'cash') push(kv('Efectivo', money(data.cashAmount)));
-  else if (data.payMethod === 'transfer') push(kv('Transfer', money(data.transferAmount)));
-  else if (data.payMethod === 'mixed') {
-    push(kv('Efectivo', money(data.cashAmount)));
-    push(kv('Transfer', money(data.transferAmount)));
-  } else {
-    push('Credito: saldo pendiente');
-  }
   if (data.notes) {
     for (const ln of wrapText(`Nota: ${data.notes}`, cols)) push(ln);
   }
