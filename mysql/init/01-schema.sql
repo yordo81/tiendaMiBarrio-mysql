@@ -287,7 +287,7 @@ CREATE TABLE IF NOT EXISTS location_movements (
   id          CHAR(36)      NOT NULL PRIMARY KEY,
   location_id CHAR(36)      NOT NULL,
   product_id  CHAR(36)      NOT NULL,
-  type        ENUM('entrada','salida','traslado_out','traslado_in','venta','ajuste') NOT NULL,
+  type        ENUM('entrada','salida','traslado_out','traslado_in','venta','ajuste','gasto') NOT NULL,
   quantity    DECIMAL(12,3) NOT NULL,
   reference_id CHAR(36)     NULL,
   notes       TEXT          NULL,

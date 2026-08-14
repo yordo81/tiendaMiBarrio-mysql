@@ -30,7 +30,7 @@ export const VALID = {
   // locations.type
   LOCATION_TYPES: ['warehouse', 'store'] as const,
   // location_movements.type
-  LOCATION_MOVEMENT_TYPES: ['entrada', 'salida', 'traslado_out', 'traslado_in', 'venta', 'ajuste'] as const,
+  LOCATION_MOVEMENT_TYPES: ['entrada', 'salida', 'traslado_out', 'traslado_in', 'venta', 'ajuste', 'gasto'] as const,
 } as const;
 
 type ExtractType<T extends readonly string[]> = T[number];

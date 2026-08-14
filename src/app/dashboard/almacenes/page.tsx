@@ -12,8 +12,8 @@ import { Warehouse, Plus, Edit2, Trash2, ArrowRightLeft, PackagePlus, List, BarC
 import { useAuthStore } from '@/lib/stores/auth-store';
 type R = Record<string,unknown>;
 
-const movLabel:Record<string,string> = { entrada:'Entrada', salida:'Salida', traslado_out:'Traslado (salida)', traslado_in:'Traslado (entrada)', venta:'Venta', ajuste:'Ajuste' };
-const movColor:Record<string,string> = { entrada:'text-green-400', salida:'text-red-400', traslado_out:'text-orange-400', traslado_in:'text-blue-400', venta:'text-purple-400', ajuste:'text-yellow-400' };
+const movLabel:Record<string,string> = { entrada:'Entrada', salida:'Salida', traslado_out:'Traslado (salida)', traslado_in:'Traslado (entrada)', venta:'Venta', ajuste:'Ajuste', gasto:'Gasto' };
+const movColor:Record<string,string> = { entrada:'text-green-400', salida:'text-red-400', traslado_out:'text-orange-400', traslado_in:'text-blue-400', venta:'text-purple-400', ajuste:'text-yellow-400', gasto:'text-orange-400' };
 const typeLabel:Record<string,string> = { warehouse:'Almacén', store:'Punto de venta' };
 const typeColor:Record<string,string> = { warehouse:'badge-info', store:'badge-success' };
 

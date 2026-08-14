@@ -67,9 +67,12 @@ export const POST = handle(async (req: Request) => {
           [qty, ts, locationId, productId]
         );
 
+        // Movimiento de almacén tipo 'gasto': así aparece en el módulo de
+        // Movimientos con su etiqueta y filtro propios, y los reportes por
+        // almacén lo localizan por reference_id + type='gasto'.
         await conn.execute(
-          'INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,user_id,created_at) VALUES (?,?,?,?,?,?,?,?)',
-          [randomUUID(), locationId, productId, 'salida', qty, `Gasto: ${body.description}`, sessionUser.id, ts]
+          'INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,reference_id,user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+          [randomUUID(), locationId, productId, 'gasto', qty, `Gasto: ${body.description}`, id, sessionUser.id, ts]
         );
       }
     }
@@ -104,9 +107,11 @@ export const DELETE = handle(async (req: Request) => {
 
       await conn.execute("DELETE FROM stock_movements WHERE reference_id=? AND type='expense'", [id]);
 
+      // Los gastos nuevos guardan reference_id; los anteriores a la
+      // normalización lo tienen NULL y se localizan por la nota "Gasto: ...".
       const [locMoveRows] = await conn.execute(
-        "SELECT id, location_id FROM location_movements WHERE reference_id IS NULL AND notes LIKE ? AND type='salida'",
-        [`%Gasto: ${expense.description}%`]
+        "SELECT id, location_id FROM location_movements WHERE type='gasto' AND (reference_id=? OR (reference_id IS NULL AND notes LIKE ?))",
+        [id, `%Gasto: ${expense.description}%`]
       ) as unknown as [{ id: string; location_id: string }[], unknown];
 
       if (locMoveRows.length > 0) {
