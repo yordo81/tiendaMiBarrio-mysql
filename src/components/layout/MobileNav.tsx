@@ -7,7 +7,8 @@ import { useAuthStore } from '@/lib/stores/auth-store';
 import { useWorkMode, useSettingsStore } from '@/lib/stores/settings-store';
 import { useTheme } from '@/components/theme/ThemeProvider';
 const nav: { href: string; label: string; icon: typeof Clock3; roles?: string[]; workMode?: 'daily' | 'shifts' }[] = [
-  { href: '/dashboard',            label: 'Inicio',     icon: LayoutDashboard },
+  // El vendedor no tiene dashboard: entra directo al punto de venta táctil
+  { href: '/dashboard',            label: 'Inicio',     icon: LayoutDashboard, roles: ['owner', 'admin', 'warehouse'] },
   { href: '/dashboard/inventario', label: 'Inventario', icon: Package },
   { href: '/dashboard/movimientos',label: 'Movimientos',icon: MoveHorizontal },
   { href: '/dashboard/compras',    label: 'Compras',    icon: ShoppingBag },

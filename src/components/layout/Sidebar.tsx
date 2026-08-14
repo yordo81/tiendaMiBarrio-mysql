@@ -19,8 +19,9 @@ import { UNAUTHORIZED_EVENT, type UnauthorizedEventDetail } from '@/lib/api-clie
 interface NavItem { href: string; icon: LucideIcon; label: string; roles: string[]; workMode?: 'shifts' }
 interface NavGroup { title: string; icon: LucideIcon; items: NavItem[] }
 
-// Dashboard queda fijo en la parte superior (fuera del acordeón)
-const dashboardItem: NavItem = { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['owner','admin','seller','warehouse'] };
+// Dashboard queda fijo en la parte superior (fuera del acordeón).
+// El vendedor no tiene dashboard: entra directo al punto de venta táctil.
+const dashboardItem: NavItem = { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['owner','admin','warehouse'] };
 
 // Enlaces agrupados por categoría para el acordeón del sidebar
 const navGroups: NavGroup[] = [

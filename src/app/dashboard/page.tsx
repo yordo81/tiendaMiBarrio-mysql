@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
 import { api, apiFetch } from '@/lib/api-client';
 import { Clock, DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown, BarChart2, AlertTriangle, Calendar, Plus, ShoppingBag, ExternalLink, Check, Clock3, Play } from 'lucide-react';
@@ -11,7 +12,6 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSettingsStore, useWorkMode } from '@/lib/stores/settings-store';
 import { SHIFT_CHANGED_EVENT } from '@/lib/shift-events';
-import SellerDashboard from '@/components/dashboard/SellerDashboard';
 
 interface DashData {
   salesToday: number; salesWeek: number; salesMonth: number;
@@ -379,16 +379,32 @@ function GeneralDashboard() {
 }
 
 // ── Router por rol ────────────────────────────────────────────────
-// Los vendedores ven un dashboard personalizado y optimizado para su
-// jornada; el resto de roles ve el dashboard general de gestión.
+// El vendedor ya no tiene dashboard: su pantalla de trabajo es el punto
+// de venta táctil (o la página de ventas con la ventana modal si el POS
+// táctil está desactivado), así que se le redirige directo. El resto de
+// roles ve el dashboard general de gestión.
 // El gate de `mounted` evita el parpadeo y el mismatch de hidratación
 // (el usuario se restaura de localStorage en el cliente).
 export default function DashboardPage() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const settingsLoaded = useSettingsStore(s => s.loaded);
+  const loadSettings = useSettingsStore(s => s.load);
+  const posEnabled = useSettingsStore(s => s.settings?.enable_touch_pos !== false);
 
-  if (!mounted) {
+  useEffect(() => { setMounted(true); loadSettings(); }, [loadSettings]);
+
+  // El vendedor entra directo al punto de venta táctil (o a la página de
+  // ventas con modal si el POS táctil está desactivado en Configuración)
+  useEffect(() => {
+    if (!mounted || !user || !settingsLoaded) return;
+    if (user.role === 'seller') {
+      router.replace(posEnabled ? '/dashboard/ventas/touch' : '/dashboard/ventas');
+    }
+  }, [mounted, user, settingsLoaded, posEnabled, router]);
+
+  if (!mounted || user?.role === 'seller') {
     return (
       <div className="space-y-6">
         <div className="card p-6">
@@ -404,5 +420,5 @@ export default function DashboardPage() {
     );
   }
 
-  return user?.role === 'seller' ? <SellerDashboard /> : <GeneralDashboard />;
+  return <GeneralDashboard />;
 }

@@ -15,6 +15,8 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export interface ShiftLiveSummary {
   total_sales: number;
+  /** Cantidad de ventas (tickets) completados en el turno */
+  sales_count: number;
   total_cash: number;
   expected_cash: number;
 }
@@ -32,8 +34,8 @@ export async function getOpenShiftLiveSummary(shift: Record<string, unknown>): P
 
   const [sales, salesCash, custCash, expCash, registerCash] = await Promise.all([
     // Ventas completadas del turno (solo las que ya son ingreso)
-    query<{ total: number }>(
-      `SELECT COALESCE(SUM(s.total),0) AS total FROM sales s
+    query<{ total: number; count: number }>(
+      `SELECT COALESCE(SUM(s.total),0) AS total, COUNT(*) AS count FROM sales s
        WHERE s.status='completed' AND s.date BETWEEN ? AND ? AND s.pos_id=?`,
       [fromLocal, localNow, posId]
     ),
@@ -75,6 +77,7 @@ export async function getOpenShiftLiveSummary(shift: Record<string, unknown>): P
 
   return {
     total_sales: r2(Number(sales[0]?.total ?? 0)),
+    sales_count: Number(sales[0]?.count ?? 0),
     total_cash: r2(Number(salesCash[0]?.total ?? 0)),
     expected_cash: expectedCash,
   };
