@@ -268,6 +268,7 @@ export default function Topbar() {
       openPosIds={openPosIds}
       onClose={() => setShowOpenShift(false)}
       onOpened={refreshShifts}
+      preferredPosId={user?.pos_id ?? undefined}
     />
 
     {/* Modal: Cambiar mi contraseña */}

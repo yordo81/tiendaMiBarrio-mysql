@@ -150,6 +150,17 @@ export default function TouchPosPage() {
   const isSeller = mounted && user?.role === 'seller';
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(isSeller);
 
+  // Vendedor asociado a una caja: en modo por turnos trabaja fijo en su punto
+  // de venta (almacén). No puede cambiar de caja ni de almacén en el POS táctil.
+  const assignedPosId = user?.pos_id ?? null;
+  const posLocked = isSeller && workMode === 'shifts' && !!assignedPosId;
+  const assignedLocationName = posLocked
+    ? String(locations.find(l => String(l.id) === locationId)?.name ?? 'Cargando…')
+    : '';
+  const assignedPosName = posLocked
+    ? String(posOptions.find(p => String(p.id) === assignedPosId)?.name ?? 'Tu caja')
+    : '';
+
   // Cargar configuración del negocio (nombre/logo) una sola vez
   useEffect(() => { loadSettings(); }, [loadSettings]);
   useEffect(() => { setMounted(true); }, []);
@@ -176,6 +187,15 @@ export default function TouchPosPage() {
       .catch(() => toast.error('Error al cargar datos'));
     return () => { alive = false; };
   }, [isSeller]);
+
+  // Fijar la caja y el almacén del vendedor asociado (modo por turnos):
+  // el almacén de salida es el del punto de venta asignado y la caja es la suya.
+  useEffect(() => {
+    if (!posLocked || !assignedPosId) return;
+    setPosId(assignedPosId);
+    const assigned = posOptions.find(p => String(p.id) === assignedPosId);
+    if (assigned?.location_id) setLocationId(String(assigned.location_id));
+  }, [posLocked, assignedPosId, posOptions, setPosId]);
 
   // Enfocar la búsqueda al entrar para escanear de inmediato
   useEffect(() => {
@@ -304,7 +324,9 @@ export default function TouchPosPage() {
     });
     if (lines.length === 0) return;
     setCart(lines);
-    if (draft.locationId && locations.some(l => String(l.id) === draft.locationId)) {
+    // El vendedor asignado a una caja siempre trabaja en su almacén: el
+    // pedido guardado no puede cambiarlo.
+    if (draft.locationId && !posLocked && locations.some(l => String(l.id) === draft.locationId)) {
       setLocationId(draft.locationId);
     }
     toast.info('Pedido en curso restaurado');
@@ -474,13 +496,16 @@ export default function TouchPosPage() {
 
   function resetSale() {
     emptyCart();
-    setLocationId(locations.length > 0 ? String(locations[0].id) : '');
+    // El vendedor asociado a una caja conserva su almacén y su caja fijos
+    if (!posLocked) {
+      setLocationId(locations.length > 0 ? String(locations[0].id) : '');
+      resetPos();
+    }
     setPayMethod('cash');
     setCashReceived(0);
     setAmountTransfer(0);
     setTransferPhone('');
     setTransferRef('');
-    resetPos();
   }
 
   // Efectivo que aplica al total según el método (para el cálculo de cambio)
@@ -802,16 +827,29 @@ export default function TouchPosPage() {
               <Keyboard className="w-4 h-4" aria-hidden="true" />
               <span className="hidden xl:inline">Teclado</span>
             </button>
-            {/* Almacén de salida: el catálogo se filtra por este almacén */}
-            <div className="hidden md:block w-52 flex-shrink-0 pt-0.5">
-              <SearchableSelect
-                options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
-                value={locationId}
-                onChange={v => setLocationId(v)}
-                placeholder="Almacén…"
-                noResultsMessage="Sin almacenes"
-              />
-            </div>
+            {/* Almacén de salida: el catálogo se filtra por este almacén.
+                Si el vendedor está asociado a una caja (modo turnos), el
+                almacén es fijo: se muestra como información, sin selector. */}
+            {posLocked ? (
+              <div
+                className="hidden md:flex w-52 flex-shrink-0 pt-0.5 items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium truncate"
+                style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }}
+                title={assignedLocationName}
+              >
+                <Store className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} aria-hidden="true" />
+                <span className="truncate">{assignedLocationName}</span>
+              </div>
+            ) : (
+              <div className="hidden md:block w-52 flex-shrink-0 pt-0.5">
+                <SearchableSelect
+                  options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
+                  value={locationId}
+                  onChange={v => setLocationId(v)}
+                  placeholder="Almacén…"
+                  noResultsMessage="Sin almacenes"
+                />
+              </div>
+            )}
             </div>
 
             <div className="flex gap-2.5 overflow-x-auto pb-2 pt-4 [scrollbar-width:none]">
@@ -1039,19 +1077,30 @@ export default function TouchPosPage() {
           {workMode === 'shifts' && (
             <div>
               <label className="label">Caja (punto de venta)</label>
-              <SearchableSelect
-                options={posOptions.map(p => ({
-                  value: String(p.id),
-                  label: String(p.name),
-                  sublabel: hasOpenShift(String(p.id))
-                    ? (p.location_name ? `Turno abierto · ${String(p.location_name)}` : 'Turno abierto')
-                    : (p.location_name ? String(p.location_name) : undefined),
-                }))}
-                value={posId}
-                onChange={setPosId}
-                placeholder="Selecciona la caja…"
-                noResultsMessage="No hay cajas creadas"
-              />
+              {posLocked ? (
+                <div
+                  className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium truncate"
+                  style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+                  title={assignedPosName}
+                >
+                  <Store className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} aria-hidden="true" />
+                  <span className="truncate">{assignedPosName}</span>
+                </div>
+              ) : (
+                <SearchableSelect
+                  options={posOptions.map(p => ({
+                    value: String(p.id),
+                    label: String(p.name),
+                    sublabel: hasOpenShift(String(p.id))
+                      ? (p.location_name ? `Turno abierto · ${String(p.location_name)}` : 'Turno abierto')
+                      : (p.location_name ? String(p.location_name) : undefined),
+                  }))}
+                  value={posId}
+                  onChange={setPosId}
+                  placeholder="Selecciona la caja…"
+                  noResultsMessage="No hay cajas creadas"
+                />
+              )}
               {posId && !hasOpenShift(posId) && (
                 <p className="text-[10px] text-yellow-400 mt-1">Esta caja no tiene un turno abierto. La venta no se incluirá en ningún arqueo.</p>
               )}
@@ -1060,14 +1109,25 @@ export default function TouchPosPage() {
 
           {/* Almacén de salida */}
           <div>
-            <label className="label">Almacén de salida *</label>
-            <SearchableSelect
-              options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
-              value={locationId}
-              onChange={v => setLocationId(v)}
-              placeholder={locations.length === 0 ? 'Cargando ubicaciones...' : 'Seleccionar almacén'}
-              noResultsMessage="Sin almacenes"
-            />
+            <label className="label">Almacén de salida{posLocked ? '' : ' *'}</label>
+            {posLocked ? (
+              <div
+                className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium truncate"
+                style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+                title={assignedLocationName}
+              >
+                <Store className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} aria-hidden="true" />
+                <span className="truncate">{assignedLocationName}</span>
+              </div>
+            ) : (
+              <SearchableSelect
+                options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
+                value={locationId}
+                onChange={v => setLocationId(v)}
+                placeholder={locations.length === 0 ? 'Cargando ubicaciones...' : 'Seleccionar almacén'}
+                noResultsMessage="Sin almacenes"
+              />
+            )}
           </div>
 
           {/* Método de pago */}

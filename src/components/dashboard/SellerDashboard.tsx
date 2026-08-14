@@ -579,6 +579,7 @@ export default function SellerDashboard() {
         openPosIds={openPosIds}
         onClose={() => setShowOpenShift(false)}
         onOpened={loadShifts}
+        preferredPosId={user?.pos_id ?? undefined}
       />
 
       {/* Modal: Cerrar turno (arqueo) */}

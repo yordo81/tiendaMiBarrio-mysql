@@ -6,8 +6,9 @@ import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { toast } from '@/components/ui/toaster';
-import { UserCog, Plus, UserX, UserCheck, Shield, KeyRound } from 'lucide-react';
+import { UserCog, Plus, UserX, UserCheck, Shield, KeyRound, Store } from 'lucide-react';
 import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 type R = Record<string,unknown>;
 type Role = 'owner'|'admin'|'seller'|'warehouse';
@@ -34,8 +35,11 @@ export default function UsuariosPage() {
   const [passwordTarget, setPasswordTarget] = useState<R|null>(null);
   const [saving, setSaving] = useState(false);
   const [permissions, setPermissions] = useState<{module:string;actions:string[]}[]>([]);
-  const [inviteForm, setInviteForm] = useState({ email:'', name:'', role:'seller' as Role, password:'' });
+  const [inviteForm, setInviteForm] = useState({ email:'', name:'', role:'seller' as Role, password:'', pos_id:'' });
   const [editRole, setEditRole] = useState<Role>('seller');
+  const [editPosId, setEditPosId] = useState('');
+  // Cajas (puntos de venta) para asociar a los vendedores
+  const [posOptions, setPosOptions] = useState<R[]>([]);
   const { user: me } = useAuthStore();
 
   // Permisos por rol: el dueño gestiona todo; el admin solo cambia contraseñas
@@ -53,9 +57,15 @@ export default function UsuariosPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Cajas activas para asignar a los vendedores (las lee el dueño)
+  useEffect(() => {
+    api.getPos().then(d => setPosOptions(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+
   function openPerms(u: R) {
     setEditUser(u);
     setEditRole(String(u.role??'seller') as Role);
+    setEditPosId(String(u.pos_id ?? ''));
     const existing = (u.permissions as {module:string;actions:string[]}[]|undefined) ?? [];
     setPermissions(ALL_MODULES.map(m => existing.find(p=>p.module===m.key) ?? {module:m.key,actions:[]}));
     setShowPerms(true);
@@ -78,7 +88,7 @@ export default function UsuariosPage() {
     if (!editUser) return;
     setSaving(true);
     try {
-      await api.updateUser(String(editUser.id), { role: editRole, permissions });
+      await api.updateUser(String(editUser.id), { role: editRole, permissions, pos_id: editPosId || null });
       toast.success('Permisos actualizados'); setShowPerms(false); load();
     } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
   }
@@ -99,7 +109,7 @@ export default function UsuariosPage() {
     try {
       await api.createUser(inviteForm);
       toast.success('Usuario creado correctamente'); setShowInvite(false);
-      setInviteForm({email:'',name:'',role:'seller',password:''}); load();
+      setInviteForm({email:'',name:'',role:'seller',password:'',pos_id:''}); load();
     } catch(e) { toast.error(e instanceof Error?e.message:'Error al crear usuario'); } finally { setSaving(false); }
   }
 
@@ -132,6 +142,11 @@ export default function UsuariosPage() {
                   {u.id===me?.id&&<span className="text-[10px] text-[var(--text-tertiary)] bg-[var(--bg-muted)] px-1.5 py-0.5 rounded">Tú</span>}
                 </div>
                 <p className="text-xs text-[var(--text-tertiary)] mt-0.5 truncate">{String(u.email??'')}</p>
+                {!!u.pos_name&&(
+                  <p className="text-[11px] text-[var(--text-tertiary)] mt-1 truncate flex items-center gap-1">
+                    <Store className="w-3 h-3 flex-shrink-0" />Caja: <span className="text-[var(--text-secondary)] font-medium">{String(u.pos_name)}</span>
+                  </p>
+                )}
                 {String(u.role)!=='owner'&&(
                   <p className="text-[11px] text-[var(--text-tertiary)] mt-1 truncate">
                     Módulos: {((u.permissions as {module:string;actions:string[]}[]|undefined)??[]).filter(p=>p.actions.length>0).map(p=>p.module).join(', ')||'Sin módulos'}
@@ -162,6 +177,17 @@ export default function UsuariosPage() {
               <option value="seller">Vendedor</option><option value="warehouse">Bodeguero</option><option value="admin">Administrador</option>
             </select>
           </div>
+          <div>
+            <label className="label">Caja (punto de venta) — opcional</label>
+            <SearchableSelect
+              options={posOptions.map(p => ({ value: String(p.id), label: String(p.name), sublabel: p.location_name ? String(p.location_name) : undefined }))}
+              value={inviteForm.pos_id}
+              onChange={v=>setInviteForm(f=>({...f,pos_id:v}))}
+              placeholder="Sin caja asignada"
+              noResultsMessage="No hay cajas creadas"
+            />
+            <p className="text-[11px] text-[var(--text-tertiary)] mt-1">En modo por turnos, el vendedor asociado a una caja trabaja fijo en su almacén: no elige caja ni almacén en el POS táctil.</p>
+          </div>
           <p className="text-xs text-[var(--text-tertiary)] bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-primary)]">Los permisos específicos se configuran con el botón 🛡 después de crear el usuario.</p>
           <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowInvite(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleInvite} disabled={saving||!inviteForm.email||!inviteForm.name||!inviteForm.password} className="btn-primary flex-1 disabled:opacity-50">{saving?'Creando...':'Crear usuario'}</button></div>
         </div>
@@ -178,6 +204,17 @@ export default function UsuariosPage() {
                 ))}
                 <button onClick={()=>applyPreset(editRole)} className="btn-secondary text-xs">Aplicar preset</button>
               </div>
+            </div>
+            <div>
+              <label className="label">Caja (punto de venta) — opcional</label>
+              <SearchableSelect
+                options={posOptions.map(p => ({ value: String(p.id), label: String(p.name), sublabel: p.location_name ? String(p.location_name) : undefined }))}
+                value={editPosId}
+                onChange={setEditPosId}
+                placeholder="Sin caja asignada"
+                noResultsMessage="No hay cajas creadas"
+              />
+              <p className="text-[11px] text-[var(--text-tertiary)] mt-1">En modo por turnos, el vendedor asociado a una caja trabaja fijo en su almacén.</p>
             </div>
             <div className="rounded-xl border border-[var(--border-primary)] overflow-hidden">
               <table className="w-full text-sm">
