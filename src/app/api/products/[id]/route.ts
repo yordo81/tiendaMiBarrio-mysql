@@ -54,10 +54,16 @@ export const PUT = handle(async (request: Request, ctx) => {
   const newStock = Number(body.stock);
   const diff = newStock - oldStock;
 
+  // Normalizar fecha de caducidad: vacío (o inválido) → NULL, la columna es DATE
+  const expirationDate = (() => {
+    const raw = String(body.expiration_date ?? '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  })();
+
   await execute(
     `UPDATE products SET name=?,barcode=?,description=?,category_id=?,sale_price=?,cost=?,stock=?,min_stock=?,unit=?,expiration_date=?,is_perishable=?,image_url=?,updated_at=? WHERE id=?`,
     [body.name, barcode, body.description??null, body.category_id??null, Number(body.sale_price), Number(body.cost),
-     Number(body.stock), Number(body.min_stock), body.unit??'unidad', body.expiration_date ?? null, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, id]
+     Number(body.stock), Number(body.min_stock), body.unit??'unidad', expirationDate, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, id]
   );
 
   if (diff !== 0) {
