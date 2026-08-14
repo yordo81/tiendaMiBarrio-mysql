@@ -184,9 +184,14 @@ export const POST = handle(async (req: Request) => {
         'INSERT INTO location_stock (id,location_id,product_id,quantity,updated_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+?,updated_at=?',
         [randomUUID(), targetLocationId, product_id, purchaseQty, ts, purchaseQty, ts]
       );
+      // Nota con la referencia de factura para que el filtro "Número de
+      // factura" del módulo de Movimientos encuentre el movimiento.
+      const moveNote = invoice_number
+        ? `Compra: ${purchaseNotes ?? ''} (Factura #${String(invoice_number).trim()})`
+        : (purchaseNotes ? `Compra: ${purchaseNotes}` : 'Compra');
       await conn.execute(
         "INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,reference_id,user_id,created_at) VALUES (?,?,?,'entrada',?,?,?,?,?)",
-        [randomUUID(), targetLocationId, product_id, purchaseQty, purchaseNotes ? `Compra: ${purchaseNotes}` : 'Compra', null, sessionUser.id, ts]
+        [randomUUID(), targetLocationId, product_id, purchaseQty, moveNote, null, sessionUser.id, ts]
       );
     }
 

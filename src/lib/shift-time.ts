@@ -59,3 +59,33 @@ export function nowLocal(): string {
 export function nowUtc(): string {
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
+
+/**
+ * Convierte una hora local del negocio ('YYYY-MM-DD HH:MM:SS') al instante
+ * UTC equivalente en formato BD ('YYYY-MM-DD HH:MM:SS').
+ * Útil para filtrar columnas que se guardan en UTC (created_at) usando
+ * fechas/horas locales: Ej. "2026-08-14 23:59:59" en Cuba (UTC-4) →
+ * "2026-08-15 03:59:59". Nunca lanza: devuelve '' si no puede convertirlo.
+ */
+export function localToUtcDb(local: string): string {
+  const str = String(local ?? '').trim();
+  if (!str) return '';
+  const [datePart, timePart = '00:00:00'] = str.split(' ');
+  const [y, m, d] = datePart.split('-').map(Number);
+  const [hh, mm, ss] = timePart.split(':').map(Number);
+  if (!y || !m || !d || isNaN(hh) || isNaN(mm) || isNaN(ss)) return '';
+
+  // Objetivo: instante cuya hora local coincida con los componentes dados.
+  // Se itera corrigiendo la diferencia de reloj de pared (converge en 1-2
+  // pasadas, también con cambios por horario de verano).
+  const targetWall = Date.UTC(y, m - 1, d, hh, mm, ss);
+  let instant = targetWall;
+  for (let i = 0; i < 3; i++) {
+    const cur = fmtLocal(new Date(instant)); // 'YYYY-MM-DD HH:MM:SS' local
+    const [cy, cm, cd, chh, cmm, css] = cur.split(/[- :]/).map(Number);
+    const curWall = Date.UTC(cy, cm - 1, cd, chh, cmm, css);
+    if (curWall === targetWall) break;
+    instant += targetWall - curWall;
+  }
+  return new Date(instant).toISOString().slice(0, 19).replace('T', ' ');
+}

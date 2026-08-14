@@ -81,9 +81,11 @@ export const POST = handle(async (req: Request) => {
 
       await conn.execute('UPDATE location_stock SET quantity=quantity-?,updated_at=? WHERE id=?', [item.quantity, ts, fromStock.id]);
 
+      // Movimiento de salida del traslado: tipo propio 'traslado_out' para
+      // que el módulo de Movimientos lo distinga y filtre correctamente.
       await conn.execute(
         'INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,user_id,created_at) VALUES (?,?,?,?,?,?,?,?)',
-        [randomUUID(), from_location_id, item.product_id, 'salida', item.quantity, notes ? `Traslado: ${notes}` : 'Traslado a otro almacén', sessionUser.id, ts]
+        [randomUUID(), from_location_id, item.product_id, 'traslado_out', item.quantity, notes ? `Traslado: ${notes}` : 'Traslado a otro almacén', sessionUser.id, ts]
       );
 
       await conn.execute(
@@ -91,9 +93,10 @@ export const POST = handle(async (req: Request) => {
         [randomUUID(), to_location_id, item.product_id, item.quantity, ts, item.quantity, ts]
       );
 
+      // Movimiento de entrada del traslado: tipo propio 'traslado_in'
       await conn.execute(
         'INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,user_id,created_at) VALUES (?,?,?,?,?,?,?,?)',
-        [randomUUID(), to_location_id, item.product_id, 'entrada', item.quantity, notes ? `Traslado: ${notes}` : 'Traslado desde otro almacén', sessionUser.id, ts]
+        [randomUUID(), to_location_id, item.product_id, 'traslado_in', item.quantity, notes ? `Traslado: ${notes}` : 'Traslado desde otro almacén', sessionUser.id, ts]
       );
     }
   });

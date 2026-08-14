@@ -150,7 +150,7 @@ export default function MovimientosPage() {
               >
                 Todos
               </button>
-              {(['entrada', 'salida', 'venta', 'ajuste', 'gasto'] as const).map(t => (
+              {(['entrada', 'salida', 'traslado_out', 'traslado_in', 'venta', 'ajuste', 'gasto'] as const).map(t => (
                 <button
                   key={t}
                   onClick={() => setTypeFilter(typeFilter === t ? '' : t)}
@@ -319,7 +319,7 @@ export default function MovimientosPage() {
       {/* Summary card — based on current page */}
       {!loading && paginated.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {(['entrada', 'salida', 'venta', 'ajuste', 'gasto'] as const).map(t => {
+          {(['entrada', 'salida', 'traslado_out', 'traslado_in', 'venta', 'ajuste', 'gasto'] as const).map(t => {
             const count = paginated.filter(m => String(m.type) === t).length;
             const total = paginated
               .filter(m => String(m.type) === t)
@@ -329,6 +329,8 @@ export default function MovimientosPage() {
               <div key={t} className={cn('card p-3 border-l-4', {
                 'border-l-green-500': t === 'entrada',
                 'border-l-red-500': t === 'salida',
+                'border-l-amber-500': t === 'traslado_out',
+                'border-l-blue-500': t === 'traslado_in',
                 'border-l-purple-500': t === 'venta',
                 'border-l-yellow-500': t === 'ajuste',
                 'border-l-orange-500': t === 'gasto',

@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute, transaction } from '@/lib/db/mysql';
 import { logAudit } from '@/lib/db/audit';
 import { handle, ok, err } from '@/lib/api-helpers';
+import { localToUtcDb } from '@/lib/shift-time';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Movimientos por Almacén ─────────────────────────────────
@@ -30,8 +31,11 @@ export const GET = handle(async (req: Request) => {
   const where: string[] = [];
 
   if (locationId) { where.push('lm.location_id = ?'); params.push(locationId); }
-  if (from)      { where.push('lm.created_at >= ?');  params.push(from); }
-  if (to)        { where.push('lm.created_at <= ?');  params.push(to + ' 23:59:59'); }
+  // created_at se guarda en UTC: los límites locales (fecha del input) se
+  // convierten a UTC para que el filtro de fechas sea correcto en la zona
+  // horaria del negocio (ej. Cuba: la tarde local cae al día siguiente en UTC).
+  if (from)      { where.push('lm.created_at >= ?');  params.push(localToUtcDb(`${from} 00:00:00`)); }
+  if (to)        { where.push('lm.created_at <= ?');  params.push(localToUtcDb(`${to} 23:59:59`)); }
   if (productId) { where.push('lm.product_id = ?');   params.push(productId); }
   // Búsqueda por factura (la referencia va en las notas, ej: 'Factura #F-001')
   if (q)         { where.push('lm.notes LIKE ?');      params.push(`%${q}%`); }
