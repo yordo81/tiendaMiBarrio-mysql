@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const m = require('mysql2/promise');
 
-const BASE = 'http://localhost:3011';
+const BASE = process.env.QA_BASE ?? 'http://localhost:3011';
 const env = fs.readFileSync('.env.local', 'utf8');
 const DB = {
   host: 'localhost', port: 3306, user: 'root',

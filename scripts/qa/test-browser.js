@@ -4,7 +4,7 @@ const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'http://localhost:3011';
+const BASE = process.env.QA_BASE ?? 'http://localhost:3011';
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const snap = JSON.parse(fs.readFileSync(path.join(__dirname, 'snapshot.json'), 'utf8'));
 const OWNER = { email: 'qa.owner@test.local', pass: 'QaTest123!' };
