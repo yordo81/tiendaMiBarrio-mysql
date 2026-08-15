@@ -148,6 +148,34 @@ export function validateLocationMovementType(type: string | undefined | null): L
   return validateEnum(type, VALID.LOCATION_MOVEMENT_TYPES, 'Tipo de movimiento de almacén');
 }
 
+// --- Validación numérica ---
+// Previene precios/cantidades negativas o no numéricas en las APIs de
+// escritura (productos, ventas, gastos, compras, etc.).
+
+/**
+ * Valida que un valor sea un número finito mayor a 0.
+ * Lanza EnumValidationError (→ 400) si no lo es.
+ */
+export function requirePositiveNumber(value: unknown, label: string): number {
+  const n = typeof value === 'string' ? Number(value.trim()) : Number(value);
+  if (!isFinite(n) || n <= 0) {
+    throw new EnumValidationError(`${label} debe ser un número mayor a 0`);
+  }
+  return n;
+}
+
+/**
+ * Valida que un valor sea un número finito mayor o igual a 0.
+ * Lanza EnumValidationError (→ 400) si no lo es.
+ */
+export function requireNonNegativeNumber(value: unknown, label: string): number {
+  const n = typeof value === 'string' ? Number(value.trim()) : Number(value);
+  if (!isFinite(n) || n < 0) {
+    throw new EnumValidationError(`${label} debe ser un número mayor o igual a 0`);
+  }
+  return n;
+}
+
 // --- Error personalizado ---
 
 export class EnumValidationError extends Error {

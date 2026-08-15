@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
-import { requireAuth } from '@/lib/auth/session';
 import { pool, query, queryOne, transaction, execute } from '@/lib/db/mysql';
-import { handle, ok, err, notFound } from '@/lib/api-helpers';
+import { handle, ok, err, notFound, requireRole } from '@/lib/api-helpers';
+import { requirePositiveNumber, requireNonNegativeNumber } from '@/lib/validate';
 import { getOpenShiftId } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
 
@@ -11,7 +11,7 @@ const randomUUID = () => crypto.randomUUID();
 
 // ── GET: Listar compras ──
 export const GET = handle(async (req: Request) => {
-  await requireAuth();
+  await requireRole('owner', 'admin', 'warehouse');
   const { searchParams } = new URL(req.url);
   const productId = searchParams.get('product_id');
   const supplierId = searchParams.get('supplier_id');
@@ -48,12 +48,14 @@ export const GET = handle(async (req: Request) => {
 
 // ── POST: Registrar nueva compra ──
 export const POST = handle(async (req: Request) => {
-  const sessionUser = await requireAuth();
+  const sessionUser = await requireRole('owner', 'admin', 'warehouse');
   const { product_id, supplier_id, quantity, price, location_id, notes, is_capital, expiration_date, pos_id, invoice_number } = await req.json();
 
-  if (!product_id || !supplier_id || !quantity || quantity <= 0 || price == null || price < 0) {
-    return err('Faltan datos: producto, proveedor, cantidad (>0) y precio requeridos');
+  if (!product_id || !supplier_id) {
+    return err('Faltan datos: producto y proveedor requeridos');
   }
+  const qty = requirePositiveNumber(quantity, 'Cantidad');
+  const unitPrice = requireNonNegativeNumber(price, 'Precio de compra');
 
   // Caja (punto de venta) opcional: atribuye la compra a la caja para el arqueo del turno
   const posId = pos_id ? String(pos_id).trim() : '';
@@ -94,8 +96,8 @@ export const POST = handle(async (req: Request) => {
 
     const currentStock = Number(current.stock ?? 0);
     const currentCost = Number(current.cost ?? 0);
-    const purchaseQty = Number(quantity);
-    const purchasePrice = Number(price);
+    const purchaseQty = qty;
+    const purchasePrice = unitPrice;
 
     // Calcular nuevo stock y costo promedio ponderado
     const newStock = currentStock + purchaseQty;

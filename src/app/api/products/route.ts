@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute } from '@/lib/db/mysql';
-import { handle, ok, err } from '@/lib/api-helpers';
+import { handle, ok, err, requireRole } from '@/lib/api-helpers';
+import { requireNonNegativeNumber } from '@/lib/validate';
 import { getOpenShiftId } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
 
@@ -87,11 +88,19 @@ export const GET = handle(async (request: Request) => {
 
 // ── POST: Crear nuevo producto ──
 export const POST = handle(async (request: Request) => {
-  const sessionUser = await requireAuth();
+  const sessionUser = await requireRole('owner', 'admin', 'warehouse');
   const body = await request.json();
   const id = randomUUID();
   const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   const isCapital = body.is_capital === true;  // true = aporte de capital, false = reinversión
+
+  // Validar nombre obligatorio
+  if (!body.name || !String(body.name).trim()) return err('El nombre del producto es obligatorio');
+  // Validar valores numéricos no negativos (precios, costos, stocks)
+  const salePrice = requireNonNegativeNumber(body.sale_price ?? 0, 'Precio de venta');
+  const cost = requireNonNegativeNumber(body.cost ?? 0, 'Costo');
+  const stock = requireNonNegativeNumber(body.stock ?? 0, 'Stock inicial');
+  const minStock = requireNonNegativeNumber(body.min_stock ?? 0, 'Stock mínimo');
 
   // Validar código de barras único
   const barcode = String(body.barcode ?? '').trim() || null;
@@ -110,9 +119,9 @@ export const POST = handle(async (request: Request) => {
   await execute(
     `INSERT INTO products (id,barcode,name,description,category_id,sale_price,cost,stock,min_stock,unit,expiration_date,is_perishable,image_url,active,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
-    [id, barcode, body.name, body.description??null, body.category_id??null,
-     Number(body.sale_price??0), Number(body.cost??0), Number(body.stock??0),
-     Number(body.min_stock??0), body.unit??'unidad', expirationDate, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, ts]
+    [id, barcode, String(body.name).trim(), body.description??null, body.category_id??null,
+     salePrice, cost, stock,
+     minStock, body.unit??'unidad', expirationDate, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, ts]
   );
 
   // Asignar proveedores
@@ -126,7 +135,7 @@ export const POST = handle(async (request: Request) => {
   }
 
   // Registrar stock inicial en ubicaciones y contabilidad
-  const initialStock = Number(body.stock ?? 0);
+  const initialStock = stock;
   if (initialStock > 0) {
     let targetLocationId = body.location_id;
     if (!targetLocationId) {
@@ -150,7 +159,7 @@ export const POST = handle(async (request: Request) => {
     }
 
     // ── Registrar en contabilidad ──
-    const totalCost = Math.round(initialStock * Number(body.cost ?? 0) * 100) / 100;
+    const totalCost = Math.round(initialStock * cost * 100) / 100;
     if (totalCost > 0) {
       // En modo turnos, vincular el registro al turno abierto
       const shiftId = await getOpenShiftId();

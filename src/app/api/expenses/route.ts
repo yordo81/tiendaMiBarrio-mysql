@@ -2,12 +2,12 @@ export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, transaction } from '@/lib/db/mysql';
 import { logAudit } from '@/lib/db/audit';
-import { handle, ok, err, notFound, forbidden } from '@/lib/api-helpers';
-import { validateExpensePaymentMethodOrDefault } from '@/lib/validate';
+import { handle, ok, err, notFound, forbidden, requireRole } from '@/lib/api-helpers';
+import { validateExpensePaymentMethodOrDefault, requirePositiveNumber } from '@/lib/validate';
 const randomUUID = () => crypto.randomUUID();
 
 export const GET = handle(async (req: Request) => {
-  await requireAuth();
+  await requireRole('owner', 'admin');
   const { searchParams } = new URL(req.url);
   const from = searchParams.get('from'), to = searchParams.get('to');
   let sql = `SELECT e.*,ec.name AS category_name,p.name AS product_name,u.name AS user_name,po.name AS pos_name FROM expenses e LEFT JOIN expense_categories ec ON ec.id=e.category_id LEFT JOIN products p ON p.id=e.product_id LEFT JOIN users u ON u.id=e.user_id LEFT JOIN pos po ON po.id=e.pos_id`;
@@ -20,10 +20,15 @@ export const GET = handle(async (req: Request) => {
 });
 
 export const POST = handle(async (req: Request) => {
-  const sessionUser = await requireAuth();
+  const sessionUser = await requireRole('owner', 'admin');
   const body = await req.json();
   const id = randomUUID(); const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   const date = body.date ? new Date(body.date).toISOString().slice(0,19).replace('T',' ') : ts;
+
+  // Validar monto del gasto: debe ser un número positivo
+  const amount = requirePositiveNumber(body.amount, 'Monto del gasto');
+  if (!body.description || !String(body.description).trim()) return err('La descripción del gasto es obligatoria');
+  if (body.product_quantity != null && Number(body.product_quantity) <= 0) return err('La cantidad del producto debe ser mayor a 0');
 
   // Caja (punto de venta) opcional: atribuye el gasto a la caja para el arqueo del turno
   const posId = body.pos_id ? String(body.pos_id).trim() : '';
@@ -38,7 +43,7 @@ export const POST = handle(async (req: Request) => {
       : null;
     await conn.execute(
       'INSERT INTO expenses (id,category_id,description,amount,payment_method,product_id,product_quantity,pos_id,date,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      [id,body.category_id??null,body.description,Number(body.amount??0),paymentMethod,body.product_id??null,body.product_quantity??null,posId||null,date,sessionUser.id,ts,ts]
+      [id,body.category_id??null,String(body.description).trim(),amount,paymentMethod,body.product_id??null,body.product_quantity??null,posId||null,date,sessionUser.id,ts,ts]
     );
     if (body.product_id && body.product_quantity) {
       const productId = body.product_id;

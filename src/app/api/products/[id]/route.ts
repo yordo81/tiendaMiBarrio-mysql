@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute } from '@/lib/db/mysql';
 import { logAudit } from '@/lib/db/audit';
-import { handle, ok, err, forbidden, notFound } from '@/lib/api-helpers';
+import { handle, ok, err, forbidden, notFound, requireRole } from '@/lib/api-helpers';
+import { requireNonNegativeNumber } from '@/lib/validate';
 const randomUUID = () => crypto.randomUUID();
 
 // ── GET: Obtener un producto por ID (con relaciones) ─────────────────────────
@@ -38,7 +39,7 @@ export const GET = handle(async (_: Request, ctx) => {
 
 export const PUT = handle(async (request: Request, ctx) => {
   const { id } = await ctx!.params;
-  const sessionUser = await requireAuth();
+  const sessionUser = await requireRole('owner', 'admin', 'warehouse');
   const body = await request.json();
   const ts = new Date().toISOString().slice(0,19).replace('T',' ');
 
@@ -49,9 +50,14 @@ export const PUT = handle(async (request: Request, ctx) => {
     if (existing) return err(`Ya existe un producto con el código de barras ${barcode}`);
   }
 
+  // Validar valores numéricos no negativos (precios, costos, stocks)
+  const salePrice = requireNonNegativeNumber(body.sale_price, 'Precio de venta');
+  const cost = requireNonNegativeNumber(body.cost, 'Costo');
+  const minStock = requireNonNegativeNumber(body.min_stock ?? 0, 'Stock mínimo');
+  const newStock = requireNonNegativeNumber(body.stock, 'Stock');
+
   const current = await queryOne<{stock: number}>('SELECT stock FROM products WHERE id=?', [id]);
   const oldStock = current?.stock ?? 0;
-  const newStock = Number(body.stock);
   const diff = newStock - oldStock;
 
   // Normalizar fecha de caducidad: vacío (o inválido) → NULL, la columna es DATE
@@ -62,8 +68,8 @@ export const PUT = handle(async (request: Request, ctx) => {
 
   await execute(
     `UPDATE products SET name=?,barcode=?,description=?,category_id=?,sale_price=?,cost=?,stock=?,min_stock=?,unit=?,expiration_date=?,is_perishable=?,image_url=?,updated_at=? WHERE id=?`,
-    [body.name, barcode, body.description??null, body.category_id??null, Number(body.sale_price), Number(body.cost),
-     Number(body.stock), Number(body.min_stock), body.unit??'unidad', expirationDate, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, id]
+    [String(body.name ?? '').trim() || 'Producto', barcode, body.description??null, body.category_id??null, salePrice, cost,
+     newStock, minStock, body.unit??'unidad', expirationDate, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, id]
   );
 
   if (diff !== 0) {

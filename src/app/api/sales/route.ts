@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, transaction } from '@/lib/db/mysql';
-import { validatePaymentMethodOrDefault } from '@/lib/validate';
+import { validatePaymentMethodOrDefault, requirePositiveNumber } from '@/lib/validate';
 import { handle, ok, err } from '@/lib/api-helpers';
 import { getBusinessSettings } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
@@ -51,6 +51,36 @@ export const POST = handle(async (req: Request) => {
     if (!pos) return err('La caja seleccionada no existe o está desactivada');
   }
 
+  // ── Resolver productos desde la BD (integridad de precios) ──────
+  // El unit_price y cost que envíe el cliente se ignoran: se usan el
+  // precio de venta y el costo reales del producto en la BD. Esto evita
+  // que un vendedor manipule precios (vender a $0.01, cost 0, etc.).
+  // Los descuentos serían una feature futura con permiso de admin.
+  const resolvedItems: {
+    product_id: string;
+    quantity: number;
+    unit_price: number;
+    cost: number;
+    name: string;
+  }[] = [];
+  for (const item of items) {
+    if (!item?.product_id) return err('Cada producto de la venta requiere product_id');
+    const qty = requirePositiveNumber(item.quantity, 'Cantidad');
+    const product = await queryOne<{ id: string; sale_price: number; cost: number; name: string }>(
+      'SELECT id, sale_price, cost, name FROM products WHERE id = ? AND active = 1 LIMIT 1',
+      [item.product_id]
+    );
+    if (!product) return err('Producto no encontrado o inactivo');
+    resolvedItems.push({
+      product_id: product.id,
+      quantity: qty,
+      unit_price: Number(product.sale_price),
+      cost: Number(product.cost),
+      name: product.name,
+    });
+  }
+  const itemsToProcess = resolvedItems;
+
   // En modo por turnos, las ventas requieren un turno abierto en la caja:
   // se bloquea la venta hasta que el vendedor abra el turno desde su dashboard.
   const settings = await getBusinessSettings();
@@ -71,11 +101,11 @@ export const POST = handle(async (req: Request) => {
         hour: '2-digit', minute: '2-digit', second: '2-digit',
         hour12: false,
       }).format(new Date()).replace(', ', ' ');
-  const total = items.reduce((a: number, i: { quantity: number; unit_price: number }) => a + i.quantity * i.unit_price, 0);
+  const total = itemsToProcess.reduce((a: number, i: { quantity: number; unit_price: number }) => a + i.quantity * i.unit_price, 0);
   const status = payment?.method === 'credit' ? 'pending' : 'completed';
 
   // ── Validar stock antes de iniciar la transacción (pre-check rápido) ──
-  for (const item of items) {
+  for (const item of itemsToProcess) {
     let available: number;
     if (location_id) {
       // Validar stock en el almacén específico seleccionado
@@ -103,11 +133,11 @@ export const POST = handle(async (req: Request) => {
       'INSERT INTO sales (id,customer_id,user_id,pos_id,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
       [saleId, customer_id??null, sessionUser.id, posId || null, saleDate, total, status, notes??null, ts, ts]
     );
-    for (const item of items) {
-      // Insertar cada producto vendido
+    for (const item of itemsToProcess) {
+      // Insertar cada producto vendido (precio y costo desde la BD)
       await conn.execute(
         'INSERT INTO sale_items (id,sale_id,product_id,quantity,unit_price,cost,created_at) VALUES (?,?,?,?,?,?,?)',
-        [randomUUID(), saleId, item.product_id, item.quantity, item.unit_price, item.cost??0, ts]
+        [randomUUID(), saleId, item.product_id, item.quantity, item.unit_price, item.cost, ts]
       );
       // Validar stock dentro de la transacción con bloqueo de fila (race-condition safe)
       const [lockRows] = await conn.execute(

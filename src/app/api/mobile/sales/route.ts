@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, transaction } from '@/lib/db/mysql';
-import { validatePaymentMethodOrDefault } from '@/lib/validate';
+import { validatePaymentMethodOrDefault, requirePositiveNumber } from '@/lib/validate';
 import { handle, ok, err } from '@/lib/api-helpers';
 import { getBusinessSettings } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
@@ -31,19 +31,34 @@ export const POST = handle(async (req: Request) => {
     if (!openShift) return err('No hay un turno abierto en la caja seleccionada. Abre un turno antes de vender.');
   }
 
-  // Si los items vienen con barcode en lugar de product_id, resolver a IDs
+  // Si los items vienen con barcode en lugar de product_id, resolver a IDs.
+  // El unit_price y cost SIEMPRE se toman de la BD (integridad de precios):
+  // el precio/costo que envíe el cliente se ignora para evitar manipulación.
   const resolvedItems: {
     product_id: string;
     barcode?: string;
     quantity: number;
     unit_price: number;
-    cost?: number;
+    cost: number;
   }[] = [];
 
   for (const item of items) {
+    const qty = requirePositiveNumber(item?.quantity ?? 1, 'Cantidad');
     if (item.product_id) {
-      // Ya viene con ID directo
-      resolvedItems.push(item);
+      // Ya viene con ID directo: validar contra la BD
+      const product = await queryOne<{ id: string; sale_price: number; cost: number }>(
+        'SELECT id, sale_price, cost FROM products WHERE id = ? AND active = 1 LIMIT 1',
+        [item.product_id]
+      );
+      if (!product) {
+        return err('Producto no encontrado o inactivo');
+      }
+      resolvedItems.push({
+        product_id: product.id,
+        quantity: qty,
+        unit_price: Number(product.sale_price),
+        cost: Number(product.cost),
+      });
     } else if (item.barcode) {
       // Buscar producto por código de barras
       const product = await queryOne<{ id: string; sale_price: number; cost: number }>(
@@ -56,9 +71,9 @@ export const POST = handle(async (req: Request) => {
       resolvedItems.push({
         product_id: product.id,
         barcode: item.barcode,
-        quantity: item.quantity ?? 1,
-        unit_price: item.unit_price ?? product.sale_price,
-        cost: item.cost ?? product.cost,
+        quantity: qty,
+        unit_price: Number(product.sale_price),
+        cost: Number(product.cost),
       });
     } else {
       return err('Cada item debe tener product_id o barcode');
@@ -112,7 +127,7 @@ export const POST = handle(async (req: Request) => {
       await conn.execute(
         `INSERT INTO sale_items (id,sale_id,product_id,quantity,unit_price,cost,created_at)
          VALUES (?,?,?,?,?,?,?)`,
-        [randomUUID(), saleId, item.product_id, item.quantity, item.unit_price, item.cost ?? 0, ts]
+        [randomUUID(), saleId, item.product_id, item.quantity, item.unit_price, item.cost, ts]
       );
 
       // Bloquear fila y descontar stock global
