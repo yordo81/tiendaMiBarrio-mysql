@@ -1,11 +1,10 @@
 export const dynamic = 'force-dynamic';
-import { requireAuth } from '@/lib/auth/session';
 import { query, transaction } from '@/lib/db/mysql';
-import { handle, ok, err } from '@/lib/api-helpers';
+import { handle, ok, err, requireRole } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
 export const GET = handle(async () => {
-  await requireAuth();
+  await requireRole('owner', 'admin', 'warehouse');
   const rows = await query(`
     SELECT st.*,
       fl.name AS from_location_name, tl.name AS to_location_name,
@@ -20,7 +19,7 @@ export const GET = handle(async () => {
 });
 
 export const POST = handle(async (req: Request) => {
-  const sessionUser = await requireAuth();
+  const sessionUser = await requireRole('owner', 'admin', 'warehouse');
   const body = await req.json();
   const { from_location_id, to_location_id, notes } = body;
 

@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-import { requireAuth } from '@/lib/auth/session';
+import { requireRole } from '@/lib/api-helpers';
 import { query } from '@/lib/db/mysql';
 import { handle, ok } from '@/lib/api-helpers';
 
@@ -17,7 +17,7 @@ function fmtDateInTz(date: Date, timezone: string): string {
 }
 
 export const GET = handle(async (req) => {
-  await requireAuth();
+  await requireRole('owner', 'admin');
   const { searchParams } = new URL(req.url);
   const from = searchParams.get('from');  // Fecha inicio para filtro personalizado
   const to = searchParams.get('to');      // Fecha fin para filtro personalizado

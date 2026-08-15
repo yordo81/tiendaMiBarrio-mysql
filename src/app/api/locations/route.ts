@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute } from '@/lib/db/mysql';
 import { validateLocationTypeOrDefault } from '@/lib/validate';
-import { handle, ok, err } from '@/lib/api-helpers';
+import { handle, ok, err, requireRole } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
 export const GET = handle(async () => {
@@ -10,7 +10,7 @@ export const GET = handle(async () => {
 });
 
 export const POST = handle(async (req: Request) => {
-  await requireAuth(); const body = await req.json(); const id = randomUUID(); const ts = new Date().toISOString().slice(0,19).replace('T',' ');
+  await requireRole('owner', 'admin', 'warehouse'); const body = await req.json(); const id = randomUUID(); const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   const validType = validateLocationTypeOrDefault(body.type);
   await execute('INSERT INTO locations (id,name,type,address,notes,active,created_at,updated_at) VALUES (?,?,?,?,?,1,?,?)',
     [id,body.name,validType,body.address??null,body.notes??null,ts,ts]);
@@ -18,7 +18,7 @@ export const POST = handle(async (req: Request) => {
 });
 
 export const PUT = handle(async (req: Request) => {
-  await requireAuth(); const { id,...body } = await req.json(); const ts = new Date().toISOString().slice(0,19).replace('T',' ');
+  await requireRole('owner', 'admin', 'warehouse'); const { id,...body } = await req.json(); const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   const validType = validateLocationTypeOrDefault(body.type);
   await execute('UPDATE locations SET name=?,type=?,address=?,notes=?,updated_at=? WHERE id=?',
     [body.name,validType,body.address??null,body.notes??null,ts,id]);
@@ -26,7 +26,7 @@ export const PUT = handle(async (req: Request) => {
 });
 
 export const DELETE = handle(async (req: Request) => {
-  await requireAuth(); const { id } = await req.json(); const ts = new Date().toISOString().slice(0,19).replace('T',' ');
+  await requireRole('owner', 'admin', 'warehouse'); const { id } = await req.json(); const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   // No se puede desactivar un punto de venta que tiene cajas asociadas:
   // primero hay que reasignar o desactivar sus cajas.
   const loc = await queryOne<{ id: string; name: string }>('SELECT id, name FROM locations WHERE id=?', [id]);

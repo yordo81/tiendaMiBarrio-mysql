@@ -1,13 +1,12 @@
 export const dynamic = 'force-dynamic';
-import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute } from '@/lib/db/mysql';
 import { logAudit } from '@/lib/db/audit';
 import { validateStockMovementType } from '@/lib/validate';
-import { handle, ok, err } from '@/lib/api-helpers';
+import { handle, ok, err, requireRole } from '@/lib/api-helpers';
 const randomUUID = () => crypto.randomUUID();
 
 export const GET = handle(async (req: Request) => {
-  await requireAuth();
+  await requireRole('owner', 'admin', 'warehouse');
   const { searchParams } = new URL(req.url);
   const pid = searchParams.get('product_id');
   const sql = `SELECT sm.*,u.name AS user_name FROM stock_movements sm LEFT JOIN users u ON u.id=sm.user_id${pid?' WHERE sm.product_id=?':''} ORDER BY sm.date DESC LIMIT 100`;
@@ -15,7 +14,7 @@ export const GET = handle(async (req: Request) => {
 });
 
 export const POST = handle(async (req: Request) => {
-  const sessionUser = await requireAuth();
+  const sessionUser = await requireRole('owner', 'admin', 'warehouse');
   const { product_id, type: rawType, quantity, reason, location_id } = await req.json();
   if (!product_id||!rawType||quantity<=0||!reason) return err('Faltan datos');
   const type = validateStockMovementType(rawType);

@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query } from '@/lib/db/mysql';
-import { handle, ok, err, forbidden } from '@/lib/api-helpers';
+import { handle, ok, err, forbidden, requireRole } from '@/lib/api-helpers';
 
 export const GET = handle(async (req: Request) => {
   const user = await requireAuth();
@@ -69,6 +69,15 @@ export const GET = handle(async (req: Request) => {
       salesChart: chart, topProducts: top,
       timezone,
     });
+  }
+
+  // ── Guard de roles para el resto de reportes ────────────────────
+  // El módulo Reportes es de owner/admin en la UI; aquí se refuerza en la
+  // API para que un vendedor no consulte datos financieros directamente.
+  // Excepciones operativas: 'seller' (dashboard del vendedor) y
+  // 'stock_movements' (historial de un producto, usado por bodegueros).
+  if (type !== 'seller' && type !== 'stock_movements') {
+    await requireRole('owner', 'admin');
   }
 
   // ── Dashboard del vendedor ──────────────────────────────────────

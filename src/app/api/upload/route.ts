@@ -1,12 +1,11 @@
 export const dynamic = 'force-dynamic';
-import { requireAuth } from '@/lib/auth/session';
-import { handle, ok, err } from '@/lib/api-helpers';
+import { handle, ok, err, requireRole } from '@/lib/api-helpers';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import sharp from 'sharp';
 
 export const POST = handle(async (request: Request) => {
-  await requireAuth();
+  await requireRole('owner', 'admin', 'warehouse');
 
   const formData = await request.formData();
   const file = formData.get('file') as File | null;

@@ -1,8 +1,7 @@
 export const dynamic = 'force-dynamic';
-import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, execute, transaction } from '@/lib/db/mysql';
 import { logAudit } from '@/lib/db/audit';
-import { handle, ok, err } from '@/lib/api-helpers';
+import { handle, ok, err, requireRole } from '@/lib/api-helpers';
 import { localToUtcDb } from '@/lib/shift-time';
 const randomUUID = () => crypto.randomUUID();
 
@@ -12,7 +11,7 @@ const randomUUID = () => crypto.randomUUID();
 
 // ── GET: Listar movimientos de almacén ──
 export const GET = handle(async (req: Request) => {
-  await requireAuth();
+  await requireRole('owner', 'admin', 'warehouse');
   const { searchParams } = new URL(req.url);
   const locationId = searchParams.get('location_id');
   const from = searchParams.get('from');
@@ -48,7 +47,7 @@ export const GET = handle(async (req: Request) => {
 
 // ── POST: Registrar movimiento en almacén ──
 export const POST = handle(async (req: Request) => {
-  const sessionUser = await requireAuth();
+  const sessionUser = await requireRole('owner', 'admin', 'warehouse');
   const { location_id, product_id, type, quantity, notes } = await req.json();
 
   if (!location_id || !product_id || !type || quantity <= 0) {
