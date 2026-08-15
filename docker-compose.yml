@@ -8,6 +8,12 @@
 # ============================================================
 # Configura las variables en un archivo .env (ver .env.example)
 # o directamente en el entorno.
+#
+# Migraciones: al arrancar, el contenedor app ejecuta entrypoint.sh,
+# que aplica automáticamente los archivos mysql/migration-*.sql que
+# falten (controlados en la tabla schema_migrations). Para agregar una
+# migración nueva basta con incluir el .sql en mysql/ y reconstruir la
+# imagen de la app.
 # ============================================================
 
 services:

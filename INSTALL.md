@@ -259,10 +259,19 @@ INSERT INTO users (id, name, email, password_hash, role, permissions, active, cr
 VALUES (UUID(), 'Admin', 'admin@tienda.com', '$2a$12$HASH_AQUI', 'owner', '[]', 1, NOW(), NOW());
 ```
 
-### 4. Comandos útiles de Docker
+### 4. Migraciones automáticas
+
+Cada vez que arranca el contenedor **app**, su script de entrada `entrypoint.sh`:
+
+1. Espera a que MySQL esté disponible.
+2. Crea la tabla `schema_migrations` (interna, no se muestra en la interfaz) que lleva el control de las migraciones ejecutadas.
+3. La primera vez registra las migraciones existentes como aplicadas (*baseline*), porque el esquema ya está completo (lo crea el contenedor MySQL con `mysql/init/01-schema.sql` o una instalación previa).
+4. Aplica en orden solo los archivos `mysql/migration-*.sql` **nuevos** (no registrados) y los anota en la tabla. Si uno falla, el contenedor no arranca (exit 1) y queda registrado en los logs.
+
+Para agregar una migración nueva: añade el `.sql` a `mysql/`, reconstruye la imagen (`docker compose build app`) y al reiniciar el contenedor se aplicará sola.
 
 ```bash
-docker compose logs -f              # Ver logs de todos los servicios
+docker compose logs -f              # Ver logs de todos los servicios (incluye [entrypoint] ...)
 docker compose stop                 # Detener servicios (sin borrar datos)
 docker compose down                 # Detener y eliminar contenedores
 docker compose down -v              # Detener todo y borrar la BD (¡cuidado!)

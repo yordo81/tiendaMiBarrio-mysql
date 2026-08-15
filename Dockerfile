@@ -34,7 +34,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV TZ=America/Havana
-RUN apk add --no-cache tzdata
+# tzdata: zona horaria del negocio · mariadb-client + mariadb-connector-c: aplicar migraciones
+# (mariadb-connector-c aporta el plugin caching_sha2_password para MySQL 8)
+RUN apk add --no-cache tzdata mariadb-client mariadb-connector-c
 
 # Crear usuario no-root para seguridad
 RUN addgroup --system --gid 1001 nodejs && \
@@ -44,10 +46,17 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Migraciones SQL que aplica el entrypoint al arrancar
+COPY --from=builder --chown=nextjs:nodejs /app/mysql ./mysql
+
+# Entrypoint: espera MySQL, aplica migraciones pendientes y arranca la app
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Pasar a usuario no-root
 USER nextjs
 
 EXPOSE 3000
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "server.js"]
