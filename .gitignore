@@ -38,3 +38,6 @@ tsconfig.tsbuildinfo
 
 # Windows reserved device name (accidental creation)
 nul
+
+# QA scripts — snapshot regenerable con datos de la BD local
+scripts/qa/snapshot.json
