@@ -12,7 +12,7 @@ const randomUUID = () => crypto.randomUUID();
 
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { items, payment, customer_id, location_id, notes, pos_id } = await req.json();
+  const { items, payment, customer_id, location_id, notes, pos_id, date } = await req.json();
 
   if (!items?.length) return err('La venta debe tener al menos un producto');
 
@@ -89,7 +89,18 @@ export const POST = handle(async (req: Request) => {
   const saleId = randomUUID();
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const status = payment?.method === 'credit' ? 'pending' : 'completed';
-  const saleDate = ts;
+  // Fecha de la venta en HORA LOCAL del negocio (TIMEZONE), igual que
+  // /api/sales: las ventas se guardan en hora local (los turnos y el
+  // historial del vendedor se comparan en esa zona), no en UTC.
+  const tz = process.env.TIMEZONE ?? 'America/Havana';
+  const saleDate = date
+    ? new Date(date).toISOString().slice(0, 19).replace('T', ' ')
+    : new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+      }).format(new Date()).replace(', ', ' ');
 
   // Validar stock antes de la transacción
   for (const item of resolvedItems) {
