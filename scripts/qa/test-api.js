@@ -205,8 +205,15 @@ async function main() {
 
     const localDay = nowLocal.slice(0, 10);
     const utcDay = nowUtc.slice(0, 10);
-    check('Fecha del día coinciden local/UTC (si no, la venta móvil se pierde del filtro "hoy")',
-      localDay === utcDay, `local hoy=${localDay}, UTC hoy=${utcDay}`);
+    // Precondición informativa: local/UTC solo coinciden cuando la hora local
+    // es >= 06:00 (zona negativa). De noche UTC ya es el día siguiente y la
+    // aserción fallaría sin que haya bug: las verificaciones reales del filtro
+    // "hoy" son las dos siguientes, que usan la fecha local del negocio.
+    if (localDay !== utcDay) {
+      console.log(`ℹ️  INFO  Fecha local (${localDay}) ≠ fecha UTC (${utcDay}) — check informativo (son las ${nowLocal} local)`);
+    } else {
+      check('Fecha del día coinciden local/UTC', true, `local=${localDay}, UTC=${utcDay}`);
+    }
     check('La venta MÓVIL queda DENTRO del filtro "ventas de hoy" (s.date entre hoy local)',
       mobileDate.slice(0, 10) === localDay,
       `venta móvil guardada el día ${mobileDate.slice(0, 10)} vs "hoy" local ${localDay} — quedará FUERA del historial del vendedor`);
