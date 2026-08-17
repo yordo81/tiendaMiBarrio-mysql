@@ -95,8 +95,13 @@ export default function GastosPage() {
   const filtered = expenses.filter(e => {
     const matchSearch = String(e.description??'').toLowerCase().includes(search.toLowerCase()) || String(e.category_name??'').toLowerCase().includes(search.toLowerCase());
     if (!matchSearch) return false;
-    if (dateFrom && String(e.date??'') < dateFrom) return false;
-    if (dateTo && String(e.date??'') > dateTo) return false;
+    // e.date llega en UTC (ISO); se convierte a la fecha local del negocio
+    // antes de comparar con el rango, igual que formatDate al mostrar. Si no,
+    // un gasto de la noche local quedaba como "día siguiente" en UTC y
+    // desaparecía del filtro de su día.
+    const dKey = e.date ? formatDate(String(e.date), 'yyyy-MM-dd') : '';
+    if (dateFrom && dKey < dateFrom) return false;
+    if (dateTo && dKey > dateTo) return false;
     return true;
   });
   const paginated = pageSize === 0 ? filtered : filtered.slice(0, page * pageSize).slice((page - 1) * pageSize);

@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, transaction } from '@/lib/db/mysql';
 import { logAudit } from '@/lib/db/audit';
 import { handle, ok, err, notFound, forbidden, requireRole } from '@/lib/api-helpers';
+import { localToUtcDb } from '@/lib/shift-time';
 import { validateExpensePaymentMethodOrDefault, requirePositiveNumber } from '@/lib/validate';
 const randomUUID = () => crypto.randomUUID();
 
@@ -12,8 +13,12 @@ export const GET = handle(async (req: Request) => {
   const from = searchParams.get('from'), to = searchParams.get('to');
   let sql = `SELECT e.*,ec.name AS category_name,p.name AS product_name,u.name AS user_name,po.name AS pos_name FROM expenses e LEFT JOIN expense_categories ec ON ec.id=e.category_id LEFT JOIN products p ON p.id=e.product_id LEFT JOIN users u ON u.id=e.user_id LEFT JOIN pos po ON po.id=e.pos_id`;
   const params: unknown[] = []; const where: string[] = [];
-  if (from) { where.push('e.date>=?'); params.push(from); }
-  if (to)   { where.push('e.date<=?'); params.push(to + ' 23:59:59'); }
+  // e.date se guarda en UTC (ver lib/shift-time): los límites locales del
+  // input se convierten a UTC para que el filtro de fechas sea correcto en
+  // la zona horaria del negocio (ej. Cuba: la noche local cae al día
+  // siguiente en UTC y el gasto desaparecía del filtro de su día).
+  if (from) { where.push('e.date>=?'); params.push(localToUtcDb(`${from} 00:00:00`)); }
+  if (to)   { where.push('e.date<=?'); params.push(localToUtcDb(`${to} 23:59:59`)); }
   if (where.length) sql += ' WHERE '+where.join(' AND ');
   sql += ' ORDER BY e.date DESC LIMIT 200';
   return ok(await query(sql, params));
