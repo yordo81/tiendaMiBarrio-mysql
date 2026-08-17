@@ -18,6 +18,9 @@ const entityLabels: Record<string, string> = {
   stock_movement: 'Ajuste de stock',
   shift: 'Turno',
   user: 'Usuario',
+  printer: 'Impresora',
+  reservation: 'Reservación',
+  settings: 'Configuración',
 };
 
 const entityColors: Record<string, string> = {
@@ -29,6 +32,9 @@ const entityColors: Record<string, string> = {
   stock_movement: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
   shift: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
   user: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  printer: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
+  reservation: 'text-pink-400 bg-pink-500/10 border-pink-500/20',
+  settings: 'text-slate-400 bg-slate-500/10 border-slate-500/20',
 };
 
 const actionLabels: Record<string, string> = {
@@ -40,6 +46,9 @@ const actionLabels: Record<string, string> = {
   open: 'Apertura',
   close: 'Cierre',
   password_change: 'Cambio de contraseña',
+  create: 'Creación',
+  update: 'Actualización',
+  confirm: 'Confirmación',
 };
 
 const actionColors: Record<string, string> = {
@@ -51,6 +60,9 @@ const actionColors: Record<string, string> = {
   open: 'badge-success',
   close: 'badge-info',
   password_change: 'badge-warning',
+  create: 'badge-success',
+  update: 'badge-info',
+  confirm: 'badge-success',
 };
 
 export default function AuditoriaPage() {
