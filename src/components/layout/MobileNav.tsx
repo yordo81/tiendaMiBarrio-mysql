@@ -6,18 +6,20 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useWorkMode, useSettingsStore } from '@/lib/stores/settings-store';
 import { useTheme } from '@/components/theme/ThemeProvider';
+// Misma matriz de roles que el Sidebar: cada módulo solo aparece si el rol
+// del usuario tiene acceso (la API ya devuelve 403, aquí se oculta por UI).
 const nav: { href: string; label: string; icon: typeof Clock3; roles?: string[]; workMode?: 'daily' | 'shifts' }[] = [
   // El vendedor no tiene dashboard: entra directo al punto de venta táctil
   { href: '/dashboard',            label: 'Inicio',     icon: LayoutDashboard, roles: ['owner', 'admin', 'warehouse'] },
-  { href: '/dashboard/inventario', label: 'Inventario', icon: Package },
-  { href: '/dashboard/movimientos',label: 'Movimientos',icon: MoveHorizontal },
-  { href: '/dashboard/compras',    label: 'Compras',    icon: ShoppingBag },
-  { href: '/dashboard/almacenes',  label: 'Almacenes',  icon: Warehouse },
-  { href: '/dashboard/ventas',     label: 'Ventas',     icon: ShoppingCart },
-  { href: '/dashboard/turnos',     label: 'Turnos',     icon: Clock3, workMode: 'shifts' },
-  { href: '/dashboard/contabilidad',label: 'Caja',      icon: DollarSign },
-  { href: '/dashboard/reportes',   label: 'Reportes',   icon: BarChart2 },
-  { href: '/dashboard/auditoria',label: 'Auditoría', icon: Shield },
+  { href: '/dashboard/inventario', label: 'Inventario', icon: Package, roles: ['owner', 'admin', 'warehouse'] },
+  { href: '/dashboard/movimientos',label: 'Movimientos',icon: MoveHorizontal, roles: ['owner', 'admin', 'warehouse'] },
+  { href: '/dashboard/compras',    label: 'Compras',    icon: ShoppingBag, roles: ['owner', 'admin', 'warehouse'] },
+  { href: '/dashboard/almacenes',  label: 'Almacenes',  icon: Warehouse, roles: ['owner', 'admin', 'warehouse'] },
+  { href: '/dashboard/ventas',     label: 'Ventas',     icon: ShoppingCart, roles: ['owner', 'admin', 'seller'] },
+  { href: '/dashboard/turnos',     label: 'Turnos',     icon: Clock3, roles: ['owner', 'admin'], workMode: 'shifts' },
+  { href: '/dashboard/contabilidad',label: 'Caja',      icon: DollarSign, roles: ['owner', 'admin'] },
+  { href: '/dashboard/reportes',   label: 'Reportes',   icon: BarChart2, roles: ['owner', 'admin'] },
+  { href: '/dashboard/auditoria',label: 'Auditoría', icon: Shield, roles: ['owner', 'admin'] },
   { href: '/dashboard/configuracion', label: 'Config.', icon: Settings, roles: ['owner'] },
 ];
 export default function MobileNav() {
