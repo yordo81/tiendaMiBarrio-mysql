@@ -144,6 +144,19 @@ export const GET = handle(async (_req: Request, ctx) => {
     [fromLocal, toLocal, shift.pos_id]
   );
 
+  // ── Desglose de ventas por método de pago (misma definición que el
+  // registro de auditoría del cierre: ventas no canceladas de la caja) ──
+  const paymentBreakdown: Record<string, { count: number; total: number; cash: number; transfer: number }> = {};
+  for (const s of sales) {
+    const method = String(s.method ?? 'unknown');
+    const b = paymentBreakdown[method] ?? { count: 0, total: 0, cash: 0, transfer: 0 };
+    b.count += 1;
+    b.total = r2(b.total + Number(s.total ?? 0));
+    b.cash = r2(b.cash + Number(s.amount_cash ?? 0));
+    b.transfer = r2(b.transfer + Number(s.amount_transfer ?? 0));
+    paymentBreakdown[method] = b;
+  }
+
   // ── Totales ──
   // Solo ventas completadas (las de crédito pendiente no son ingreso aún)
   const completedSales = sales.filter(s => String(s.status) === 'completed');
@@ -201,5 +214,6 @@ export const GET = handle(async (_req: Request, ctx) => {
     register_movements: registerMovements,
     stock_adjustments: stockAdjustments,
     sold_products: soldProducts,
+    payment_breakdown: paymentBreakdown,
   });
 });

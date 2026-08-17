@@ -174,11 +174,26 @@ export default function AuditoriaPage() {
                   if (details) {
                     if (details.old_stock !== undefined) detailsText = `Stock: ${details.old_stock} → ${details.new_stock} (Δ ${details.diff})`;
                     else if (details.quantity !== undefined) detailsText = `Cantidad: ${details.quantity}` + (details.reason ? ` · ${details.reason}` : '');
+                    else if (details.business_name !== undefined) detailsText = `Negocio: ${details.business_name} · Modo: ${details.work_mode === 'shifts' ? 'turnos' : 'diario'}`;
                     else if (details.amount) detailsText = `Monto: ${details.amount}`;
                     else if (details.balance !== undefined) detailsText = `Saldo: ${details.balance}`;
                     else if (details.total !== undefined) detailsText = `Total: $${Number(details.total).toFixed(2)}`;
                     else if (details.opening_cash !== undefined) detailsText = `Fondo inicial: $${Number(details.opening_cash).toFixed(2)}`;
-                    else if (details.expected_cash !== undefined) detailsText = `Contado: $${Number(details.closing_cash).toFixed(2)} · Esperado: $${Number(details.expected_cash).toFixed(2)} · Δ $${Number(details.difference).toFixed(2)}`;
+                    else if (details.expected_cash !== undefined) {
+                      detailsText = `Contado: $${Number(details.closing_cash).toFixed(2)} · Esperado: $${Number(details.expected_cash).toFixed(2)} · Δ $${Number(details.difference).toFixed(2)}`;
+                      // Desglose de ventas por método de pago (registrado en
+                      // el cierre del turno desde /api/shifts/[id]/close)
+                      const pb = details.payment_breakdown;
+                      if (pb && typeof pb === 'object' && !Array.isArray(pb)) {
+                        const methodLabel: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', mixed: 'Mixto', credit: 'Crédito' };
+                        const parts: string[] = [];
+                        for (const [m, v] of Object.entries(pb as R)) {
+                          const val = v as R;
+                          parts.push(`${methodLabel[m] ?? m}: $${Number(val.total ?? 0).toFixed(2)} (${Number(val.count ?? 0)} venta(s))`);
+                        }
+                        if (parts.length) detailsText += '\n' + parts.join(' · ');
+                      }
+                    }
                   }
                   return (
                     <tr key={String(log.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
@@ -197,7 +212,7 @@ export default function AuditoriaPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-[var(--text-primary)]">{String(log.entity_name ?? '—')}</td>
-                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{detailsText || '—'}</td>
+                      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs whitespace-pre-line">{detailsText || '—'}</td>
                     </tr>
                   );
                 })}

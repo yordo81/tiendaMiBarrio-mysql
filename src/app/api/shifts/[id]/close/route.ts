@@ -93,6 +93,35 @@ export const POST = handle(async (req: Request, ctx) => {
     [from, utcNow, shift.id]
   );
 
+  // Desglose de ventas del turno por método de pago (para el registro de
+  // auditoría): tickets, total vendido y partes en efectivo/transferencia.
+  const payBreakdown = await query<{
+    method: string;
+    count: number;
+    total: number;
+    amount_cash: number;
+    amount_transfer: number;
+  }>(
+    `SELECT p.method,
+       COUNT(DISTINCT s.id) AS count,
+       COALESCE(SUM(s.total), 0) AS total,
+       COALESCE(SUM(p.amount_cash), 0) AS amount_cash,
+       COALESCE(SUM(p.amount_transfer), 0) AS amount_transfer
+     FROM payments p
+     JOIN sales s ON s.id = p.sale_id
+     WHERE s.status != 'cancelled' AND p.date BETWEEN ? AND ? AND s.pos_id = ?
+     GROUP BY p.method`,
+    [fromLocal, localNow, shift.pos_id]
+  );
+  const paymentBreakdown = Object.fromEntries(
+    payBreakdown.map(r => [r.method, {
+      count: Number(r.count),
+      total: r2(Number(r.total)),
+      cash: r2(Number(r.amount_cash)),
+      transfer: r2(Number(r.amount_transfer)),
+    }])
+  );
+
   const expected = r2(
     Number(shift.opening_cash) +
     Number(salesCash[0]?.total ?? 0) +
@@ -121,7 +150,14 @@ export const POST = handle(async (req: Request, ctx) => {
       entity_type: 'shift',
       entity_id: id,
       entity_name: shift.pos_name ?? 'Turno',
-      details: { pos_id: shift.pos_id ?? null, pos_name: shift.pos_name ?? null, expected_cash: expected, closing_cash: closingCash, difference },
+      details: {
+        pos_id: shift.pos_id ?? null,
+        pos_name: shift.pos_name ?? null,
+        expected_cash: expected,
+        closing_cash: closingCash,
+        difference,
+        payment_breakdown: paymentBreakdown,
+      },
     });
   } catch (e) {
     console.error('[audit] cierre de turno', e);

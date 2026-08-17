@@ -24,6 +24,14 @@ const REGISTER_TYPE_LABELS: Record<string, string> = {
   capital: 'Aporte de capital',
 };
 
+// Etiquetas de método de pago (ventas del turno)
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash: 'Efectivo',
+  transfer: 'Transferencia',
+  mixed: 'Mixto',
+  credit: 'Crédito',
+};
+
 export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReportModalProps) {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<R | null>(null);
@@ -87,6 +95,34 @@ export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReport
       bodyStyles: { fontSize: 9 },
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+
+    // Desglose de ventas por método de pago
+    const payBreakdown = (report.payment_breakdown ?? {}) as R;
+    const payEntries = payBreakdown && typeof payBreakdown === 'object' ? Object.entries(payBreakdown) : [];
+    if (payEntries.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('Ventas por método de pago', 14, y);
+      doc.setFont('helvetica', 'normal');
+      autoTable(doc, {
+        startY: y + 2,
+        head: [['Método', 'Tickets', 'Total', 'Efectivo', 'Transferencia']],
+        body: payEntries.map(([m, v]) => {
+          const val = v as R;
+          return [
+            PAYMENT_METHOD_LABELS[m] ?? m,
+            String(Number(val.count ?? 0)),
+            formatCurrency(Number(val.total ?? 0)),
+            formatCurrency(Number(val.cash ?? 0)),
+            formatCurrency(Number(val.transfer ?? 0)),
+          ];
+        }),
+        theme: 'grid',
+        headStyles: { fillColor: [38, 101, 245], fontSize: 8 },
+        bodyStyles: { fontSize: 8 },
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    }
 
     // Ventas
     const sales = (report.sales ?? []) as R[];
@@ -328,6 +364,44 @@ export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReport
                 </p>
               </div>
             </div>
+
+            {/* Ventas por método de pago */}
+            {(() => {
+              const pb = report.payment_breakdown as R | undefined;
+              const entries = pb && typeof pb === 'object' ? Object.entries(pb) : [];
+              if (entries.length === 0) return null;
+              return (
+                <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-4">
+                  <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide flex items-center gap-1.5 mb-3">
+                    <ShoppingCart className="w-4 h-4 text-brand-400" /> Ventas por método de pago
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {entries.map(([m, v]) => {
+                      const val = v as R;
+                      const isCash = m === 'cash' || m === 'mixed';
+                      return (
+                        <div key={m} className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-muted)] p-3">
+                          <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide">{PAYMENT_METHOD_LABELS[m] ?? m}</p>
+                          <p className="text-base font-semibold text-[var(--text-primary)] mt-1">{formatCurrency(Number(val.total ?? 0))}</p>
+                          <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                            {Number(val.count ?? 0)} ticket(s)
+                            {isCash && (
+                              <span className="block">Efectivo: {formatCurrency(Number(val.cash ?? 0))}</span>
+                            )}
+                            {m === 'transfer' && (
+                              <span className="block">Transferencia: {formatCurrency(Number(val.transfer ?? 0))}</span>
+                            )}
+                            {m === 'mixed' && (
+                              <span className="block">Transf: {formatCurrency(Number(val.transfer ?? 0))}</span>
+                            )}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Ganancia del turno */}
             <div className="bg-gradient-to-br from-emerald-500/15 to-transparent border border-emerald-500/25 rounded-xl p-4 flex items-center justify-between gap-3">
