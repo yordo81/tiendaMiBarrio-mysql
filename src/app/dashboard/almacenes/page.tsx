@@ -599,7 +599,7 @@ export default function AlmacenesPage() {
       <Modal open={showMov} onClose={()=>setShowMov(false)} title="Entrada / Salida / Ajuste de stock" size="md">
         <div className="space-y-4">
           <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] text-xs text-[var(--text-secondary)] space-y-1">
-            <p><strong className="text-green-400">Entrada:</strong> Carga productos del inventario general a un almacén. El stock global se reduce.</p>
+            <p><strong className="text-green-400">Entrada:</strong> Carga productos a un almacén (entrada al inventario). El stock global aumenta.</p>
             <p><strong className="text-red-400">Salida:</strong> Retira productos de un almacén (devolución, merma, etc.).</p>
             <p><strong className="text-yellow-400">Ajuste:</strong> Establece la cantidad exacta (corrección de conteo físico).</p>
           </div>

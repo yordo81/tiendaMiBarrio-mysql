@@ -123,11 +123,12 @@ export const POST = handle(async (req: Request) => {
     }
 
     if (type === 'entrada') {
-      await conn.execute('UPDATE products SET stock=GREATEST(0,stock-?),updated_at=? WHERE id=?', [quantity, ts, product_id]);
+      // Entrada = carga a almacén → aumenta el stock global del producto
+      await conn.execute('UPDATE products SET stock=stock+?,updated_at=? WHERE id=?', [quantity, ts, product_id]);
       const [locRows] = await conn.execute('SELECT name FROM locations WHERE id=?', [location_id]);
       const locName = ((locRows as {name:string}[])[0])?.name ?? location_id;
       await conn.execute(
-        "INSERT INTO stock_movements (id,product_id,type,quantity,reason,user_id,date,created_at) VALUES (?,?,'out',?,?,?,?,?)",
+        "INSERT INTO stock_movements (id,product_id,type,quantity,reason,user_id,date,created_at) VALUES (?,?,'in',?,?,?,?,?)",
         [randomUUID(), product_id, quantity, `Carga a almacén: ${locName}`, sessionUser.id, ts, ts]
       );
     }
