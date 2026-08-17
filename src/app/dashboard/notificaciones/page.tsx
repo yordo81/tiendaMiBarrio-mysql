@@ -66,10 +66,6 @@ export default function NotificacionesPage() {
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      // Generar alertas pendientes (vencimientos, stock bajo, agotados)
-      // antes de listar, para que el módulo muestre lo recién detectado.
-      // No bloqueante: si el chequeo falla, el listado igual se carga.
-      fetch('/api/notifications/check-expiration').catch(() => {});
       const params = new URLSearchParams();
       params.set('dismissed', dismissedFilter);
       if (severityFilter) params.set('severity', severityFilter);
@@ -84,6 +80,14 @@ export default function NotificacionesPage() {
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }, [dismissedFilter, severityFilter, page, pageSize]);
+
+  // Generar alertas pendientes (vencimientos, stock bajo, agotados) solo al
+  // montar: si se ejecutara en cada fetch se regenerarían/consultarían al
+  // cambiar filtros o página. La campana del Topbar ya hace polling cada 2
+  // minutos. No bloqueante: si el chequeo falla, el listado igual se carga.
+  useEffect(() => {
+    fetch('/api/notifications/check-expiration').catch(() => {});
+  }, []);
 
   useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
 
