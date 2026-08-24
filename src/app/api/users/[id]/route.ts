@@ -4,6 +4,7 @@ import { query, execute } from '@/lib/db/mysql';
 import { validateUserRole } from '@/lib/validate';
 import { handle, ok, err, forbidden } from '@/lib/api-helpers';
 import { logAudit } from '@/lib/db/audit';
+import { invalidateUserCache } from '@/lib/auth/user-active';
 import * as bcrypt from 'bcryptjs';
 
 export const PUT = handle(async (req: Request, ctx) => {
@@ -46,6 +47,11 @@ export const PUT = handle(async (req: Request, ctx) => {
   if (!fields.length) return err('Nada que actualizar');
   fields.push('updated_at=?'); values.push(ts); values.push(id);
   await execute(`UPDATE users SET ${fields.join(',')} WHERE id=?`, values);
+
+  // Invalidar caché del usuario al desactivarlo o reactivarlo
+  if (body.active !== undefined) {
+    invalidateUserCache(id).catch(() => {});
+  }
 
   // Auditoría: cuando el dueño o admin cambia la contraseña de otro usuario
   if (body.password) {
