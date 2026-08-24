@@ -1,4 +1,5 @@
 import { queryOne } from '@/lib/db/mysql';
+import { valkeyGet, valkeySet, valkeyDel, valkey } from '@/lib/valkey';
 
 // ── Usuario activo en BD ───────────────────────────────────────────
 // Helper compartido entre el proxy de autenticación y requireAuth()
@@ -25,9 +26,13 @@ export function findActiveUser(id: string): Promise<ActiveUser | null> {
 
 // ── Versión cacheada para el proxy de autenticación ────────────────
 // El proxy consulta la BD en cada request a /dashboard y /auth; si la BD
-// es remota o lenta, eso añade latencia al TTFB. Este caché en memoria
-// (por instancia del proceso) recuerda los resultados POSITIVOS durante
-// unos segundos para reducir esa latencia.
+// es remota o lenta, eso añade latencia al TTFB. Este caché recuerda
+// los resultados POSITIVOS durante unos segundos para reducir esa latencia.
+//
+// Estrategia:
+//  - Si VALKEY_URL está configurado → usa Valkey (caché distribuida,
+//    compartida entre instancias si escalas).
+//  - Si no → fallback a caché in-memory (por instancia del proceso).
 //
 // Consideraciones:
 //  - Solo se cachean los positivos: si un usuario se desactiva, el HTML
@@ -42,10 +47,32 @@ export function findActiveUser(id: string): Promise<ActiveUser | null> {
 
 const rawTtl = Number(process.env.USER_ACTIVE_CACHE_TTL_MS);
 const USER_ACTIVE_CACHE_TTL_MS = Number.isFinite(rawTtl) && rawTtl >= 0 ? rawTtl : 30_000;
+const CACHE_TTL_SECONDS = Math.ceil(USER_ACTIVE_CACHE_TTL_MS / 1000);
+const CACHE_KEY_PREFIX = 'user:active:';
+
+// Fallback in-memory cuando no hay Valkey
 const activeUserCache = new Map<string, { expiresAt: number }>();
 
 /** Retorna true si el usuario existe y está activo, con caché TTL corto. */
 export async function findActiveUserCached(id: string): Promise<boolean> {
+  // ── Intentar Valkey primero ──
+  if (valkey) {
+    const key = CACHE_KEY_PREFIX + id;
+    const cached = await valkeyGet<boolean | null>(key, null);
+    if (cached === true) return true;
+    if (cached === false) return false; // negativo cachéado brevemente para evitar spam de queries
+
+    const user = await findActiveUser(id);
+    if (user) {
+      await valkeySet(key, true, CACHE_TTL_SECONDS);
+      return true;
+    }
+    // Cachear negativos 5s para evitar golpes repetidos a la BD
+    await valkeySet(key, false, Math.min(5, CACHE_TTL_SECONDS));
+    return false;
+  }
+
+  // ── Fallback: caché in-memory ──
   const cached = activeUserCache.get(id);
   if (cached && cached.expiresAt > Date.now()) return true;
 
@@ -58,4 +85,13 @@ export async function findActiveUserCached(id: string): Promise<boolean> {
   // No cachear negativos (reactivación inmediata); limpiar entradas viejas
   activeUserCache.delete(id);
   return false;
+}
+
+/** Invalida el caché de un usuario específico (ej: al desactivarlo). */
+export async function invalidateUserCache(id: string): Promise<void> {
+  if (valkey) {
+    await valkeyDel(CACHE_KEY_PREFIX + id);
+  } else {
+    activeUserCache.delete(id);
+  }
 }

@@ -1,4 +1,5 @@
 import { query, queryOne } from '@/lib/db/mysql';
+import { valkeyGet, valkeySet, valkey } from '@/lib/valkey';
 
 // ── Configuración del negocio (lado servidor) ─────────────────────
 // Lee la tabla settings (fila única id='1'). Se usa en metadatos,
@@ -66,9 +67,12 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
 // ── Versión cacheada para el proxy: mostrar u ocultar reservaciones ──
 // El proxy redirige / → /inicio sin esperar al cliente cuando el módulo
 // de reservaciones está desactivado. Para no añadir una consulta a la BD
-// en cada request a la página de entrada, se cachea el valor con un TTL
-// corto en memoria (por instancia del proceso), igual que el caché de
-// usuarios activos del proxy (findActiveUserCached).
+// en cada request a la página de entrada, se cachea el valor con un TTL.
+//
+// Estrategia:
+//  - Si VALKEY_URL está configurado → usa Valkey (caché distribuida,
+//    compartida entre instancias si escalas).
+//  - Si no → fallback a caché in-memory (por instancia del proceso).
 //
 // Consideraciones:
 //  - Fail-open: getBusinessSettings() nunca lanza (ante error devuelve
@@ -76,18 +80,29 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
 //    BD no bloquea la página de entrada.
 //  - TTL corto por defecto (15s), configurable con SETTINGS_CACHE_TTL_MS
 //    (0 = deshabilitar el caché). El cambio de configuración del dueño
-//    se propaga al proxy en cuanto expira el TTL; el redirect en el
-//    cliente (page.tsx) cubre el efecto inmediato para el visitante.
-//  - Nota: el proxy de Next.js se compila como bundle aislado, así que
-//    esta caché no se puede invalidar desde las rutas API (no comparten
-//    estado); por eso el TTL es corto.
+//    se propaga al proxy en cuanto expira el TTL.
 
 const rawSettingsTtl = Number(process.env.SETTINGS_CACHE_TTL_MS);
 const SETTINGS_CACHE_TTL_MS = Number.isFinite(rawSettingsTtl) && rawSettingsTtl >= 0 ? rawSettingsTtl : 15_000;
+const SETTINGS_TTL_SECONDS = Math.ceil(SETTINGS_CACHE_TTL_MS / 1000);
+const SETTINGS_CACHE_KEY = 'settings:show_reservations';
+
+// Fallback in-memory cuando no hay Valkey
 let cachedShowReservations: { value: boolean; expiresAt: number } | null = null;
 
 /** Retorna true si el módulo de reservaciones debe mostrarse (caché TTL corto). */
 export async function showReservationsEnabled(): Promise<boolean> {
+  // ── Intentar Valkey primero ──
+  if (valkey) {
+    const cached = await valkeyGet<boolean | null>(SETTINGS_CACHE_KEY, null);
+    if (cached !== null) return cached;
+
+    const settings = await getBusinessSettings(); // nunca lanza: fail-open con defaults
+    await valkeySet(SETTINGS_CACHE_KEY, settings.show_reservations, SETTINGS_TTL_SECONDS);
+    return settings.show_reservations;
+  }
+
+  // ── Fallback: caché in-memory ──
   if (cachedShowReservations && cachedShowReservations.expiresAt > Date.now()) {
     return cachedShowReservations.value;
   }
