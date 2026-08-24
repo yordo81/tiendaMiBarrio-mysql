@@ -61,7 +61,7 @@ export const GET = handle(async () => {
       WHERE p.active = 1
         AND p.is_perishable = 1
         AND p.expiration_date IS NOT NULL
-        AND DATEDIFF(p.expiration_date, CURDATE()) BETWEEN 0 AND ?
+        AND DATEDIFF(p.expiration_date, CURDATE()) BETWEEN 1 AND ?
       ORDER BY p.expiration_date ASC
     `, [threshold.days]);
 
@@ -76,7 +76,7 @@ export const GET = handle(async () => {
       let matchesThreshold = false;
       if (threshold.days === 30 && daysLeft > 15 && daysLeft <= 30) matchesThreshold = true;
       else if (threshold.days === 15 && daysLeft > 5 && daysLeft <= 15) matchesThreshold = true;
-      else if (threshold.days === 5 && daysLeft <= 5) matchesThreshold = true;
+      else if (threshold.days === 5 && daysLeft >= 1 && daysLeft <= 5) matchesThreshold = true;
       if (!matchesThreshold) continue;
 
       // Elevar severidad si además tiene stock bajo o está sin stock
@@ -92,9 +92,9 @@ export const GET = handle(async () => {
       let title: string;
       let message: string;
 
-      if (threshold.days === 5 || isOutOfStock) {
-        title = `⚠️ ${product.name} está por vencer${stockWarning}`;
-        message = `Quedan ${daysLeft} día(s). Vence: ${String(product.expiration_date).split('-').reverse().join('/')}. Stock: ${stockInfo}.${catInfo}`;
+      if (daysLeft <= 5 || isOutOfStock) {
+        title = `⚠️ ${product.name} vence en ${daysLeft} día(s)${stockWarning}`;
+        message = `Vence el ${String(product.expiration_date).split('-').reverse().join('/')}. Stock: ${stockInfo}.${catInfo}`;
       } else {
         title = `📅 ${product.name} vencerá pronto${stockWarning}`;
         message = `Vence el ${String(product.expiration_date).split('-').reverse().join('/')} (${daysLeft} días). Stock: ${stockInfo}.${catInfo}`;
@@ -103,6 +103,50 @@ export const GET = handle(async () => {
       const notif = await createNotification(effectiveType, product.id, title, message, severity, ts);
       if (notif) newNotifications.push(notif);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 1b. Productos perecederos que VENCEN HOY (days_left = 0)
+  // ═══════════════════════════════════════════════════════════════
+  const todayProducts = await query<{
+    id: string; name: string; expiration_date: string;
+    stock: number; min_stock: number; unit: string; category_name: string | null;
+  }>(`
+    SELECT p.id, p.name, p.expiration_date,
+      COALESCE((SELECT SUM(quantity) FROM location_stock WHERE product_id = p.id), p.stock) AS stock,
+      p.min_stock, p.unit, c.name AS category_name
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    WHERE p.active = 1
+      AND p.is_perishable = 1
+      AND p.expiration_date IS NOT NULL
+      AND DATEDIFF(p.expiration_date, CURDATE()) = 0
+    ORDER BY p.expiration_date ASC
+  `);
+
+  for (const product of todayProducts) {
+    const stock = Number(product.stock);
+    const minStock = Number(product.min_stock);
+    const isLowStock = minStock > 0 && stock <= minStock;
+    const isOutOfStock = stock <= 0;
+
+    let severity: 'critical' | 'warning' | 'info' = 'critical';
+    let type = 'expiration_today';
+    if (isLowStock || isOutOfStock) {
+      type = 'expiration_today_lowstock';
+      if (isOutOfStock) severity = 'critical';
+      else severity = 'critical';
+    }
+
+    const stockInfo = `${stock} ${product.unit ?? 'unidad(es)'}`;
+    const catInfo = product.category_name ? ` (${product.category_name})` : '';
+    const stockWarning = isOutOfStock ? ' ¡SIN STOCK!' : isLowStock ? ' (stock bajo)' : '';
+
+    const title = `🔴 ${product.name} VENCE HOY${stockWarning}`;
+    const message = `Vence el ${String(product.expiration_date).split('-').reverse().join('/')}. Stock: ${stockInfo}.${catInfo}`;
+
+    const notif = await createNotification(type, product.id, title, message, severity, ts);
+    if (notif) newNotifications.push(notif);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -148,9 +192,9 @@ export const GET = handle(async () => {
     const daysSince = Number(product.days_since_expired);
 
     const title = stock > 0
-      ? `🔴 ${product.name} está VENCIDO y tiene stock`
-      : `🔴 ${product.name} está vencido`;
-    const message = `Venció hace ${daysSince} día(s). Vencía: ${String(product.expiration_date).split('-').reverse().join('/')}. Stock: ${stockInfo}.${catInfo}`;
+      ? `🔴 ${product.name} VENCIDO por ${daysSince} día(s) — tiene stock`
+      : `🔴 ${product.name} vencido por ${daysSince} día(s)`;
+    const message = `Vencía el ${String(product.expiration_date).split('-').reverse().join('/')}. Stock: ${stockInfo}.${catInfo}`;
 
     const notif = await createNotification(type, product.id, title, message, severity, ts);
     if (notif) newNotifications.push(notif);
