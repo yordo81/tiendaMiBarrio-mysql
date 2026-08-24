@@ -5,6 +5,7 @@ import { logAudit } from '@/lib/db/audit';
 import { handle, ok, err, notFound, forbidden, requireRole } from '@/lib/api-helpers';
 import { localToUtcDb } from '@/lib/shift-time';
 import { validateExpensePaymentMethodOrDefault, requirePositiveNumber } from '@/lib/validate';
+import { invalidateAllReportCaches } from '@/lib/report-cache';
 const randomUUID = () => crypto.randomUUID();
 
 export const GET = handle(async (req: Request) => {
@@ -87,6 +88,10 @@ export const POST = handle(async (req: Request) => {
       }
     }
   });
+
+  // Invalidar caché de reportes (dashboard incluye gastos)
+  invalidateAllReportCaches(sessionUser.id).catch(() => {});
+
   return ok((await query('SELECT * FROM expenses WHERE id=?',[id]))[0], 201);
 });
 
@@ -147,6 +152,9 @@ export const DELETE = handle(async (req: Request) => {
     entity_name: expense.description,
     details: { amount: expense.product_quantity ? Number(expense.product_quantity) : null },
   });
+
+  // Invalidar caché de reportes después de eliminar gasto
+  invalidateAllReportCaches(sessionUser.id).catch(() => {});
 
   return ok({ ok: true });
 });

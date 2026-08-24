@@ -4,6 +4,7 @@ import { query, queryOne, transaction } from '@/lib/db/mysql';
 import { validatePaymentMethodOrDefault, requirePositiveNumber } from '@/lib/validate';
 import { handle, ok, err } from '@/lib/api-helpers';
 import { getBusinessSettings } from '@/lib/settings-server';
+import { invalidateAllReportCaches } from '@/lib/report-cache';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Ventas (POS) ────────────────────────────────────────────
@@ -231,6 +232,9 @@ export const POST = handle(async (req: Request) => {
      WHERE si.sale_id = ?`,
     [saleId]
   );
+
+  // Invalidar caché de reportes (dashboard, seller, margins, etc.)
+  invalidateAllReportCaches(sessionUser.id).catch(() => {});
 
   return ok({ ...(sale ?? {}), id: saleId, total, status, items: saleItems }, 201);
 });
