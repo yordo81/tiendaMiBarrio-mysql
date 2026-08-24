@@ -48,7 +48,7 @@ export default function ProductoDetallePage() {
     setLoadingMovements(true);
     try {
       const movesData = await api.getMovements(id);
-      setMovements(movesData as StockMovement[]);
+      setMovements(movesData.data as StockMovement[]);
 
       // Obtener stock por almacén consultando cada almacén
       const locs = await api.getLocations();

@@ -10,7 +10,7 @@ import Redis from 'ioredis';
 // a la lógica original (in-memory o sin caché).
 
 declare global {
-  var _valkeyClient: Redis | undefined;
+  var _valkeyClient: Redis | undefined | null;
 }
 
 function createValkeyClient(): Redis | null {
@@ -26,11 +26,12 @@ function createValkeyClient(): Redis | null {
     lazyConnect: true, // conectar bajo demanda
     enableReadyCheck: true,
     connectTimeout: 3000,
-    // Cerrar silenciosamente si Valkey no está disponible
-    onError(err) {
-      if (process.env.NODE_ENV === 'production') return;
-      console.error('[valkey] Error de conexión:', err.message);
-    },
+  });
+
+  // Cerrar silenciosamente si Valkey no está disponible
+  client.on('error', (err) => {
+    if (process.env.NODE_ENV === 'production') return;
+    console.error('[valkey] Error de conexión:', err.message);
   });
 
   return client;
