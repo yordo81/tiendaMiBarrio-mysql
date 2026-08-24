@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatNumber, cn } from '@/lib/utils';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse, Calendar, Landmark, FileDown } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse, Calendar, Landmark, FileDown, Filter } from 'lucide-react';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import InfoTooltip from '@/components/ui/Tooltip';
 import { exportToCSV } from '@/lib/export';
@@ -36,7 +36,9 @@ const Tip = ({ active, payload, label }: { active?:boolean; payload?:{name:strin
 
 export default function ReportesPage() {
   const [tab, setTab] = useState<TabKey>('ventas');
-  const [range, setRange] = useState<'7d'|'30d'|'90d'>('30d');
+  const [range, setRange] = useState<'7d'|'30d'|'90d'|'custom'>('30d');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const [loading, setLoading] = useState(false);
   const [salesData, setSalesData] = useState<R[]>([]);
   const [salesSummary, setSalesSummary] = useState({ total:0, count:0, avg:0, gastos:0, utilidad:0 });
@@ -53,17 +55,22 @@ export default function ReportesPage() {
   const [locations, setLocations] = useState<R[]>([]);
   const [locationFilter, setLocationFilter] = useState('');
 
-  const days = range==='7d'?7:range==='30d'?30:90;
+  const days = range==='7d'?7:range==='30d'?30:range==='90d'?90:30;
+  const isCustomRange = range === 'custom';
+  const dateFrom = isCustomRange && customFrom ? customFrom : undefined;
+  const dateTo = isCustomRange && customTo ? customTo : undefined;
 
   const loadSales = useCallback(async () => {
     setLoading(true);
     const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
-    const fromDate = new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+    const fromDate = dateFrom ?? new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+    const toDate = dateTo ?? new Date().toISOString().slice(0,10);
+    const dateQ = dateFrom ? `&from=${fromDate}&to=${toDate}` : '';
 
     // Fetch sales data
     let sales: R[] = [];
     try {
-      const res = await fetch(`/api/reports?type=sales_detail&days=${days}${locQ}`);
+      const res = await fetch(`/api/reports?type=sales_detail&days=${days}${locQ}${dateQ}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Error al cargar ventas' }));
         toast.error(String(err?.error ?? 'Error al cargar ventas'));
@@ -76,7 +83,7 @@ export default function ReportesPage() {
     // Fetch expenses separately so a failure doesn't block sales data
     let expenses: R[] = [];
     try {
-      const res = await fetch(`/api/expenses?from=${fromDate}`);
+      const res = await fetch(`/api/expenses?from=${fromDate}&to=${toDate}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Error al cargar gastos' }));
         toast.error(String(err?.error ?? 'Error al cargar gastos'));
@@ -92,17 +99,19 @@ export default function ReportesPage() {
     const cnt = sales.reduce((a,r)=>a+Number(r.count??0),0);
     setSalesSummary({ total:totalV, count:cnt, avg:cnt?totalV/cnt:0, gastos:totalG, utilidad:totalV-totalG });
     setLoading(false);
-  }, [days, locationFilter]);
+  }, [days, locationFilter, dateFrom, dateTo]);
 
   const loadMargins = useCallback(async () => {
     setLoading(true);
     try {
       const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
-      const fromDate = new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+      const fromDate = dateFrom ?? new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+      const toDate = dateTo ?? new Date().toISOString().slice(0,10);
+      const dateQ = dateFrom ? `&from=${fromDate}&to=${toDate}` : '';
 
       const [marginRes, expensesRes] = await Promise.all([
-        fetch(`/api/reports?type=margins&days=${days}${locQ}`),
-        fetch(`/api/expenses?from=${fromDate}`),
+        fetch(`/api/reports?type=margins&days=${days}${locQ}${dateQ}`),
+        fetch(`/api/expenses?from=${fromDate}&to=${toDate}`),
       ]);
 
       const marginsData = await marginRes.json();
@@ -182,11 +191,14 @@ export default function ReportesPage() {
     setLoading(true);
     try {
       const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
-      const d = await apiFetch<R[]>(`/api/reports?type=transfers&days=${days}${locQ}`);
+      const fromDate = dateFrom ?? new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+      const toDate = dateTo ?? new Date().toISOString().slice(0,10);
+      const dateQ = dateFrom ? `&from=${fromDate}&to=${toDate}` : '';
+      const d = await apiFetch<R[]>(`/api/reports?type=transfers&days=${days}${locQ}${dateQ}`);
       setTransfers(Array.isArray(d) ? d : []);
     } catch(e) { console.error('[loadTransfers]', e); toast.error('Error al cargar transferencias'); }
     finally { setLoading(false); }
-  }, [days, locationFilter]);
+  }, [days, locationFilter, dateFrom, dateTo]);
 
   // Cargar ubicaciones al montar
   useEffect(() => {
@@ -201,7 +213,7 @@ export default function ReportesPage() {
     else if (tab==='reabastecimiento') loadForecasts();
     else if (tab==='vencimientos') loadExpirations();
     else if (tab==='cuentas') loadDebts();
-  }, [tab, range, locationFilter]);
+  }, [tab, range, locationFilter, customFrom, customTo]);
 
   const urgencyBadge = (u: string) => u==='critical'?<span className="badge-danger">Crítico</span>:u==='soon'?<span className="badge-warning">Pronto</span>:<span className="badge-success">OK</span>;
 
@@ -311,12 +323,26 @@ export default function ReportesPage() {
         </div>
 
       {(tab==='ventas'||tab==='rentabilidad'||tab==='transferencias')&&(
-        <div className="flex gap-2">
-          {(['7d','30d','90d'] as const).map(r=>(
-            <button key={r} onClick={()=>setRange(r)} className={cn('px-3 py-1.5 text-xs rounded-lg border transition-colors', range===r?'bg-brand-600 border-brand-600 text-white':'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]')}>
-              {r==='7d'?'7 días':r==='30d'?'30 días':'90 días'}
-            </button>
-          ))}
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          <div className="flex gap-2">
+            {(['7d','30d','90d','custom'] as const).map(r=>(
+              <button key={r} onClick={()=>setRange(r)} className={cn('px-3 py-1.5 text-xs rounded-lg border transition-colors', range===r?'bg-brand-600 border-brand-600 text-white':'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]')}>
+                {r==='7d'?'7 días':r==='30d'?'30 días':r==='90d'?'90 días':'Personalizado'}
+              </button>
+            ))}
+          </div>
+          {range==='custom'&&(
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-[var(--text-tertiary)]">Desde:</label>
+                <input type="date" className="input py-1.5 text-xs" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-[var(--text-tertiary)]">Hasta:</label>
+                <input type="date" className="input py-1.5 text-xs" value={customTo} onChange={e=>setCustomTo(e.target.value)} />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
