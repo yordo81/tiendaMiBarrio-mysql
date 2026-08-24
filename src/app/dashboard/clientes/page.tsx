@@ -10,7 +10,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
-import { Users, Plus, Search, Edit2, CreditCard, History, ShoppingCart, Trash2, Phone, PhoneOff, CheckCircle } from 'lucide-react';
+import { Users, Plus, Search, Edit2, CreditCard, History, ShoppingCart, Trash2, Phone, PhoneOff, CheckCircle, ToggleLeft, ToggleRight } from 'lucide-react';
 type R = Record<string,unknown>;
 
 const PHONE_REGEX = /^(\+?53)?[\s.-]?\d{7,8}$/;
@@ -18,6 +18,7 @@ const PHONE_REGEX = /^(\+?53)?[\s.-]?\d{7,8}$/;
 export default function ClientesPage() {
   const { user } = useAuthStore();
   const [customers, setCustomers] = useState<R[]>([]);
+  const [showInactive, setShowInactive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -41,7 +42,7 @@ export default function ClientesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const load = useCallback(async () => { const d = await api.getCustomers(); setCustomers(d); setLoading(false); }, []);
+  const load = useCallback(async () => { const d = await api.getCustomers({ includeInactive: true }); setCustomers(d); setLoading(false); }, []);
   useEffect(() => { load(); }, [load]);
 
   async function handleSave() {
@@ -69,7 +70,20 @@ export default function ClientesPage() {
     setHistory(d); setShowHistory(true);
   }
 
-  const filtered = customers.filter(c => String(c.name).toLowerCase().includes(search.toLowerCase()));
+  async function toggleActive(c: R) {
+    const newActive = !Boolean(c.active);
+    try {
+      await api.updateCustomer({ id: c.id, active: newActive });
+      toast.success(newActive ? 'Cliente activado' : 'Cliente desactivado');
+      load();
+    } catch(e) { toast.error(e instanceof Error ? e.message : 'Error'); }
+  }
+
+  const filtered = customers.filter(c => {
+    const matchSearch = String(c.name).toLowerCase().includes(search.toLowerCase());
+    const matchActive = showInactive ? true : Boolean(c.active);
+    return matchSearch && matchActive;
+  });
   const paginated = pageSize === 0 ? filtered : filtered.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
   // Reset page when search changes
@@ -84,7 +98,14 @@ export default function ClientesPage() {
         <div className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">Total por cobrar</p><p className="text-2xl font-semibold text-red-400">{formatCurrency(totalDebt)}</p></div>
       </div>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Buscar clientes..." value={search} onChange={e=>setSearch(e.target.value)}/></div>          <button onClick={()=>{setEditCustomer(null);setForm({name:'',phone:'',notes:''});setPhoneTouched(false);setShowModal(true);}} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nuevo cliente</button>
+        <div className="flex items-center gap-2 flex-1 max-w-xs">
+          <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Buscar clientes..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
+          <button onClick={()=>setShowInactive(v=>!v)} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0', showInactive ? 'bg-brand-600/20 border-brand-600/50 text-brand-400' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[#6e7681]')}>
+            {showInactive ? <ToggleRight className="w-3.5 h-3.5"/> : <ToggleLeft className="w-3.5 h-3.5"/>}
+            Inactivos
+          </button>
+        </div>
+        <button onClick={()=>{setEditCustomer(null);setForm({name:'',phone:'',notes:''});setPhoneTouched(false);setShowModal(true);}} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Nuevo cliente</button>
       </div>
       <div className="card overflow-hidden">
         {loading?<div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"/></div>
@@ -98,10 +119,13 @@ export default function ClientesPage() {
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{String(c.phone??'—')}</td>
                   <td className="px-4 py-3"><span className={cn('font-medium',Number(c.balance)>0?'text-red-400':'text-green-400')}>{formatCurrency(Number(c.balance??0))}</span></td>
                   <td className="px-4 py-3"><div className="flex gap-1">
-                    <button onClick={()=>openHistory(c)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors"><History className="w-3.5 h-3.5"/></button>
-                    {Number(c.balance)>0&&<button onClick={async ()=>{setPayTarget(c);setPayForm({amount:0,method:'cash',notes:'',sale_id:''});const sales = await api.getSales('limit=100');setPendingSales(sales.filter((s:R)=>String(s.customer_id)===String(c.id)&&(s.status==='pending'||s.status==='partial')));setShowPayModal(true);}} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-green-400 hover:bg-green-500/10 transition-colors"><CreditCard className="w-3.5 h-3.5"/></button>}
-                    <button onClick={()=>{setEditCustomer(c);setForm({name:String(c.name),phone:String(c.phone??''),notes:String(c.notes??'')});setPhoneTouched(false);setShowModal(true);}} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
-                    {canDelete && <button onClick={()=>setDeleteTarget(c)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>}
+                    <button onClick={()=>openHistory(c)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors" title="Historial"><History className="w-3.5 h-3.5"/></button>
+                    {Number(c.balance)>0&&<button onClick={async ()=>{setPayTarget(c);setPayForm({amount:0,method:'cash',notes:'',sale_id:''});const sales = await api.getSales('limit=100');setPendingSales(sales.filter((s:R)=>String(s.customer_id)===String(c.id)&&(s.status==='pending'||s.status==='partial')));setShowPayModal(true);}} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Abonar"><CreditCard className="w-3.5 h-3.5"/></button>}
+                    <button onClick={()=>{setEditCustomer(c);setForm({name:String(c.name),phone:String(c.phone??''),notes:String(c.notes??'')});setPhoneTouched(false);setShowModal(true);}} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors" title="Editar"><Edit2 className="w-3.5 h-3.5"/></button>
+                    <button onClick={()=>toggleActive(c)} className={cn('p-1.5 rounded-lg transition-colors', Boolean(c.active) ? 'text-green-400 hover:text-red-400 hover:bg-red-500/10' : 'text-red-400 hover:text-green-400 hover:bg-green-500/10')} title={Boolean(c.active) ? 'Desactivar' : 'Activar'}>
+                      {Boolean(c.active) ? <ToggleRight className="w-3.5 h-3.5"/> : <ToggleLeft className="w-3.5 h-3.5"/>}
+                    </button>
+                    {canDelete && <button onClick={()=>setDeleteTarget(c)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Eliminar"><Trash2 className="w-3.5 h-3.5"/></button>}
                   </div></td>
                 </tr>
               ))}</tbody>
