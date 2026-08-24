@@ -113,7 +113,13 @@ export const api = {
   createPurchasePrice: (data: unknown) => apiFetch('/api/purchase-prices', { method: 'POST', body: JSON.stringify(data) }),
 
   // Customers
-  getCustomers: (withDebt?: boolean) => apiFetch<Record<string,unknown>[]>(`/api/customers${withDebt ? '?with_debt=true' : ''}`),
+  getCustomers: (params?: { withDebt?: boolean; includeInactive?: boolean }) => {
+    const qp = new URLSearchParams();
+    if (params?.withDebt) qp.set('with_debt', 'true');
+    if (params?.includeInactive) qp.set('include_inactive', 'true');
+    const qs = qp.toString();
+    return apiFetch<Record<string,unknown>[]>(`/api/customers${qs ? '?' + qs : ''}`);
+  },
   createCustomer: (data: unknown) => apiFetch('/api/customers', { method: 'POST', body: JSON.stringify(data) }),
   updateCustomer: (data: unknown) => apiFetch('/api/customers', { method: 'PUT', body: JSON.stringify(data) }),
   deleteCustomer: (id: string) => apiFetch('/api/customers', { method: 'DELETE', body: JSON.stringify({ id }) }),
@@ -157,7 +163,14 @@ export const api = {
   createTransfer: (data: unknown) => apiFetch('/api/stock-transfers', { method: 'POST', body: JSON.stringify(data) }),
 
   // Stock movements via reports
-  getMovements: (productId: string) => apiFetch<Record<string,unknown>[]>(`/api/reports?type=stock_movements&product_id=${productId}`),
+  getMovements: (productId: string, params?: { from?: string; to?: string; page?: number; limit?: number }) => {
+    const qp = new URLSearchParams({ type: 'stock_movements', product_id: productId });
+    if (params?.from) qp.set('from', params.from);
+    if (params?.to) qp.set('to', params.to);
+    if (params?.page) qp.set('page', String(params.page));
+    if (params?.limit) qp.set('limit', String(params.limit));
+    return apiFetch<{ data: Record<string,unknown>[]; total: number; page: number; limit: number }>(`/api/reports?${qp.toString()}`);
+  },
 
   // Location stock and movements
   getLocationStockSummary: () => apiFetch<Record<string,unknown>[]>(`/api/locations/stock-summary`),

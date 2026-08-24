@@ -9,6 +9,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
+import MultiSelect from '@/components/ui/MultiSelect';
 import { toast } from '@/components/ui/toaster';
 import InvoicePurchaseModal from '@/components/purchases/InvoicePurchaseModal';
 import InventoryExportModal from '@/components/inventory/InventoryExportModal';
@@ -44,6 +45,11 @@ export default function InventarioPage() {
   const [deleteTarget, setDeleteTarget] = useState<AnyRecord | null>(null);
   const [historyProduct, setHistoryProduct] = useState<AnyRecord | null>(null);
   const [movements, setMovements] = useState<AnyRecord[]>([]);
+  const [movementsTotal, setMovementsTotal] = useState(0);
+  const [movementsPage, setMovementsPage] = useState(1);
+  const [movementsFrom, setMovementsFrom] = useState('');
+  const [movementsTo, setMovementsTo] = useState('');
+  const movementsLimit = 20;
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<AnyRecord>({});
   const [moveForm, setMoveForm] = useState({ type: 'in', quantity: 0, reason: '', location_id: '' });
@@ -141,10 +147,18 @@ export default function InventarioPage() {
     toast.success('Producto eliminado'); setSaving(false); setDeleteTarget(null); load();
   }
 
-  async function openHistory(p: AnyRecord) {
+  async function openHistory(p: AnyRecord, opts?: { page?: number; from?: string; to?: string }) {
     setHistoryProduct(p);
-    const data = await api.getMovements(String(p.id));
-    setMovements(data); setShowHistoryModal(true);
+    const page = opts?.page ?? 1;
+    const from = opts?.from ?? movementsFrom;
+    const to = opts?.to ?? movementsTo;
+    setMovementsPage(page);
+    if (opts?.from !== undefined) setMovementsFrom(opts.from);
+    if (opts?.to !== undefined) setMovementsTo(opts.to);
+    const result = await api.getMovements(String(p.id), { page, limit: movementsLimit, from: from || undefined, to: to || undefined });
+    setMovements(result.data);
+    setMovementsTotal(result.total);
+    setShowHistoryModal(true);
   }
 
   function openPurchase(productId?: string) {
@@ -780,16 +794,21 @@ export default function InventarioPage() {
           <div><label className="label">Stock mínimo</label><input type="number" min="0" step="1" className="input" value={Number(form.min_stock??0)} onChange={e=>setForm(f=>({...f,min_stock:parseFloat(e.target.value)||0}))}/></div>
           <div className="sm:col-span-2">
             <label className="label">Proveedores</label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-secondary)]">
-              {suppliers.length===0?<p className="text-xs text-[var(--text-tertiary)] col-span-3 py-2">No hay proveedores</p>:suppliers.map(s=>{
-                const sids = (form.supplier_ids as string[]|undefined)??[];
-                const checked = sids.includes(String(s.id));
-                return(<label key={String(s.id)} className={cn('flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors',checked?'bg-brand-600/20 text-brand-400':'hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)]')}>
-                  <input type="checkbox" className="accent-brand-600" checked={checked} onChange={e=>setForm(f=>({...f,supplier_ids:e.target.checked?[...sids,String(s.id)]:sids.filter(id=>id!==String(s.id))}))}/>
-                  {String(s.name)}
-                </label>);
-              })}
-            </div>
+            {suppliers.length === 0 ? (
+              <p className="text-xs text-[var(--text-tertiary)] py-2">No hay proveedores registrados</p>
+            ) : (
+              <MultiSelect
+                options={suppliers.map(s => ({
+                  value: String(s.id),
+                  label: String(s.name),
+                  sublabel: s.phone ? String(s.phone) : undefined,
+                }))}
+                value={(form.supplier_ids as string[] | undefined) ?? []}
+                onChange={v => setForm(f => ({ ...f, supplier_ids: v }))}
+                placeholder="Buscar proveedores..."
+                noResultsMessage="Sin proveedores"
+              />
+            )}
           </div>
         </div>
         {Number(form.sale_price??0)>0&&Number(form.cost??0)>0&&(
@@ -806,25 +825,74 @@ export default function InventarioPage() {
 
       {/* History Modal */}
       <Modal open={showHistoryModal} onClose={()=>setShowHistoryModal(false)} title={`Historial — ${String(historyProduct?.name??'')}`} size="xl">
-        <div className="flex justify-end mb-4 gap-2">
-          <button onClick={() => openPurchase(String(historyProduct?.id))} className="btn-secondary flex items-center gap-2"><ShoppingBag className="w-4 h-4"/>Registrar compra</button>
-          <button onClick={openMove} className="btn-primary flex items-center gap-2"><ArrowRightLeft className="w-4 h-4"/>Registrar movimiento</button>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-[var(--text-tertiary)]">Desde:</label>
+              <input type="date" className="input py-1.5 text-xs" value={movementsFrom} onChange={e => setMovementsFrom(e.target.value)} />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-[var(--text-tertiary)]">Hasta:</label>
+              <input type="date" className="input py-1.5 text-xs" value={movementsTo} onChange={e => setMovementsTo(e.target.value)} />
+            </div>
+            <button onClick={() => openHistory(historyProduct!, { page: 1, from: movementsFrom, to: movementsTo })} className="btn-secondary text-xs py-1.5 px-3">
+              <Filter className="w-3.5 h-3.5 inline mr-1"/>Filtrar
+            </button>
+            {(movementsFrom || movementsTo) && (
+              <button onClick={() => { setMovementsFrom(''); setMovementsTo(''); openHistory(historyProduct!, { page: 1, from: '', to: '' }); }} className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
+                Limpiar
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => openPurchase(String(historyProduct?.id))} className="btn-secondary flex items-center gap-2 text-sm"><ShoppingBag className="w-4 h-4"/>Compra</button>
+            <button onClick={openMove} className="btn-primary flex items-center gap-2 text-sm"><ArrowRightLeft className="w-4 h-4"/>Movimiento</button>
+          </div>
         </div>
         {movements.length===0?<p className="text-center text-[var(--text-tertiary)] py-8 text-sm">Sin movimientos</p>:(
-          <div className="overflow-x-auto rounded-xl border border-[var(--border-primary)]">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">{['Fecha','Tipo','Cantidad','Razón','Usuario'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
-              <tbody>{movements.map(m=>(
-                <tr key={String(m.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
-                  <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{m.date?formatDateTime(String(m.date)):'—'}</td>
-                  <td className="px-4 py-2.5"><span className={cn('font-medium text-xs',movTypeColor[String(m.type)]??'text-[var(--text-primary)]')}>{movTypeLabel[String(m.type)]??String(m.type)}</span></td>
-                  <td className="px-4 py-2.5 text-[var(--text-primary)] font-medium">{formatNumber(Number(m.quantity),2)}</td>
-                  <td className="px-4 py-2.5 text-[var(--text-secondary)]">{String(m.reason??'—')}</td>
-                  <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{String(m.user_name??'—')}</td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
+          <>
+            <div className="overflow-x-auto rounded-xl border border-[var(--border-primary)]">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">{['Fecha','Tipo','Cantidad','Razón','Usuario'].map(h=><th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                <tbody>{movements.map(m=>(
+                  <tr key={String(m.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                    <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{m.date?formatDateTime(String(m.date)):'—'}</td>
+                    <td className="px-4 py-2.5"><span className={cn('font-medium text-xs',movTypeColor[String(m.type)]??'text-[var(--text-primary)]')}>{movTypeLabel[String(m.type)]??String(m.type)}</span></td>
+                    <td className="px-4 py-2.5 text-[var(--text-primary)] font-medium">{formatNumber(Number(m.quantity),2)}</td>
+                    <td className="px-4 py-2.5 text-[var(--text-secondary)]">{String(m.reason??'—')}</td>
+                    <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{String(m.user_name??'—')}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            {/* Paginación */}
+            {movementsTotal > movementsLimit && (
+              <div className="flex items-center justify-between mt-4">
+                <p className="text-xs text-[var(--text-tertiary)]">
+                  Mostrando {((movementsPage - 1) * movementsLimit) + 1}–{Math.min(movementsPage * movementsLimit, movementsTotal)} de {movementsTotal}
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    disabled={movementsPage <= 1}
+                    onClick={() => openHistory(historyProduct!, { page: movementsPage - 1 })}
+                    className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Anterior
+                  </button>
+                  <span className="px-3 py-1.5 text-xs text-[var(--text-secondary)]">
+                    Página {movementsPage} de {Math.ceil(movementsTotal / movementsLimit)}
+                  </span>
+                  <button
+                    disabled={movementsPage >= Math.ceil(movementsTotal / movementsLimit)}
+                    onClick={() => openHistory(historyProduct!, { page: movementsPage + 1 })}
+                    className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </Modal>
 
