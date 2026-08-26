@@ -157,9 +157,13 @@ export const DELETE = handle(async (_: Request, ctx) => {
   if (sessionUser.role !== 'owner' && sessionUser.role !== 'admin') {
     return forbidden('No autorizado — solo administradores');
   }
-  const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   const product = await queryOne<{ name: string }>('SELECT name FROM products WHERE id=?', [id]);
-  await execute('UPDATE products SET active=0, updated_at=? WHERE id=?', [ts, id]);
+
+  // Eliminar registros dependientes que no tienen ON DELETE CASCADE
+  await execute('DELETE FROM product_suppliers WHERE product_id = ?', [id]);
+  await execute('DELETE FROM purchase_prices WHERE product_id = ?', [id]);
+  await execute('DELETE FROM location_stock WHERE product_id = ?', [id]);
+  await execute('DELETE FROM products WHERE id=?', [id]);
 
   if (product) {
     await logAudit({
