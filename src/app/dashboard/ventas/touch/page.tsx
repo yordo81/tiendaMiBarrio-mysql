@@ -471,7 +471,7 @@ export default function TouchPosPage() {
     const q = (qtyMatch ? qtyMatch[2].trim() : raw).toLowerCase();
     return products
       .filter(p => {
-        const inCat = category === 'Todo' || String(p.category_name ?? '') === category;
+        const inCat = category === 'Todo' || String(p.category_name ?? '').trim() === category;
         const inQuery = !q
           || String(p.name).toLowerCase().includes(q)
           || String(p.barcode ?? '').toLowerCase().includes(q);
@@ -607,28 +607,30 @@ export default function TouchPosPage() {
   function startCategoryDrag(e: React.PointerEvent<HTMLDivElement>) {
     const el = categoriesRef.current;
     if (!el) return;
-    try { el.setPointerCapture(e.pointerId); } catch { /* sin captura de puntero */ }
     categoryDragRef.current = { startX: e.clientX, scrollLeft: el.scrollLeft, moved: 0, pointerId: e.pointerId };
-  }
 
-  function moveCategoryDrag(e: React.PointerEvent<HTMLDivElement>) {
-    const st = categoryDragRef.current;
-    const el = categoriesRef.current;
-    if (!st || !el || e.pointerId !== st.pointerId) return;
-    const dx = e.clientX - st.startX;
-    st.moved = Math.max(st.moved, Math.abs(dx));
-    el.scrollLeft = st.scrollLeft - dx;
-  }
-
-  function endCategoryDrag(e: React.PointerEvent<HTMLDivElement>) {
-    const st = categoryDragRef.current;
-    if (!st || e.pointerId !== st.pointerId) return;
-    categoryDragRef.current = null;
-    // Si hubo arrastre, el clic posterior no debe cambiar de categoría
-    if (st.moved > 6) {
-      categorySuppressClickRef.current = true;
-      setTimeout(() => { categorySuppressClickRef.current = false; }, 0);
-    }
+    const onMove = (ev: PointerEvent) => {
+      const st = categoryDragRef.current;
+      if (!st || ev.pointerId !== st.pointerId) return;
+      const dx = ev.clientX - st.startX;
+      st.moved = Math.max(st.moved, Math.abs(dx));
+      el.scrollLeft = st.scrollLeft - dx;
+    };
+    const onUp = (ev: PointerEvent) => {
+      const st = categoryDragRef.current;
+      if (!st || ev.pointerId !== st.pointerId) return;
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      categoryDragRef.current = null;
+      if (st.moved > 6) {
+        categorySuppressClickRef.current = true;
+        requestAnimationFrame(() => { categorySuppressClickRef.current = false; });
+      }
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   }
 
   // Vacía el carrito y elimina el pedido guardado en el navegador
@@ -1120,9 +1122,6 @@ export default function TouchPosPage() {
             <div
               ref={categoriesRef}
               onPointerDown={startCategoryDrag}
-              onPointerMove={moveCategoryDrag}
-              onPointerUp={endCategoryDrag}
-              onPointerCancel={endCategoryDrag}
               className="flex gap-2.5 overflow-x-auto pb-2 pt-4 [scrollbar-width:none] cursor-grab active:cursor-grabbing touch-pan-x select-none"
             >
               {categories.map(c => {
