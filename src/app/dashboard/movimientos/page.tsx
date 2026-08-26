@@ -222,18 +222,23 @@ export default function MovimientosPage() {
                 <Package className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
                 Producto
               </label>
-              <select
-                className="input"
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Todos los productos' },
+                  ...products.map(p => {
+                    const name = String(p.name);
+                    const barcode = String(p.barcode ?? '');
+                    return {
+                      value: String(p.id),
+                      label: barcode ? `${name} (${barcode})` : name,
+                    };
+                  })
+                ]}
                 value={prodFilter}
-                onChange={e => setProdFilter(e.target.value)}
-              >
-                <option value="">Todos los productos</option>
-                {products.map(p => (
-                  <option key={String(p.id)} value={String(p.id)}>
-                    {String(p.name)}
-                  </option>
-                ))}
-              </select>
+                onChange={v => setProdFilter(v)}
+                placeholder="Buscar por nombre o código..."
+                noResultsMessage="Sin productos"
+              />
             </div>
 
             {/* From date */}
