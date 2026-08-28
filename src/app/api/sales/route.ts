@@ -5,6 +5,7 @@ import { validatePaymentMethodOrDefault, requirePositiveNumber } from '@/lib/val
 import { handle, ok, err } from '@/lib/api-helpers';
 import { getBusinessSettings } from '@/lib/settings-server';
 import { invalidateAllReportCaches } from '@/lib/report-cache';
+import { logAudit } from '@/lib/db/audit';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Ventas (POS) ────────────────────────────────────────────
@@ -58,6 +59,8 @@ export const POST = handle(async (req: Request) => {
   // se usa el sale_price de la BD. Solo el dueño y el admin pueden
   // modificar el precio de venta al crear la venta.
   const canOverridePrice = sessionUser.role === 'owner' || sessionUser.role === 'admin';
+  // Registro de precios modificados para auditoría
+  const priceOverrides: { product_id: string; product_name: string; original_price: number; custom_price: number; quantity: number }[] = [];
   const resolvedItems: {
     product_id: string;
     quantity: number;
@@ -76,7 +79,18 @@ export const POST = handle(async (req: Request) => {
     // El precio unitario viene del cliente: solo el dueño/admin puede
     // enviar un precio custom; el resto siempre usa el de la BD.
     const clientPrice = Number(item.unit_price);
-    const unitPrice = canOverridePrice && clientPrice > 0 ? clientPrice : Number(product.sale_price);
+    const dbPrice = Number(product.sale_price);
+    const unitPrice = canOverridePrice && clientPrice > 0 ? clientPrice : dbPrice;
+    // Registrar si el precio fue modificado (para auditoría)
+    if (canOverridePrice && clientPrice > 0 && clientPrice !== dbPrice) {
+      priceOverrides.push({
+        product_id: product.id,
+        product_name: product.name,
+        original_price: dbPrice,
+        custom_price: clientPrice,
+        quantity: qty,
+      });
+    }
     resolvedItems.push({
       product_id: product.id,
       quantity: qty,
@@ -240,6 +254,27 @@ export const POST = handle(async (req: Request) => {
 
   // Invalidar caché de reportes (dashboard, seller, margins, etc.)
   invalidateAllReportCaches(sessionUser.id).catch(() => {});
+
+  // Registrar auditoría de precios modificados por admin/dueño
+  if (priceOverrides.length > 0) {
+    for (const override of priceOverrides) {
+      await logAudit({
+        user_id: sessionUser.id,
+        user_name: sessionUser.name,
+        action: 'price_override',
+        entity_type: 'sale_item',
+        entity_id: saleId,
+        entity_name: override.product_name,
+        details: {
+          product_id: override.product_id,
+          original_price: override.original_price,
+          custom_price: override.custom_price,
+          quantity: override.quantity,
+          sale_total: total,
+        },
+      });
+    }
+  }
 
   return ok({ ...(sale ?? {}), id: saleId, total, status, items: saleItems }, 201);
 });

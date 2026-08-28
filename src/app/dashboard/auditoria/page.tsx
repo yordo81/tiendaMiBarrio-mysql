@@ -49,6 +49,7 @@ const actionLabels: Record<string, string> = {
   create: 'Creación',
   update: 'Actualización',
   confirm: 'Confirmación',
+  price_override: 'Precio modificado',
 };
 
 const actionColors: Record<string, string> = {
@@ -63,6 +64,7 @@ const actionColors: Record<string, string> = {
   create: 'badge-success',
   update: 'badge-info',
   confirm: 'badge-success',
+  price_override: 'badge-warning',
 };
 
 export default function AuditoriaPage() {
@@ -173,6 +175,7 @@ export default function AuditoriaPage() {
                   } catch { details = null; }
                   if (details) {
                     if (details.old_stock !== undefined) detailsText = `Stock: ${details.old_stock} → ${details.new_stock} (Δ ${details.diff})`;
+                    else if (details.original_price !== undefined && details.custom_price !== undefined) detailsText = `Precio: $${Number(details.original_price).toFixed(2)} → $${Number(details.custom_price).toFixed(2)} · Cant: ${details.quantity ?? 1}`;
                     else if (details.quantity !== undefined) detailsText = `Cantidad: ${details.quantity}` + (details.reason ? ` · ${details.reason}` : '');
                     else if (details.business_name !== undefined) detailsText = `Negocio: ${details.business_name} · Modo: ${details.work_mode === 'shifts' ? 'turnos' : 'diario'}`;
                     else if (details.amount) detailsText = `Monto: ${details.amount}`;
