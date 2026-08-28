@@ -556,14 +556,29 @@ export default function VentasPage() {
                 <div className="rounded-xl border border-[var(--border-primary)] overflow-hidden">
                   <table className="w-full text-sm">
                     <thead><tr className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">{['Producto','Cant.','Precio','Subtotal'].map(h=><th key={h} className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)]">{h}</th>)}</tr></thead>
-                    <tbody>{(selectedSale.items as AnyRecord[]).map(item=>(
+                    <tbody>{(selectedSale.items as AnyRecord[]).map(item=>{
+                      const unitPrice = Number(item.unit_price);
+                      const currentPrice = item.current_sale_price != null ? Number(item.current_sale_price) : null;
+                      const priceModified = currentPrice != null && !isNaN(currentPrice) && currentPrice !== unitPrice;
+                      return (
                       <tr key={String(item.id)} className="border-b border-[var(--border-primary)] last:border-0">
-                        <td className="px-3 py-2 text-[var(--text-primary)]">{String(item.product_name??'—')}</td>
+                        <td className="px-3 py-2 text-[var(--text-primary)]">
+                          {String(item.product_name??'—')}
+                          {priceModified && (
+                            <span className="ml-2 inline-flex items-center gap-1 text-[10px] text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded px-1.5 py-0.5" title={`Precio original: ${formatCurrency(currentPrice)}`}>✓ Precio modificado</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-[var(--text-secondary)]">{formatNumber(Number(item.quantity),2)}</td>
-                        <td className="px-3 py-2 text-[var(--text-secondary)]">{formatCurrency(Number(item.unit_price))}</td>
-                        <td className="px-3 py-2 text-[var(--text-primary)] font-medium">{formatCurrency(Number(item.quantity)*Number(item.unit_price))}</td>
+                        <td className="px-3 py-2">
+                          <span className={priceModified ? 'text-yellow-400 font-medium' : 'text-[var(--text-secondary)]'}>{formatCurrency(unitPrice)}</span>
+                          {priceModified && (
+                            <span className="ml-1 text-[10px] text-[var(--text-tertiary)] line-through">{formatCurrency(currentPrice)}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-[var(--text-primary)] font-medium">{formatCurrency(Number(item.quantity)*unitPrice)}</td>
                       </tr>
-                    ))}</tbody>
+                      );
+                    })}</tbody>
                   </table>
                 </div>
               </div>
