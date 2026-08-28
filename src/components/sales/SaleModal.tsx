@@ -9,6 +9,7 @@ import { toast } from '@/components/ui/toaster';
 import { playScanBeep } from '@/lib/scan-beep';
 import { usePosSelector } from '@/hooks/use-pos';
 import { useSettingsStore } from '@/lib/stores/settings-store';
+import { useAuthStore } from '@/lib/stores/auth-store';
 import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
 import { Search, X, Barcode } from 'lucide-react';
 
@@ -22,6 +23,9 @@ interface SaleModalProps {
 }
 
 export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) {
+  const { user } = useAuthStore();
+  // Solo el dueño y el admin pueden modificar el precio de venta
+  const canEditPrice = user?.role === 'owner' || user?.role === 'admin';
   const [products, setProducts] = useState<AnyRecord[]>([]);
   const [customers, setCustomers] = useState<AnyRecord[]>([]);
   const [locations, setLocations] = useState<AnyRecord[]>([]);
@@ -331,8 +335,10 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                       min="0"
                       step="1"
                       value={item.unit_price}
-                      onChange={e => setCart(prev => prev.map(i => i.product.id === item.product.id ? { ...i, unit_price: parseFloat(e.target.value) || 0 } : i))}
-                      className="w-full sm:w-20 input text-right text-xs py-1.5 sm:py-1"
+                      onChange={canEditPrice ? e => setCart(prev => prev.map(i => i.product.id === item.product.id ? { ...i, unit_price: parseFloat(e.target.value) || 0 } : i)) : undefined}
+                      readOnly={!canEditPrice}
+                      className={`w-full sm:w-20 input text-right text-xs py-1.5 sm:py-1 ${!canEditPrice ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      title={!canEditPrice ? 'Solo el dueño o admin pueden modificar el precio' : undefined}
                     />
                     <button
                       onClick={() => setCart(prev => prev.filter(i => i.product.id !== item.product.id))}

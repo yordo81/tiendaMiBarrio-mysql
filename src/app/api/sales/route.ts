@@ -53,10 +53,11 @@ export const POST = handle(async (req: Request) => {
   }
 
   // ── Resolver productos desde la BD (integridad de precios) ──────
-  // El unit_price y cost que envíe el cliente se ignoran: se usan el
-  // precio de venta y el costo reales del producto en la BD. Esto evita
-  // que un vendedor manipule precios (vender a $0.01, cost 0, etc.).
-  // Los descuentos serían una feature futura con permiso de admin.
+  // El precio de venta y el costo se resuelven desde la BD. Los
+  // vendedores y almaceneros no pueden enviar precios custom: siempre
+  // se usa el sale_price de la BD. Solo el dueño y el admin pueden
+  // modificar el precio de venta al crear la venta.
+  const canOverridePrice = sessionUser.role === 'owner' || sessionUser.role === 'admin';
   const resolvedItems: {
     product_id: string;
     quantity: number;
@@ -72,10 +73,14 @@ export const POST = handle(async (req: Request) => {
       [item.product_id]
     );
     if (!product) return err('Producto no encontrado o inactivo');
+    // El precio unitario viene del cliente: solo el dueño/admin puede
+    // enviar un precio custom; el resto siempre usa el de la BD.
+    const clientPrice = Number(item.unit_price);
+    const unitPrice = canOverridePrice && clientPrice > 0 ? clientPrice : Number(product.sale_price);
     resolvedItems.push({
       product_id: product.id,
       quantity: qty,
-      unit_price: Number(product.sale_price),
+      unit_price: unitPrice,
       cost: Number(product.cost),
       name: product.name,
     });

@@ -87,6 +87,8 @@ export default function VentasPage() {
   // Cada vendedor ve únicamente sus ventas: en modo turnos las de su turno
   // abierto (desde la apertura de la caja), en modo días las de hoy.
   const isSeller = user?.role === 'seller';
+  // Solo el dueño y el admin pueden modificar el precio de venta
+  const canEditPrice = user?.role === 'owner' || user?.role === 'admin';
   const [myOpenShift, setMyOpenShift] = useState<AnyRecord | null>(null);
   const [myShiftLoaded, setMyShiftLoaded] = useState(false);
 
@@ -437,7 +439,7 @@ export default function VentasPage() {
                       <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:Math.max(0.01,i.quantity-1)}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[var(--bg-muted)] text-[var(--text-primary)] hover:bg-[#30363d] flex items-center justify-center text-xs">−</button>
                       <input type="number" min="0" step="1" value={item.quantity} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:parseFloat(e.target.value)||0.01}:i))} className="w-16 sm:w-14 input text-center text-xs py-1.5 sm:py-1"/>
                       <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:i.quantity+1}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[var(--bg-muted)] text-[var(--text-primary)] hover:bg-[#30363d] flex items-center justify-center text-xs">+</button>
-                      <input type="number" min="0" step="1" value={item.unit_price} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,unit_price:parseFloat(e.target.value)||0}:i))} className="w-full sm:w-20 input text-right text-xs py-1.5 sm:py-1"/>
+                      <input type="number" min="0" step="1" value={item.unit_price} onChange={canEditPrice ? e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,unit_price:parseFloat(e.target.value)||0}:i)) : undefined} readOnly={!canEditPrice} className={`w-full sm:w-20 input text-right text-xs py-1.5 sm:py-1 ${!canEditPrice ? 'opacity-60 cursor-not-allowed' : ''}`} title={!canEditPrice ? 'Solo el dueño o admin pueden modificar el precio' : undefined} />
                       <button onClick={()=>setCart(prev=>prev.filter(i=>i.product.id!==item.product.id))} className="text-[var(--text-tertiary)] hover:text-red-400 p-1"><X className="w-4 h-4"/></button>
                     </div>
                   </div>
