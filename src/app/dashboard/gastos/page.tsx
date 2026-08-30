@@ -13,6 +13,8 @@ import Pagination from '@/components/ui/Pagination';
 import { toast } from '@/components/ui/toaster';
 import { TrendingDown, Plus, Search, Trash2 } from 'lucide-react';
 type R = Record<string,unknown>;
+const paymentMethodLabel: Record<string,string> = { cash:'Efectivo', transfer:'Transferencia', mixed:'Mixto' };
+const paymentMethodColor: Record<string,string> = { cash:'text-green-400 bg-green-500/10 border-green-500/20', transfer:'text-blue-400 bg-blue-500/10 border-blue-500/20', mixed:'text-amber-400 bg-amber-500/10 border-amber-500/20' };
 
 export default function GastosPage() {
   const { user } = useAuthStore();
@@ -27,11 +29,12 @@ export default function GastosPage() {
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [paymentFilter, setPaymentFilter] = useState('' as ''|'cash'|'transfer'|'mixed');
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<R | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState({ category_id:'', description:'', amount:0, product_id:'', product_quantity:0, location_id:'', date:'' });
+  const [form, setForm] = useState({ category_id:'', description:'', amount:0, product_id:'', product_quantity:0, location_id:'', date:'', payment_method:'cash' as 'cash'|'transfer'|'mixed' });
 
   const canDelete = user?.role === 'owner' || user?.role === 'admin';
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showModal);
@@ -84,11 +87,11 @@ export default function GastosPage() {
     }
     setSaving(true);
     try {
-      // El gasto es una salida de efectivo de caja: se guarda como 'cash'
-      // (los métodos de pago se retiraron del formulario).
-      await api.createExpense({ ...form, category_id: form.category_id || null, payment_method: 'cash', product_id: form.product_id || null, product_quantity: form.product_quantity || null, location_id: form.location_id || null, pos_id: workMode === 'shifts' ? posId || null : null, date: form.date || undefined });
+      // Si el gasto tiene producto asociado siempre es cash; si no,
+      // se usa el método seleccionado por el usuario (cash/transfer/mixed).
+      await api.createExpense({ ...form, category_id: form.category_id || null, payment_method: form.product_id ? 'cash' : form.payment_method, product_id: form.product_id || null, product_quantity: form.product_quantity || null, location_id: form.location_id || null, pos_id: workMode === 'shifts' ? posId || null : null, date: form.date || undefined });
       toast.success('Gasto registrado'); notifyShiftSummaryChanged(); setShowModal(false); resetPos();
-      setForm({ category_id:'', description:'', amount:0, product_id:'', product_quantity:0, location_id:'', date:'' }); load();
+      setForm({ category_id:'', description:'', amount:0, product_id:'', product_quantity:0, location_id:'', date:'', payment_method:'cash' }); load();
     } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
   }
 
@@ -102,28 +105,43 @@ export default function GastosPage() {
     const dKey = e.date ? formatDate(String(e.date), 'yyyy-MM-dd') : '';
     if (dateFrom && dKey < dateFrom) return false;
     if (dateTo && dKey > dateTo) return false;
+    if (paymentFilter && String(e.payment_method??'cash') !== paymentFilter) return false;
     return true;
   });
   const paginated = pageSize === 0 ? filtered : filtered.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
   // Reset page when search changes
-  useEffect(() => { setPage(1); }, [search]);
+  useEffect(() => { setPage(1); }, [search, paymentFilter]);
   const totalMonth = expenses.filter(e => { const d=new Date(String(e.date??'')); const n=new Date(); return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear(); }).reduce((a,e)=>a+Number(e.amount??0),0);
+  const cashTotal = expenses.filter(e => (e.payment_method ?? 'cash') === 'cash').reduce((a,e)=>a+Number(e.amount??0),0);
+  const transferTotal = expenses.filter(e => e.payment_method === 'transfer').reduce((a,e)=>a+Number(e.amount??0),0);
+  const mixedTotal = expenses.filter(e => e.payment_method === 'mixed').reduce((a,e)=>a+Number(e.amount??0),0);
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">Gastos este mes</p><p className="text-2xl font-semibold text-red-400">{formatCurrency(totalMonth)}</p></div>
         <div className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">Total registros</p><p className="text-2xl font-semibold text-[var(--text-primary)]">{expenses.length}</p></div>
+        <div className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">Efectivo</p><p className="text-2xl font-semibold text-green-400">{formatCurrency(cashTotal)}</p></div>
+        <div className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">Transferencia</p><p className="text-2xl font-semibold text-blue-400">{formatCurrency(transferTotal)}</p></div>
+        <div className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">Mixto</p><p className="text-2xl font-semibold text-amber-400">{formatCurrency(mixedTotal)}</p></div>
       </div>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="relative flex-1 max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Buscar gastos..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
         <div className="flex gap-2 items-center">
           <input type="date" className="input text-sm max-w-[140px]" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} title="Desde" />
           <input type="date" className="input text-sm max-w-[140px]" value={dateTo} onChange={e=>setDateTo(e.target.value)} title="Hasta" />
-          {(dateFrom||dateTo) && (
-            <button onClick={()=>{setDateFrom('');setDateTo('')}} className="btn-secondary p-2" title="Limpiar filtros"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+          {(dateFrom||dateTo||paymentFilter) && (
+            <button onClick={()=>{setDateFrom('');setDateTo('');setPaymentFilter('')}} className="btn-secondary p-2" title="Limpiar filtros"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
           )}
+          <div className="flex gap-1">
+            {[{value:'' as const,label:'Todos'},{value:'cash' as const,label:'Efectivo'},{value:'transfer' as const,label:'Transferencia'},{value:'mixed' as const,label:'Mixto'}].map(f=>(
+              <button key={f.value} onClick={()=>setPaymentFilter(f.value)}
+                className={`px-2.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${paymentFilter===f.value?(f.value==='cash'?'bg-green-500/15 text-green-400 border-green-500/30':f.value==='transfer'?'bg-blue-500/15 text-blue-400 border-blue-500/30':f.value==='mixed'?'bg-amber-500/15 text-amber-400 border-amber-500/30':'bg-brand-600/20 text-brand-400 border-brand-600/30'):'text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]'}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
           <button onClick={()=>setShowModal(true)} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4"/>Registrar gasto</button>
         </div>
       </div>
@@ -132,7 +150,7 @@ export default function GastosPage() {
         :paginated.length===0?<EmptyState icon={TrendingDown} title="Sin gastos" description="Registra el primer gasto" action={<button onClick={()=>setShowModal(true)} className="btn-primary">Registrar</button>}/>:(
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Categoría','Descripción','Producto',...(workMode==='shifts'?['Caja']:[]),'Monto',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+              <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Categoría','Descripción','Producto',...(workMode==='shifts'?['Caja']:[]),'Monto','Método',''].map(h=><th key={h} className="text-left px-4 py-3 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
               <tbody>{paginated.map(e=>{
                 return (
                 <tr key={String(e.id)} className="border-b border-[var(--border-primary)] last:border-0 table-row-hover">
@@ -142,6 +160,7 @@ export default function GastosPage() {
                   <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{e.product_name?`${String(e.product_name)} x${Number(e.product_quantity??0)}`:'—'}</td>
                   {workMode==='shifts'&&<td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{e.pos_name?String(e.pos_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>}
                   <td className="px-4 py-3 text-red-400 font-medium">{formatCurrency(Number(e.amount??0))}</td>
+                  <td className="px-4 py-3"><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${paymentMethodColor[String(e.payment_method??'cash')] ?? paymentMethodColor.cash}`}>{paymentMethodLabel[String(e.payment_method??'cash')] ?? 'Efectivo'}</span></td>
                   <td className="px-4 py-3">{canDelete && (
                     <button onClick={()=>setDeleteTarget(e)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
                   )}</td>
@@ -202,7 +221,7 @@ export default function GastosPage() {
               <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Solo se mostrarán productos con existencia en este almacén.</p>
             </div>
             <div><label className="label">Producto</label>
-              <select className="input" value={form.product_id} disabled={!form.location_id} onChange={e=>setForm(f=>({...f,product_id:e.target.value,product_quantity:0,amount:0}))}>
+              <select className="input" value={form.product_id} disabled={!form.location_id} onChange={e=>setForm(f=>({...f,product_id:e.target.value,product_quantity:0,amount:0,payment_method:'cash'}))}>
                 <option value="">No aplica</option>
                 {!form.location_id
                   ? <option disabled>Selecciona primero el almacén de origen</option>
@@ -228,6 +247,19 @@ export default function GastosPage() {
               </div>
             </>}
           </div>
+          {!form.product_id && (
+            <div>
+              <label className="label">Método de pago *</label>
+              <div className="flex gap-2">
+                {[{value:'cash' as const,label:'Efectivo'},{value:'transfer' as const,label:'Transferencia'},{value:'mixed' as const,label:'Mixto'}].map(m=>(
+                  <button key={m.value} type="button" onClick={()=>setForm(f=>({...f,payment_method:m.value}))}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${form.payment_method===m.value?'bg-brand-600/20 text-brand-400 border-brand-600/30':'text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]'}`}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div><label className="label">Monto *</label><input type="number" min="1" step="1" className="input" value={form.amount||''} onChange={e=>setForm(f=>({...f,amount:parseFloat(e.target.value)||0}))}/></div>
           <div><label className="label">Fecha</label><input type="date" className="input" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/></div>
           <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handleSave} disabled={saving||!form.description.trim()||form.amount<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Guardando...':'Registrar gasto'}</button></div>
