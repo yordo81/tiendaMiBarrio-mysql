@@ -58,9 +58,7 @@ services:
 
   # ---- Next.js App ----
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: yordo81/tienda_mb_app:latest
     container_name: tienda_mb_app
     restart: unless-stopped
     ports:

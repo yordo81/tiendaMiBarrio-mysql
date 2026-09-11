@@ -233,8 +233,8 @@ export const GET = handle(async (req: Request) => {
 
     // Obtener página actual
     const data = await query(
-      `SELECT sm.*,p.name AS product_name,u.name AS user_name FROM stock_movements sm LEFT JOIN products p ON p.id=sm.product_id LEFT JOIN users u ON u.id=sm.user_id ${where} ORDER BY sm.date DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+      `SELECT sm.*,p.name AS product_name,u.name AS user_name FROM stock_movements sm LEFT JOIN products p ON p.id=sm.product_id LEFT JOIN users u ON u.id=sm.user_id ${where} ORDER BY sm.date DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
     );
 
     return ok({ data, total, page, limit });
