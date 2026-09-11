@@ -64,12 +64,12 @@ export default function InventoryExportModal({ open, onClose, products, location
     return () => { cancelled = true; };
   }, [open, locationId]);
 
-  // Orden estable por categoría y luego por nombre
+  // Orden estable: por categoría y nombre (normal) o por proveedor y nombre (ciego)
   const sorted = useMemo(() => {
     return [...items].sort((a, b) => {
-      const ca = String(a.category_name ?? '—').toLowerCase();
-      const cb = String(b.category_name ?? '—').toLowerCase();
-      if (ca !== cb) return ca < cb ? -1 : 1;
+      const sa = String(Array.isArray(a.supplier_names) ? a.supplier_names[0] : a.supplier_names ?? '').toLowerCase();
+      const sb = String(Array.isArray(b.supplier_names) ? b.supplier_names[0] : b.supplier_names ?? '').toLowerCase();
+      if (sa !== sb) return sa < sb ? -1 : 1;
       return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'es');
     });
   }, [items]);
@@ -118,32 +118,28 @@ export default function InventoryExportModal({ open, onClose, products, location
       );
 
       const heads = blind
-        ? [['Código', 'Producto', 'Categoría', 'Precio', 'Conteo', 'Observaciones']]
-        : [['Código', 'Producto', 'Categoría', 'Stock', 'P. Venta', 'Costo']];
+        ? [['Producto', 'Inicio', 'Entrada', 'Salida', 'Vendido', 'Final']]
+        : [['Producto', 'Stock']];
 
       type Cell = string | { content: string; colSpan: number; styles: Record<string, unknown> };
       const body: Cell[][] = [];
       let lastCat = '';
       sample.forEach(p => {
-        const cat = String(p.category_name ?? '—');
+        const cat = String(Array.isArray(p.supplier_names) ? p.supplier_names[0] ?? '—' : p.supplier_names ?? '—');
         if (cat !== lastCat) {
           lastCat = cat;
           body.push([{
-            content: cat,
+            content: `Proveedor: ${cat}`,
             colSpan: heads[0].length,
             styles: { fillColor: [240, 243, 247], textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 8 },
           }]);
         }
         if (blind) {
-          body.push([String(p.barcode ?? '—'), String(p.name ?? ''), cat, formatCurrency(Number(p.sale_price ?? 0)), '', '']);
+          body.push([String(p.name ?? ''), '', '', '', '', '']);
         } else {
           body.push([
-            String(p.barcode ?? '—'),
             String(p.name ?? ''),
-            cat,
             `${formatNumber(Number(p.stock ?? 0), 1)} ${String(p.unit ?? '')}`,
-            formatCurrency(Number(p.sale_price ?? 0)),
-            formatCurrency(Number(p.cost ?? 0)),
           ]);
         }
       });
@@ -170,26 +166,21 @@ export default function InventoryExportModal({ open, onClose, products, location
     setExporting('xlsx');
     try {
       const headers: Record<string, string> = blind
-        ? { barcode: 'Código', name: 'Producto', category_name: 'Categoría', sale_price: 'Precio', conteo: 'Conteo', observaciones: 'Observaciones' }
-        : { barcode: 'Código', name: 'Producto', category_name: 'Categoría', stock: 'Stock', unit: 'Unidad', sale_price: 'P. Venta', cost: 'Costo' };
+        ? { name: 'Producto', inicio: 'Inicio', entrada: 'Entrada', salida: 'Salida', vendido: 'Vendido', final: 'Final' }
+        : { name: 'Producto', stock: 'Stock' };
       const data = sample.map(p =>
         blind
           ? {
-              barcode: String(p.barcode ?? ''),
               name: String(p.name ?? ''),
-              category_name: String(p.category_name ?? '—'),
-              sale_price: Number(p.sale_price ?? 0),
-              conteo: '',
-              observaciones: '',
+              inicio: '',
+              entrada: '',
+              salida: '',
+              vendido: '',
+              final: '',
             }
           : {
-              barcode: String(p.barcode ?? ''),
               name: String(p.name ?? ''),
-              category_name: String(p.category_name ?? '—'),
-              stock: Number(p.stock ?? 0),
-              unit: String(p.unit ?? ''),
-              sale_price: Number(p.sale_price ?? 0),
-              cost: Number(p.cost ?? 0),
+              stock: `${formatNumber(Number(p.stock ?? 0), 1)} ${String(p.unit ?? '')}`,
             }
       );
       await exportToXLSX(data, fileName, 'Inventario', headers);
@@ -209,28 +200,24 @@ export default function InventoryExportModal({ open, onClose, products, location
       return;
     }
     const heads = blind
-      ? ['Código', 'Producto', 'Categoría', 'Precio', 'Conteo', 'Observaciones']
-      : ['Código', 'Producto', 'Categoría', 'Stock', 'P. Venta', 'Costo'];
+      ? ['Producto', 'Inicio', 'Entrada', 'Salida', 'Vendido', 'Final']
+      : ['Producto', 'Stock'];
 
     const rowsHtml: string[] = [];
     let lastCat = '';
     sample.forEach(p => {
-      const cat = String(p.category_name ?? '—');
+      const cat = String(Array.isArray(p.supplier_names) ? p.supplier_names[0] ?? '—' : p.supplier_names ?? '—');
       if (cat !== lastCat) {
         lastCat = cat;
-        rowsHtml.push(`<tr class="cat"><td colspan="${heads.length}">${escapeHtml(cat)}</td></tr>`);
+        rowsHtml.push(`<tr class="cat"><td colspan="${heads.length}">${escapeHtml(`Proveedor: ${cat}`)}</td></tr>`);
       }
       const dataCells = blind
-        ? [String(p.barcode ?? '—'), String(p.name ?? ''), cat, formatCurrency(Number(p.sale_price ?? 0))]
+        ? [String(p.name ?? ''), '', '', '', '', '']
         : [
-            String(p.barcode ?? '—'),
             String(p.name ?? ''),
-            cat,
             `${formatNumber(Number(p.stock ?? 0), 1)} ${String(p.unit ?? '')}`,
-            formatCurrency(Number(p.sale_price ?? 0)),
-            formatCurrency(Number(p.cost ?? 0)),
           ];
-      const blankCells = blind ? '<td><div class="blank"></div></td><td><div class="blank"></div></td>' : '';
+      const blankCells = blind ? '' : '';
       rowsHtml.push(`<tr>${dataCells.map(c => `<td>${escapeHtml(c)}</td>`).join('')}${blankCells}</tr>`);
     });
 
