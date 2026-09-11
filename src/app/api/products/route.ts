@@ -15,6 +15,7 @@ export const GET = handle(async (request: Request) => {
   await requireAuth();
   const { searchParams } = new URL(request.url);
   const lowStock = searchParams.get('low_stock') === 'true';
+  const stockFilter = searchParams.get('stock_filter'); // 'in_stock' = stock>0 OR sold out today
   const locationId = searchParams.get('location_id');
 
   const params: unknown[] = [];
@@ -27,6 +28,9 @@ export const GET = handle(async (request: Request) => {
 
   let whereClause = 'WHERE p.active = 1';
   if (lowStock) whereClause += ' AND p.stock <= p.min_stock';
+  if (stockFilter === 'in_stock') {
+    whereClause += ' AND (p.stock > 0 OR p.id IN (SELECT si.product_id FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE DATE(si.created_at) = CURDATE() AND s.status != "cancelled" GROUP BY si.product_id HAVING SUM(si.quantity) > 0))';
+  }
   if (locationId) {
     whereClause += ' AND p.id IN (SELECT product_id FROM location_stock WHERE location_id=?)';
     params.push(locationId);

@@ -70,7 +70,6 @@ export default function InventarioPage() {
     setShowExpiryBanner(true);
     localStorage.removeItem('inv_hide_expiry');
   }
-  const [showZeroStock, setShowZeroStock] = useState(false);
   const [showExpiringOnly, setShowExpiringOnly] = useState(false);
   // Nota: el aviso de stock bajo se movió al módulo de Notificaciones
   // (generado por /api/notifications/check-expiration, tipo low_stock/out_of_stock)
@@ -94,7 +93,9 @@ export default function InventarioPage() {
 
   const load = useCallback(async (locId?: string) => {
     setLoading(true);
-    const params = locId ? `location_id=${locId}` : undefined;
+    const parts = ['stock_filter=in_stock'];
+    if (locId) parts.push(`location_id=${locId}`);
+    const params = parts.join('&');
     const [prods, cats, sups, locs] = await Promise.all([api.getProducts(params), api.getCategories(), api.getSuppliers(), api.getLocations()]);
     setProducts(prods); setCategories(cats); setSuppliers(sups); setLocations(locs); setLoading(false);
   }, []);
@@ -269,7 +270,6 @@ export default function InventarioPage() {
   const filtered = products.filter(p => {
     const matchSearch = String(p.name ?? '').toLowerCase().includes(search.toLowerCase()) || String(p.barcode ?? '').toLowerCase().includes(search.toLowerCase());
     const matchCat = catFilter ? p.category_id === catFilter : true;
-    const matchStock = showZeroStock || Number(p.stock ?? 0) > 0;
     const matchExpiring = !showExpiringOnly || (() => {
       if (!p.is_perishable || !p.expiration_date) return false;
       const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -277,7 +277,7 @@ export default function InventarioPage() {
       const daysLeft = Math.round((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       return daysLeft >= 0 && daysLeft <= 30;
     })();
-    return matchSearch && matchCat && matchStock && matchExpiring;
+    return matchSearch && matchCat && matchExpiring;
   });
   const paginated = pageSize === 0 ? filtered : filtered.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
@@ -300,7 +300,7 @@ export default function InventarioPage() {
   }, [products]);
 
   // Filtros activos para el badge del menú (el almacén no cuenta: es el contexto de la vista)
-  const activeFilterCount = (catFilter ? 1 : 0) + (showZeroStock ? 1 : 0) + (showExpiringOnly ? 1 : 0);
+  const activeFilterCount = (catFilter ? 1 : 0) + (showExpiringOnly ? 1 : 0);
 
   // Cerrar el menú de filtros al hacer clic fuera
   useEffect(() => {
@@ -465,13 +465,6 @@ export default function InventarioPage() {
                       />
                     </div>
                     <div className="border-t border-[var(--border-primary)] pt-3 space-y-1">
-                      <button
-                        onClick={()=>setShowZeroStock(v=>!v)}
-                        className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors', showZeroStock ? 'text-brand-400 bg-brand-600/10' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]')}
-                      >
-                        <span className={cn('w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0', showZeroStock ? 'bg-brand-500 border-brand-500 text-white' : 'border-[var(--border-secondary)]')}>{showZeroStock && '✓'}</span>
-                        Incluir stock 0
-                      </button>
                       <button
                         onClick={()=>setShowExpiringOnly(v=>!v)}
                         className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors', showExpiringOnly ? 'text-orange-400 bg-orange-500/10' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]')}
