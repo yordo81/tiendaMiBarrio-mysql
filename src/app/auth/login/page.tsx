@@ -76,7 +76,7 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-        <p className="text-center text-xs mt-6" style={{ color: 'var(--text-tertiary)' }}>{businessName} v1.0 · MySQL Edition</p>
+        <p className="text-center text-xs mt-6" style={{ color: 'var(--text-tertiary)' }}>{businessName} v{process.env.NEXT_PUBLIC_APP_VERSION} · MySQL Edition</p>
       </div>
     </div>
   );
