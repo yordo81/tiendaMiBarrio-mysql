@@ -6,6 +6,46 @@
 -- variable MYSQL_DATABASE definida en docker-compose.yml.
 -- ============================================================
 
+-- ============================================================
+-- Control de migraciones
+-- ============================================================
+-- Este esquema inicial YA INCLUYE el efecto de todas las migraciones
+-- existentes (002 a 024: columnas, tablas, enums y FKs integradas
+-- arriba). Se declaran aquí para que entrypoint.sh NO las vuelva a
+-- aplicar: las migraciones NUEVAS que se agreguen en el futuro se
+-- aplican después, en orden, sobre este esquema.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  filename   VARCHAR(255) NOT NULL PRIMARY KEY,
+  applied_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO schema_migrations (filename) VALUES
+  ('migration-002-on-delete-set-null.sql'),
+  ('migration-003-customer-payments-sale-link.sql'),
+  ('migration-004-purchases-table.sql'),
+  ('migration-005-audit-logs.sql'),
+  ('migration-006-accounting-module.sql'),
+  ('migration-007-capital-management.sql'),
+  ('migration-007-reservations.sql'),
+  ('migration-008-barcode.sql'),
+  ('migration-009-expiration.sql'),
+  ('migration-010-is-perishable.sql'),
+  ('migration-011-notification-logs.sql'),
+  ('migration-012-settings-shifts.sql'),
+  ('migration-013-pos-shifts.sql'),
+  ('migration-014-sales-pos.sql'),
+  ('migration-015-pos-gastos-compras.sql'),
+  ('migration-016-pos-locations.sql'),
+  ('migration-017-purchases-invoice.sql'),
+  ('migration-018-receipt-printer.sql'),
+  ('migration-018-stock-transfers-batch.sql'),
+  ('migration-019-printers.sql'),
+  ('migration-020-reservations-toggle.sql'),
+  ('migration-021-pos-touch-toggle.sql'),
+  ('migration-022-users-pos.sql'),
+  ('migration-023-expense-transfer-movements.sql'),
+  ('migration-024-hard-delete-product.sql');
+
 CREATE TABLE IF NOT EXISTS users (
   id            CHAR(36)     NOT NULL PRIMARY KEY,
   name          VARCHAR(255) NOT NULL,
@@ -128,13 +168,13 @@ CREATE TABLE IF NOT EXISTS sales (
 CREATE TABLE IF NOT EXISTS sale_items (
   id         CHAR(36)      NOT NULL PRIMARY KEY,
   sale_id    CHAR(36)      NOT NULL,
-  product_id CHAR(36)      NOT NULL,
+  product_id CHAR(36)      NULL,
   quantity   DECIMAL(12,3) NOT NULL,
   unit_price DECIMAL(12,2) NOT NULL,
   cost       DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   created_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (sale_id)    REFERENCES sales(id)    ON DELETE CASCADE,
-  FOREIGN KEY (product_id) REFERENCES products(id),
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
   INDEX idx_sale (sale_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -191,7 +231,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 
 CREATE TABLE IF NOT EXISTS stock_movements (
   id           CHAR(36)      NOT NULL PRIMARY KEY,
-  product_id   CHAR(36)      NOT NULL,
+  product_id   CHAR(36)      NULL,
   type         ENUM('in','out','adjust','expense') NOT NULL,
   quantity     DECIMAL(12,3) NOT NULL,
   reason       VARCHAR(255)  NOT NULL,
@@ -199,7 +239,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   user_id      CHAR(36)      NULL,
   date         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id)    REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_product (product_id), INDEX idx_date (date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -230,7 +270,7 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
   id               CHAR(36)      NOT NULL PRIMARY KEY,
   from_location_id CHAR(36)      NOT NULL,
   to_location_id   CHAR(36)      NOT NULL,
-  product_id       CHAR(36)      NOT NULL,
+  product_id       CHAR(36)      NULL,
   quantity         DECIMAL(12,3) NOT NULL,
   notes            TEXT          NULL,
   user_id          CHAR(36)      NULL,
@@ -239,7 +279,7 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
   INDEX idx_stock_transfers_batch (batch_id),
   FOREIGN KEY (from_location_id) REFERENCES locations(id),
   FOREIGN KEY (to_location_id)   REFERENCES locations(id),
-  FOREIGN KEY (product_id)       REFERENCES products(id),
+  FOREIGN KEY (product_id)       REFERENCES products(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id)          REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
