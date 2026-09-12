@@ -71,6 +71,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-rootpassword}
       DB_NAME: ${DB_NAME:-tienda_mi_barrio}
       SESSION_SECRET: ${SESSION_SECRET:-cambiar_esto_por_un_secreto_de_32_caracteres}
+      # Secure en la cookie de sesión: solo activar detrás de HTTPS.
+      # Con HTTP plano (LAN/hosts) debe quedar false o el navegador
+      # descarta la cookie y el login rebota al login sin error.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TIMEZONE: ${TIMEZONE:-America/Havana}
       VALKEY_URL: redis://valkey:6379
     depends_on:
