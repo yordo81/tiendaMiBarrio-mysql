@@ -12,12 +12,12 @@ export const sessionOptions: SessionOptions = {
   password: process.env.SESSION_SECRET ?? 'fallback_secret_change_in_production_32chars!!',
   cookieName: SESSION_COOKIE_NAME,
   cookieOptions: {
-    // `Secure` solo detrás de HTTPS (COOKIE_SECURE=true). Por defecto se
-    // desactiva para que la cookie funcione también sobre HTTP plano (LAN);
-    // con NODE_ENV=production + HTTP el navegador descartaría la cookie y
-    // el login rebotaría silenciosamente de vuelta al login.
+    // `Secure` solo detrás de HTTPS cuando COOKIE_SECURE=true.
+    // Si usas HTTPS local con certificado autofirmado y no establece
+    // COOKIE_SECURE=true, la cookie no se enviará y el login rebotará.
     secure: process.env.COOKIE_SECURE === 'true',
     httpOnly: true,   // No accesible desde JavaScript del navegador
+    sameSite: 'lax',  // Protección CSRF razonable; funciona en redirects del mismo sitio
     maxAge: 60 * 60 * 24 * 7,  // 7 días
   },
 };

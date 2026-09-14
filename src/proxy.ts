@@ -30,6 +30,29 @@ import { showReservationsEnabled } from '@/lib/settings-server';
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // ── Redirección HTTP ↔ HTTPS según HTTPS_ENABLED ─────────────────
+  // Cuando HTTPS_ENABLED=true se fuerza HTTPS; cuando está desactivado
+  // se fuerza HTTP. Esto evita que usuarios accedan por el protocolo
+  // equivocado (ej: HTTP cuando el servidor expone HTTPS).
+  //
+  // Detrás de un reverse proxy (nginx, Cloudflare, etc.) el contenedor
+  // recibe tráfico HTTP, por eso dependemos de x-forwarded-proto y
+  // x-forwarded-host para conocer la URL real del usuario.
+  const httpsEnabled = process.env.HTTPS_ENABLED === 'true';
+  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+    ?? request.nextUrl.protocol.replace(':', '');
+  const expectedProto = httpsEnabled ? 'https' : 'http';
+  if (proto !== expectedProto && proto !== '') {
+    // Preferir x-forwarded-host (el dominio real del usuario) sobre
+    // el header Host que en Docker trae el nombre del contenedor
+    // (ej: "app:3000").
+    const host = request.headers.get('x-forwarded-host')
+      ?? request.headers.get('host')
+      ?? request.nextUrl.host;
+    const redirectUrl = new URL(request.nextUrl.pathname + request.nextUrl.search, `${expectedProto}://${host}`);
+    return NextResponse.redirect(redirectUrl);
+  }
+
   // Página de entrada: si el módulo de reservaciones está desactivado en
   // la configuración, se redirige a /inicio sin esperar al cliente. El
   // valor viene cacheado con TTL corto (showReservationsEnabled) y ya es
@@ -85,8 +108,16 @@ export async function proxy(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = '/auth/login';
       const redirect = NextResponse.redirect(url);
-      // Eliminar la cookie muerta para que no siga rebotando al login
-      redirect.cookies.set(sessionOptions.cookieName, '', { maxAge: 0, path: '/' });
+      // Eliminar la cookie muerta para que no siga rebotando al login.
+      // Debe incluir los mismos atributos (secure, sameSite) que la cookie
+      // original para que el navegador la reconozca y la borre correctamente.
+      redirect.cookies.set(sessionOptions.cookieName, '', {
+        maxAge: 0,
+        path: '/',
+        secure: sessionOptions.cookieOptions?.secure ?? false,
+        sameSite: (sessionOptions.cookieOptions?.sameSite as 'lax' | 'strict' | 'none') ?? 'lax',
+        httpOnly: sessionOptions.cookieOptions?.httpOnly ?? true,
+      });
       return redirect;
     }
     return NextResponse.next();

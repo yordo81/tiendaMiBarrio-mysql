@@ -186,6 +186,43 @@ npm run dev
 
 Abre: http://localhost:3000
 
+### 4b. HTTPS local con certificado autofirmado
+
+Si necesitas probar con HTTPS (por ejemplo, para Cookies `Secure`, WebUSB, o APIs que requieren un contexto seguro), ejecuta:
+
+```bash
+npm run dev:https
+```
+
+Esto genera automáticamente un certificado autofirmado (válido 365 días) y arranca Next.js en `https://localhost:3000`.
+
+> **La primera vez** que abras la URL, el navegador mostrará un aviso de certificado desconocido. Haz clic en **«Avanzado» → «Continuar»** (o **«Proceed to localhost (unsafe)»**) para aceptarlo.
+
+#### Cómo funciona
+
+1. El script `scripts/generate-local-ssl.sh` genera `localhost.key` y `localhost.crt` en la raíz del proyecto (excluidos de git vía `.gitignore`).
+2. Next.js se arranca con los flags `--experimental-https` y los archivos de certificado.
+3. Las variables en `.env` controlan el comportamiento:
+
+| Variable | Valor | Descripción |
+|----------|-------|-------------|
+| `HTTPS_ENABLED` | `true` | Habilita HTTPS en el servidor de desarrollo |
+| `APP_ORIGIN` | `https://localhost:3000` | Origen de la app (protocolo correcto) |
+| `COOKIE_SECURE` | `true` | Marca la cookie de sesión como `Secure` (requiere HTTPS) |
+
+#### Regenerar certificados
+
+Si el certificado expiró o quieres regenerarlo:
+
+```bash
+rm -f localhost.key localhost.crt
+npm run dev:https
+```
+
+#### Nota sobre Windows
+
+En Windows, el script usa `openssl` incluido con Git for Windows. Si no lo tienes instalado, instala [Git for Windows](https://git-scm.com/download/win) o ejecuta `scripts/generate-local-ssl-node.mjs` directamente con Node.js.
+
 ---
 
 ## Deploy en producción
@@ -393,6 +430,8 @@ mysql/
 └── migration-*.sql             # Migraciones incrementales
 scripts/
 ├── setup-db.js                 # Script interactivo de configuración inicial
+├── generate-local-ssl.sh       # Generador de certificados autofirmados (bash/openssl)
+├── generate-local-ssl-node.mjs # Generador de certificados autofirmados (Node.js/openssl)
 ├── analisis-inventario.js      # Análisis de inventario
 ├── recalcular-stock.js         # Recalcular stock
 ├── debug-accounting.js         # Depuración de contabilidad
@@ -496,6 +535,7 @@ El dueño puede personalizar permisos por usuario desde el módulo Usuarios.
 
 ```bash
 npm run dev          # Desarrollo (hot reload)
+npm run dev:https    # Desarrollo con HTTPS (certificado autofirmado)
 npm run build        # Build producción
 npm run start        # Producción
 npm run lint         # Linter

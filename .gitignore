@@ -7,6 +7,12 @@ node_modules/
 .next/
 out/
 
+# Certificados autofirmados locales (NO registrar en git)
+localhost.key
+localhost.crt
+localhost.pem
+ssl/
+
 # Production
 build/
 dist/
