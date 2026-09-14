@@ -195,15 +195,37 @@ export const GET = handle(async (req: Request) => {
   }
 
   if (type === 'sales_detail') {
+    const fromDate = searchParams.get('from');
+    const toDate = searchParams.get('to');
     const data = await cachedReport('sales_detail', user.id, locationId, days, async () => {
-      let sql = `SELECT DATE(s.date) AS date,COUNT(*) AS count,COALESCE(SUM(s.total),0) AS total FROM sales s`;
+      // Subquery: aggregate payment amounts per sale to avoid duplicate rows
+      // when a sale has multiple payments (e.g., mixed cash + transfer).
+      let sql = `
+        SELECT DATE(s.date) AS date,
+               COUNT(*) AS count,
+               COALESCE(SUM(s.total),0) AS total,
+               COALESCE(SUM(pay.cash_amount),0) AS cash_total,
+               COALESCE(SUM(pay.transfer_amount),0) AS transfer_total
+        FROM sales s
+        LEFT JOIN (
+          SELECT sale_id,
+                 SUM(CASE WHEN method='cash' THEN amount_cash ELSE 0 END) AS cash_amount,
+                 SUM(CASE WHEN method IN ('transfer','mixed') THEN amount_transfer ELSE 0 END) AS transfer_amount
+          FROM payments GROUP BY sale_id
+        ) pay ON pay.sale_id=s.id`;
       const sp: unknown[] = [];
       if (locationId) {
         sql += ` JOIN location_movements lm ON lm.reference_id=s.id AND lm.type='venta' AND lm.location_id=?`;
         sp.push(locationId);
       }
-      sql += ` WHERE s.date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND s.status!='cancelled' GROUP BY DATE(s.date) ORDER BY DATE(s.date) ASC`;
-      sp.push(days);
+      if (fromDate && toDate) {
+        sql += ` WHERE s.date>=? AND s.date<=? AND s.status!='cancelled'`;
+        sp.push(fromDate, toDate + ' 23:59:59');
+      } else {
+        sql += ` WHERE s.date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND s.status!='cancelled'`;
+        sp.push(days);
+      }
+      sql += ` GROUP BY DATE(s.date) ORDER BY DATE(s.date) ASC`;
       return query(sql, sp);
     });
     return ok(data);

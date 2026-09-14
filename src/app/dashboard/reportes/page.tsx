@@ -371,6 +371,46 @@ export default function ReportesPage() {
               </AreaChart>
             </ResponsiveContainer>
           </div>
+
+          {/* Resumen diario de ventas: efectivo vs transferencia */}
+          {salesData.length > 0 && (
+            <div className="card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Resumen diario de ventas</h3>
+                <button onClick={()=>exportCSV(salesData,'ventas-diario')} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--border-primary)]">
+                      <th className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Fecha</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Efectivo</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Transferencia</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salesData.map((row, i) => (
+                      <tr key={i} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                        <td className="px-3 py-2.5 text-[var(--text-secondary)]">{String(row.date)}</td>
+                        <td className="px-3 py-2.5 text-blue-400 text-right">{formatCurrency(Number(row.cash_total ?? 0))}</td>
+                        <td className="px-3 py-2.5 text-purple-400 text-right">{formatCurrency(Number(row.transfer_total ?? 0))}</td>
+                        <td className="px-3 py-2.5 text-[var(--text-primary)] font-medium text-right">{formatCurrency(Number(row.total ?? 0))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-[var(--border-primary)] font-semibold">
+                      <td className="px-3 py-2.5 text-[var(--text-primary)]">Total</td>
+                      <td className="px-3 py-2.5 text-blue-400 text-right">{formatCurrency(salesData.reduce((sum, r) => sum + Number(r.cash_total ?? 0), 0))}</td>
+                      <td className="px-3 py-2.5 text-purple-400 text-right">{formatCurrency(salesData.reduce((sum, r) => sum + Number(r.transfer_total ?? 0), 0))}</td>
+                      <td className="px-3 py-2.5 text-[var(--text-primary)] text-right">{formatCurrency(salesData.reduce((sum, r) => sum + Number(r.total ?? 0), 0))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
