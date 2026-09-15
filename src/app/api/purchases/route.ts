@@ -41,15 +41,31 @@ export const GET = handle(async (req: Request) => {
   }
 
   if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
-  sql += ' ORDER BY p.created_at DESC LIMIT ' + limit;
-
-  return ok(await query(sql, params));
+  sql += ' ORDER BY p.created_at DESC LIMIT ' + limit;    return ok(await query(sql, params));
 });
+
+// ── Helper: obtener la moneda base del sistema ──
+async function getBaseCurrency(): Promise<string> {
+  const base = await queryOne<{ code: string }>(
+    "SELECT code FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1"
+  );
+  return base?.code ?? 'CUP';
+}
+
+// ── Helper: obtener tasa de cambio ──
+async function getExchangeRate(from: string, to: string): Promise<number> {
+  if (from === to) return 1;
+  const rate = await queryOne<{ rate: number }>(
+    'SELECT rate FROM currency_rates WHERE from_currency = ? AND to_currency = ?',
+    [from, to]
+  );
+  return rate?.rate ?? 1;
+}
 
 // ── POST: Registrar nueva compra ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireRole('owner', 'admin', 'warehouse');
-  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital, expiration_date, pos_id, invoice_number } = await req.json();
+  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital, expiration_date, pos_id, invoice_number, currency_code, exchange_rate } = await req.json();
 
   if (!product_id || !supplier_id) {
     return err('Faltan datos: producto y proveedor requeridos');
@@ -82,6 +98,17 @@ export const POST = handle(async (req: Request) => {
     return notFound('Producto no encontrado o inactivo');
   }
 
+  // Resolver moneda y tasa de cambio
+  const baseCurrency = await getBaseCurrency();
+  const purchaseCurrency = currency_code ? String(currency_code).trim().toUpperCase() : baseCurrency;
+  let purchaseExchangeRate = exchange_rate ? parseFloat(exchange_rate) : null;
+  if (purchaseCurrency !== baseCurrency && !purchaseExchangeRate) {
+    purchaseExchangeRate = await getExchangeRate(purchaseCurrency, baseCurrency);
+  }
+  if (purchaseCurrency === baseCurrency) {
+    purchaseExchangeRate = 1;
+  }
+
   // En modo turnos, vincular el egreso/ingreso al turno abierto de la caja
   const shiftId = await getOpenShiftId(posId || null);
 
@@ -98,10 +125,12 @@ export const POST = handle(async (req: Request) => {
     const currentCost = Number(current.cost ?? 0);
     const purchaseQty = qty;
     const purchasePrice = unitPrice;
+    // Convertir precio a moneda base para el costo promedio
+    const basePrice = Math.round(purchasePrice * (purchaseExchangeRate ?? 1) * 100) / 100;
 
-    // Calcular nuevo stock y costo promedio ponderado
+    // Calcular nuevo stock y costo promedio ponderado (en moneda base)
     const newStock = currentStock + purchaseQty;
-    const newCost = ((currentStock * currentCost) + (purchaseQty * purchasePrice)) / newStock;
+    const newCost = ((currentStock * currentCost) + (purchaseQty * basePrice)) / newStock;
 
     // Actualizar producto (stock, costo y opcionalmente fecha de caducidad)
     if (expiration_date) {
@@ -157,10 +186,10 @@ export const POST = handle(async (req: Request) => {
 
     // Insertar registro en historial de compras
     const purchaseId = randomUUID();
-    const totalCost = Math.round(purchaseQty * purchasePrice * 100) / 100;
+    const totalCost = Math.round(purchaseQty * basePrice * 100) / 100;
     await conn.execute(
-      'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,pos_id,invoice_number,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, invoice_number ? String(invoice_number).trim() : null, ts]
+      'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,pos_id,invoice_number,currency_code,exchange_rate,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, invoice_number ? String(invoice_number).trim() : null, purchaseCurrency, purchaseExchangeRate, ts]
     );
 
     // ── Registrar en contabilidad ──
@@ -204,6 +233,9 @@ export const POST = handle(async (req: Request) => {
       cost_before: currentCost,
       cost_after: Math.round(newCost * 100) / 100,
       purchase_price: purchasePrice,
+      currency_code: purchaseCurrency,
+      exchange_rate: purchaseExchangeRate,
+      base_price: basePrice,
       stock_movement_id: smId,
       purchase_price_id: ppId,
     };
