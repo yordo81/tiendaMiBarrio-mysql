@@ -1,7 +1,7 @@
 'use client';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { api, type PrinterDto } from '@/lib/api-client';
+import { api, apiFetch, type PrinterDto } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useSettingsStore, type BusinessSettings } from '@/lib/stores/settings-store';
@@ -10,7 +10,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import {
   Store, Settings, Upload, X, CalendarDays, Clock3, Save, Loader2, ShieldAlert,
   Printer, Usb, CheckCircle2, Ruler, Zap, Plus, Star, Pencil, Trash2, Info,
-  CalendarCheck, TabletSmartphone,
+  CalendarCheck, TabletSmartphone, Coins, ArrowRight, RefreshCw,
 } from 'lucide-react';
 import { pickUsbPrinter, printUsbTest, isWebUsbSupported, type UsbPrinterInfo } from '@/lib/receipt';
 
@@ -19,12 +19,13 @@ import { pickUsbPrinter, printUsbTest, isWebUsbSupported, type UsbPrinterInfo } 
 // (nombre y logotipo), elegir el modo de operación (por días o por turnos)
 // y administrar las impresoras de tickets (cuál imprime el comprobante).
 
-type TabKey = 'negocio' | 'operacion' | 'impresion';
+type TabKey = 'negocio' | 'operacion' | 'impresion' | 'monedas';
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType; desc: string }[] = [
   { key: 'negocio', label: 'Negocio', icon: Store, desc: 'Nombre y logotipo' },
   { key: 'operacion', label: 'Operación', icon: CalendarDays, desc: 'Jornada de caja' },
   { key: 'impresion', label: 'Impresión', icon: Printer, desc: 'Tickets e impresoras' },
+  { key: 'monedas', label: 'Monedas', icon: Coins, desc: 'Tasas de cambio' },
 ];
 
 export default function ConfiguracionPage() {
@@ -57,6 +58,16 @@ export default function ConfiguracionPage() {
   const [defaultBusyId, setDefaultBusyId] = useState<string | null>(null);
   const [usbSupported] = useState(() => isWebUsbSupported());
 
+  // ── Monedas y tasas de cambio ──
+  type CurrencyDto = { code: string; name: string; symbol: string; is_base: boolean; active: boolean; rates: Record<string, number> };
+  const [currencies, setCurrencies] = useState<CurrencyDto[]>([]);
+  const [currenciesLoading, setCurrenciesLoading] = useState(true);
+  const [showNewCurrency, setShowNewCurrency] = useState(false);
+  const [newCurrency, setNewCurrency] = useState({ code: '', name: '', symbol: '' });
+  const [creatingCurrency, setCreatingCurrency] = useState(false);
+  const [rateEdit, setRateEdit] = useState<{ from: string; to: string; rate: string } | null>(null);
+  const [savingRate, setSavingRate] = useState(false);
+
   const load = useCallback(async () => {
     try {
       const d = await api.getSettings();
@@ -82,6 +93,90 @@ export default function ConfiguracionPage() {
     }
   }, []);
   useEffect(() => { loadPrinters(); }, [loadPrinters]);
+
+  // ── Cargar monedas ──
+  const loadCurrencies = useCallback(async () => {
+    try {
+      const d = await apiFetch<{ currencies: CurrencyDto[] }>('/api/currencies');
+      setCurrencies(d.currencies);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al cargar las monedas');
+    } finally {
+      setCurrenciesLoading(false);
+    }
+  }, []);
+  useEffect(() => { loadCurrencies(); }, [loadCurrencies]);
+
+  async function handleCreateCurrency() {
+    if (!newCurrency.code.trim() || !newCurrency.name.trim() || !newCurrency.symbol.trim()) {
+      toast.error('Completa todos los campos');
+      return;
+    }
+    setCreatingCurrency(true);
+    try {
+      await apiFetch('/api/currencies', {
+        method: 'POST',
+        body: JSON.stringify(newCurrency),
+      });
+      toast.success('Moneda creada');
+      setShowNewCurrency(false);
+      setNewCurrency({ code: '', name: '', symbol: '' });
+      loadCurrencies();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al crear la moneda');
+    } finally {
+      setCreatingCurrency(false);
+    }
+  }
+
+  async function handleSetBaseCurrency(code: string) {
+    try {
+      await apiFetch('/api/currencies', {
+        method: 'PUT',
+        body: JSON.stringify({ action: 'set_base', code }),
+      });
+      toast.success(`Moneda base cambiada a ${code}`);
+      loadCurrencies();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al cambiar moneda base');
+    }
+  }
+
+  async function handleToggleCurrency(code: string, active: boolean) {
+    try {
+      await apiFetch('/api/currencies', {
+        method: 'PUT',
+        body: JSON.stringify({ action: 'toggle_active', code, active }),
+      });
+      toast.success(active ? 'Moneda activada' : 'Moneda desactivada');
+      loadCurrencies();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error');
+    }
+  }
+
+  async function handleSaveRate() {
+    if (!rateEdit || !rateEdit.rate || parseFloat(rateEdit.rate) <= 0) return;
+    setSavingRate(true);
+    try {
+      await apiFetch('/api/currencies', {
+        method: 'PUT',
+        body: JSON.stringify({
+          action: 'update_rate',
+          from_currency: rateEdit.from,
+          to_currency: rateEdit.to,
+          rate: parseFloat(rateEdit.rate),
+        }),
+      });
+      toast.success('Tasa actualizada');
+      setRateEdit(null);
+      loadCurrencies();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al guardar la tasa');
+    } finally {
+      setSavingRate(false);
+    }
+  }
 
   async function handleLogoFile(file: File) {
     if (!file.type.startsWith('image/')) {
@@ -694,6 +789,130 @@ export default function ConfiguracionPage() {
         </>
       )}
 
+      {/* ════ PESTAÑA: MONEDAS ════ */}
+      {tab === 'monedas' && (
+        <>
+          {/* ── Moneda base ── */}
+          <div className="card p-5">
+            <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Moneda base del negocio</h2>
+            <p className="text-xs text-[var(--text-tertiary)] mb-5">
+              La moneda base es la unidad en la que se almacenan todos los precios y costos del sistema. Las compras y ventas en otras monedas se convierten automáticamente usando las tasas de cambio configuradas.
+            </p>
+            {currenciesLoading ? (
+              <div className="flex justify-center py-6"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {currencies.filter(c => c.active).map(c => (
+                  <button
+                    key={c.code}
+                    onClick={() => handleSetBaseCurrency(c.code)}
+                    className={cn(
+                      'text-left p-4 rounded-xl border-2 transition-all duration-200',
+                      c.is_base
+                        ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-600/10'
+                        : 'border-[var(--border-secondary)] bg-[var(--bg-primary)] hover:border-[#6e7681]'
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5 mb-1">
+                      <span className="text-lg font-bold text-[var(--text-primary)]">{c.symbol}</span>
+                      <span className="text-sm font-semibold text-[var(--text-primary)]">{c.code}</span>
+                      {c.is_base && <span className="badge-success text-[10px] px-1.5 py-0.5">Base</span>}
+                    </div>
+                    <p className="text-xs text-[var(--text-tertiary)]">{c.name}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Tasas de cambio ── */}
+          <div className="card p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+              <div>
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">Tasas de cambio</h2>
+                <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
+                  Define cuánto vale 1 unidad de cada moneda en la moneda base. La tasa inversa se calcula automáticamente.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowNewCurrency(true)}
+                className="btn-primary text-xs px-3 py-2 flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" /> Nueva moneda
+              </button>
+            </div>
+
+            {currenciesLoading ? (
+              <div className="flex justify-center py-6"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
+            ) : currencies.filter(c => c.active).length === 0 ? (
+              <p className="text-center text-[var(--text-tertiary)] py-8 text-sm">No hay monedas configuradas</p>
+            ) : (
+              <div className="space-y-3">
+                {currencies.filter(c => c.active).map(c => {
+                  const base = currencies.find(b => b.is_base);
+                  if (!base || c.is_base) return null;
+                  const rateToBase = c.rates?.[base.code] ?? null;
+                  const rateFromBase = base.rates?.[c.code] ?? null;
+                  return (
+                    <div key={c.code} className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] px-4 py-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-base font-bold text-[var(--text-primary)]">{c.symbol}</span>
+                        <div>
+                          <span className="text-sm font-semibold text-[var(--text-primary)]">{c.code}</span>
+                          <span className="text-xs text-[var(--text-tertiary)] ml-1.5">{c.name}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 ml-auto">
+                        <ArrowRight className="w-4 h-4 text-[var(--text-tertiary)]" />
+                        <span className="text-sm font-semibold text-brand-400">{base.symbol} {base.code}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[var(--text-tertiary)]">1 {c.code} =</span>
+                        {rateEdit?.from === c.code && rateEdit?.to === base.code ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              className="input w-28 text-sm py-1"
+                              value={rateEdit.rate}
+                              onChange={e => setRateEdit(r => r ? { ...r, rate: e.target.value } : null)}
+                              autoFocus
+                              onKeyDown={e => { if (e.key === 'Enter') handleSaveRate(); if (e.key === 'Escape') setRateEdit(null); }}
+                            />
+                            <button onClick={handleSaveRate} disabled={savingRate} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10 transition-colors">
+                              {savingRate ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                            </button>
+                            <button onClick={() => setRateEdit(null)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)] transition-colors">
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setRateEdit({ from: c.code, to: base.code, rate: rateToBase != null ? String(rateToBase) : '' })}
+                            className="text-sm font-semibold text-[var(--text-primary)] hover:text-brand-400 transition-colors cursor-pointer"
+                            title="Clic para editar la tasa"
+                          >
+                            {rateToBase != null ? `${Number(rateToBase).toFixed(6)}` : '—'}
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleToggleCurrency(c.code, false)}
+                        className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        title="Desactivar moneda"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {/* ── Guardar ── */}
       <div className="flex items-center justify-end gap-3">
         <button onClick={load} className="btn-secondary">Descartar</button>
@@ -702,6 +921,50 @@ export default function ConfiguracionPage() {
           {saving ? 'Guardando...' : uploading ? 'Subiendo logo...' : 'Guardar cambios'}
         </button>
       </div>
+
+      {/* ── Modal: nueva moneda ── */}
+      <Modal open={showNewCurrency} onClose={() => !creatingCurrency && setShowNewCurrency(false)} title="Nueva moneda" size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="label">Código ISO *</label>
+            <input
+              className="input font-mono uppercase"
+              placeholder="Ej: USD, EUR, CUP"
+              value={newCurrency.code}
+              maxLength={10}
+              onChange={e => setNewCurrency(f => ({ ...f, code: e.target.value.toUpperCase() }))}
+            />
+            <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Código de 3 letras (ISO 4217). Ej: USD, EUR, GBP, CUP</p>
+          </div>
+          <div>
+            <label className="label">Nombre completo *</label>
+            <input
+              className="input"
+              placeholder="Ej: Dólar Estadounidense"
+              value={newCurrency.name}
+              maxLength={100}
+              onChange={e => setNewCurrency(f => ({ ...f, name: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="label">Símbolo *</label>
+            <input
+              className="input"
+              placeholder="Ej: $, €, £, ₽"
+              value={newCurrency.symbol}
+              maxLength={10}
+              onChange={e => setNewCurrency(f => ({ ...f, symbol: e.target.value }))}
+            />
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <button onClick={() => setShowNewCurrency(false)} disabled={creatingCurrency} className="btn-secondary disabled:opacity-50">Cancelar</button>
+            <button onClick={handleCreateCurrency} disabled={creatingCurrency || !newCurrency.code.trim() || !newCurrency.name.trim() || !newCurrency.symbol.trim()} className="btn-primary flex items-center gap-1.5 disabled:opacity-50">
+              {creatingCurrency ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {creatingCurrency ? 'Creando…' : 'Crear moneda'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── Modal: registrar impresora ── */}
       <Modal open={!!registerTarget} onClose={() => !registering && setRegisterTarget(null)} title="Registrar impresora" size="sm">
