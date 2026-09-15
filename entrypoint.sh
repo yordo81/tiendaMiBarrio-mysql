@@ -5,24 +5,13 @@
 # Se ejecuta cada vez que arranca el contenedor de la aplicación.
 #
 # 1. Espera a que MySQL esté disponible.
-# 2. Garantiza la tabla de control `schema_migrations` (no se muestra
-#    en la interfaz web), que registra qué migraciones se han ejecutado.
-# 3. Aplica en orden las migraciones de $MIGRATIONS_DIR que falten en la
-#    tabla y las registra. Si una falla, aborta el arranque (exit 1).
+# 2. Garantiza la tabla de control `schema_migrations`.
+# 3. Aplica all-migrations.sql si no se ha ejecutado aún (contiene
+#    todas las migraciones 002-025 en un solo archivo).
+# 4. Arranca la aplicación.
 #
-# Sobre el esquema inicial (mysql/init/01-schema.sql): la primera vez que
-# arranca MySQL lo crea ya completo, incluida la tabla schema_migrations
-# con las migraciones 002-022 declaradas como incluidas (su efecto está
-# integrado en el esquema). Por eso en un despliegue nuevo solo se
-# aplican las migraciones NUEVAS (las que no estén declaradas ahí ni
-# registradas en la tabla).
-#
-# 4. Arranca la aplicación con los argumentos recibidos (CMD del Dockerfile).
-#
-# Variables: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME (las define
-# docker-compose). Fuera de Docker, si no vienen en el entorno, se leen del
-# archivo ENV_FILE (por defecto /app/.env.local). MIGRATIONS_DIR apunta a la
-# carpeta con los .sql.
+# Variables: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+# (las define docker-compose).
 # ============================================================
 set -e
 
@@ -41,9 +30,7 @@ DB_PASSWORD="${DB_PASSWORD:-rootpassword}"
 DB_NAME="${DB_NAME:-tienda_mi_barrio}"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-/app/mysql}"
 
-# Cliente MySQL (con o sin contraseña, sin prompts interactivos).
-# --skip-ssl: el cliente MariaDB rechaza el certificado autofirmado de MySQL 8;
-# la conexión viaja por la red interna del contenedor, no necesita TLS.
+# Cliente MySQL (sin prompts interactivos, sin TLS en red interna).
 mysql_cmd() {
   if [ -n "$DB_PASSWORD" ]; then
     mysql --skip-ssl -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" "$@"
@@ -76,8 +63,6 @@ done
 log "MySQL disponible."
 
 # ── 2. Tabla de control de migraciones ──
-# En un despliegue nuevo la crea 01-schema.sql (junto con la declaración
-# de migraciones ya incluidas en el esquema).
 table_exists=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB_NAME' AND table_name = 'schema_migrations'")
 
 if [ "$table_exists" = "0" ]; then
@@ -91,50 +76,38 @@ else
   JUST_CREATED=0
 fi
 
-# ── 2b. Volumen antiguo sin control de migraciones ──
-# Si la tabla acaba de crearse, la instalación es anterior al control de
-# migraciones. Se detecta con un marcador de la migración más reciente
-# integrada en el esquema (024: sale_items.product_id nullable). Si el
-# esquema ya está completo, se registran las migraciones SIN re-ejecutarlas
-# (igual que hacía el baseline antiguo); si está incompleto, se dejan
-# pendientes para que se apliquen abajo.
+# ── 2b. Volumen antiguo: detectar instalación pre-consolidación ──
+# Si la tabla schema_migrations no tiene 'all-migrations.sql' pero
+# tiene los archivos individuales (migration-002..025), significa que
+# la BD ya fue migrada antes de la consolidación. Solo registramos
+# el consolidado como aplicado sin volver a ejecutar nada.
 if [ "$JUST_CREATED" = "1" ]; then
-  product_nullable=$(mysql_cmd -N -s -e "SELECT IS_NULLABLE FROM information_schema.columns WHERE table_schema = '$DB_NAME' AND table_name = 'sale_items' AND column_name = 'product_id'")
-  if [ "$product_nullable" = "YES" ]; then
-    total=0
-    for f in "$MIGRATIONS_DIR"/migration-*.sql; do
-      [ -e "$f" ] || continue
-      name=$(basename "$f")
-      mysql_cmd -e "INSERT IGNORE INTO schema_migrations (filename) VALUES ('$name')"
-      total=$((total + 1))
-    done
-    log "Volumen heredado: esquema ya completo ($total migración(es) registradas sin re-ejecutar)."
-  else
-    log "Volumen heredado: esquema incompleto, se aplicarán las migraciones pendientes."
+  has_consolidated=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM schema_migrations WHERE filename = 'all-migrations.sql'")
+  if [ "$has_consolidated" = "0" ]; then
+    has_old=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM schema_migrations WHERE filename LIKE 'migration-%'")
+    if [ "$has_old" != "0" ]; then
+      mysql_cmd -e "INSERT IGNORE INTO schema_migrations (filename) VALUES ('all-migrations.sql')"
+      log "Volumen heredado: migraciones individuales detectadas, consolidado registrado."
+    fi
   fi
 fi
 
-# ── 3. Aplicar migraciones pendientes ──
-applied=0
-for f in "$MIGRATIONS_DIR"/migration-*.sql; do
-  [ -e "$f" ] || continue
-  name=$(basename "$f")
-  done_count=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM schema_migrations WHERE filename = '$name'")
-  if [ "$done_count" = "0" ]; then
-    log "Aplicando migración: $name"
-    if ! mysql_cmd < "$f"; then
-      log "ERROR: falló la migración $name. Corrige el SQL o la BD y reinicia el contenedor."
-      exit 1
-    fi
-    mysql_cmd -e "INSERT INTO schema_migrations (filename) VALUES ('$name')"
-    log "✓ $name aplicada."
-    applied=$((applied + 1))
+# ── 3. Aplicar migración consolidada (all-migrations.sql) ──
+CONSOLIDATED="$MIGRATIONS_DIR/all-migrations.sql"
+done_count=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM schema_migrations WHERE filename = 'all-migrations.sql'")
+
+if [ "$done_count" = "0" ] && [ -f "$CONSOLIDATED" ]; then
+  log "Aplicando migraciones consolidadas (all-migrations.sql)..."
+  if ! mysql_cmd < "$CONSOLIDATED"; then
+    log "ERROR: falló all-migrations.sql. Corrige el SQL o la BD y reinicia el contenedor."
+    exit 1
   fi
-done
-if [ "$applied" -gt 0 ]; then
-  log "$applied migración(es) aplicada(s)."
+  mysql_cmd -e "INSERT INTO schema_migrations (filename) VALUES ('all-migrations.sql')"
+  log "✓ all-migrations.sql aplicada."
+elif [ "$done_count" != "0" ]; then
+  log "Sin migraciones pendientes (consolidado ya aplicado)."
 else
-  log "Sin migraciones pendientes."
+  log "Sin archivo all-migrations.sql — omitiendo."
 fi
 
 # ── 4. Arrancar la aplicación ──

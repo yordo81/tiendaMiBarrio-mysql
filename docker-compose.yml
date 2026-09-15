@@ -10,10 +10,10 @@
 # o directamente en el entorno.
 #
 # Migraciones: al arrancar, el contenedor app ejecuta entrypoint.sh,
-# que aplica automáticamente los archivos mysql/migration-*.sql que
-# falten (controlados en la tabla schema_migrations). Para agregar una
-# migración nueva basta con incluir el .sql en mysql/ y reconstruir la
-# imagen de la app.
+# que aplica automáticamente mysql/all-migrations.sql si no se ha
+# ejecutado aún (controlado en la tabla schema_migrations). Para
+# agregar una migración nueva, editar all-migrations.sql y reconstruir
+# la imagen de la app.
 # ============================================================
 
 services:
@@ -61,13 +61,15 @@ services:
     image: yordo81/tienda_mb_app:latest
     container_name: tienda_mb_app
     restart: unless-stopped
+    entrypoint: ["/entrypoint.sh"]
+    command: ["node", "server.js"]
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       DB_HOST: db
       DB_PORT: 3306
-      DB_USER: root
+      DB_USER: ${DB_USER:-root}
       DB_PASSWORD: ${DB_PASSWORD:-rootpassword}
       DB_NAME: ${DB_NAME:-tienda_mi_barrio}
       SESSION_SECRET: ${SESSION_SECRET:-cambiar_esto_por_un_secreto_de_32_caracteres}
@@ -77,6 +79,9 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TIMEZONE: ${TIMEZONE:-America/Havana}
       VALKEY_URL: redis://valkey:6379
+      HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      USER_ACTIVE_CACHE_TTL_MS: ${USER_ACTIVE_CACHE_TTL_MS:-30000}
     depends_on:
       db:
         condition: service_healthy

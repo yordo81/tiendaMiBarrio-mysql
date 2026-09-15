@@ -10,7 +10,7 @@
 -- Control de migraciones
 -- ============================================================
 -- Este esquema inicial YA INCLUYE el efecto de todas las migraciones
--- existentes (002 a 024: columnas, tablas, enums y FKs integradas
+-- existentes (002 a 025: columnas, tablas, enums y FKs integradas
 -- arriba). Se declaran aquí para que entrypoint.sh NO las vuelva a
 -- aplicar: las migraciones NUEVAS que se agreguen en el futuro se
 -- aplican después, en orden, sobre este esquema.
@@ -20,31 +20,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT IGNORE INTO schema_migrations (filename) VALUES
-  ('migration-002-on-delete-set-null.sql'),
-  ('migration-003-customer-payments-sale-link.sql'),
-  ('migration-004-purchases-table.sql'),
-  ('migration-005-audit-logs.sql'),
-  ('migration-006-accounting-module.sql'),
-  ('migration-007-capital-management.sql'),
-  ('migration-007-reservations.sql'),
-  ('migration-008-barcode.sql'),
-  ('migration-009-expiration.sql'),
-  ('migration-010-is-perishable.sql'),
-  ('migration-011-notification-logs.sql'),
-  ('migration-012-settings-shifts.sql'),
-  ('migration-013-pos-shifts.sql'),
-  ('migration-014-sales-pos.sql'),
-  ('migration-015-pos-gastos-compras.sql'),
-  ('migration-016-pos-locations.sql'),
-  ('migration-017-purchases-invoice.sql'),
-  ('migration-018-receipt-printer.sql'),
-  ('migration-018-stock-transfers-batch.sql'),
-  ('migration-019-printers.sql'),
-  ('migration-020-reservations-toggle.sql'),
-  ('migration-021-pos-touch-toggle.sql'),
-  ('migration-022-users-pos.sql'),
-  ('migration-023-expense-transfer-movements.sql'),
-  ('migration-024-hard-delete-product.sql');
+  ('all-migrations.sql');
 
 CREATE TABLE IF NOT EXISTS users (
   id            CHAR(36)     NOT NULL PRIMARY KEY,
@@ -498,3 +474,65 @@ ALTER TABLE pos ADD CONSTRAINT fk_pos_location FOREIGN KEY (location_id) REFEREN
 -- (constraint añadido aquí porque users se crea antes que pos)
 -- ============================================================
 ALTER TABLE users ADD CONSTRAINT fk_users_pos FOREIGN KEY (pos_id) REFERENCES pos(id);
+
+-- ============================================================
+-- MULTI-MONEDA (tasas de cambio)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS currencies (
+  code        VARCHAR(10)  NOT NULL PRIMARY KEY COMMENT 'Código ISO de la moneda (ej: CUP, USD, EUR)',
+  name        VARCHAR(100) NOT NULL COMMENT 'Nombre de la moneda (ej: Peso Cubano)',
+  symbol      VARCHAR(10)  NOT NULL COMMENT 'Símbolo de la moneda (ej: $, €, ₽)',
+  is_base     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '1 = moneda base del negocio',
+  active      TINYINT(1)   NOT NULL DEFAULT 1,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Monedas disponibles en el sistema';
+
+CREATE TABLE IF NOT EXISTS currency_rates (
+  id            CHAR(36)      NOT NULL PRIMARY KEY,
+  from_currency VARCHAR(10)   NOT NULL COMMENT 'Moneda origen',
+  to_currency   VARCHAR(10)   NOT NULL COMMENT 'Moneda destino',
+  rate          DECIMAL(16,6) NOT NULL COMMENT 'Tasa: 1 from_currency = X to_currency',
+  updated_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  updated_by    VARCHAR(36)   NULL,
+  UNIQUE KEY uq_rate_pair (from_currency, to_currency),
+  FOREIGN KEY (from_currency) REFERENCES currencies(code) ON DELETE CASCADE,
+  FOREIGN KEY (to_currency)   REFERENCES currencies(code) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tasas de cambio entre monedas';
+
+-- Columnas de moneda en compras
+ALTER TABLE purchases
+  ADD COLUMN currency_code  VARCHAR(10)   NULL COMMENT 'Moneda del precio de compra' AFTER pos_id,
+  ADD COLUMN exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la compra' AFTER currency_code;
+
+-- Columnas de moneda en ventas
+ALTER TABLE sales
+  ADD COLUMN currency_code  VARCHAR(10)   NULL COMMENT 'Moneda de la venta' AFTER pos_id,
+  ADD COLUMN exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta' AFTER currency_code;
+
+-- Columnas de moneda en líneas de venta
+ALTER TABLE sale_items
+  ADD COLUMN currency_code  VARCHAR(10)   NULL COMMENT 'Moneda del precio unitario' AFTER sale_id,
+  ADD COLUMN exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta' AFTER currency_code;
+
+-- Monedas comunes
+INSERT IGNORE INTO currencies (code, name, symbol, is_base, active) VALUES
+  ('CUP', 'Peso Cubano',         '$',  1, 1),
+  ('USD', 'Dólar Estadounidense', '$',  0, 1),
+  ('EUR', 'Euro',                 '€',  0, 1),
+  ('MLC', 'Moneda Libremente Convertible', '₱', 0, 1);
+
+-- Tasas de cambio iniciales
+INSERT IGNORE INTO currency_rates (id, from_currency, to_currency, rate, updated_at) VALUES
+  (UUID(), 'USD', 'CUP', 240.000000, NOW()),
+  (UUID(), 'EUR', 'CUP', 260.000000, NOW()),
+  (UUID(), 'MLC', 'CUP', 120.000000, NOW()),
+  (UUID(), 'CUP', 'USD', 0.004167,   NOW()),
+  (UUID(), 'CUP', 'EUR', 0.003846,   NOW()),
+  (UUID(), 'CUP', 'MLC', 0.008333,   NOW()),
+  (UUID(), 'USD', 'EUR', 0.920000,   NOW()),
+  (UUID(), 'EUR', 'USD', 1.087000,   NOW()),
+  (UUID(), 'USD', 'MLC', 2.000000,   NOW()),
+  (UUID(), 'MLC', 'USD', 0.500000,   NOW()),
+  (UUID(), 'EUR', 'MLC', 2.167000,   NOW()),
+  (UUID(), 'MLC', 'EUR', 0.461000,   NOW());
