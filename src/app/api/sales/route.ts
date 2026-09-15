@@ -21,7 +21,7 @@ export const GET = handle(async (req: Request) => {
   const userId = searchParams.get('user_id');
   const limit = Math.max(1, Math.min(500, parseInt(searchParams.get('limit') ?? '50') || 50));
 
-  let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name,p.name AS pos_name FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id`;
+  let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name,p.name AS pos_name,cur.symbol AS currency_symbol,cur.name AS currency_name FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id LEFT JOIN currencies cur ON cur.code=s.currency_code`;
   const params: unknown[] = [];
   const where: string[] = [];
   if (from) { where.push('s.date>=?'); params.push(from); }
@@ -41,7 +41,7 @@ export const GET = handle(async (req: Request) => {
 // ── POST: Crear nueva venta ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { items, payment, customer_id, location_id, notes, date, pos_id } = await req.json();
+  const { items, payment, customer_id, location_id, notes, date, pos_id, currency_code, exchange_rate } = await req.json();
   if (!items?.length) return err('La venta debe tener al menos un producto');
   // Nota: las ventas a crédito pueden registrarse sin cliente (el POS táctil
   // de los vendedores no pide cliente; la deuda queda pendiente en el historial).
@@ -124,6 +124,29 @@ export const POST = handle(async (req: Request) => {
   const total = itemsToProcess.reduce((a: number, i: { quantity: number; unit_price: number }) => a + i.quantity * i.unit_price, 0);
   const status = payment?.method === 'credit' ? 'pending' : 'completed';
 
+  // ── Resolver moneda y tasa de cambio ──
+  const saleCurrency = currency_code ? String(currency_code).trim().toUpperCase() : null;
+  let saleExchangeRate = exchange_rate ? parseFloat(exchange_rate) : null;
+  // Si se especificó moneda pero no tasa, obtenerla de la BD
+  if (saleCurrency && !saleExchangeRate) {
+    const baseCurrency = await queryOne<{ code: string }>("SELECT code FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1");
+    const base = baseCurrency?.code ?? 'CUP';
+    if (saleCurrency !== base) {
+      const rate = await queryOne<{ rate: number }>(
+        'SELECT rate FROM currency_rates WHERE from_currency = ? AND to_currency = ?',
+        [saleCurrency, base]
+      );
+      saleExchangeRate = rate?.rate ?? 1;
+    } else {
+      saleExchangeRate = 1;
+    }
+  }
+  // Si no se especificó moneda, usar la base
+  if (!saleCurrency) {
+    const baseCurrency = await queryOne<{ code: string }>("SELECT code FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1");
+    // saleCurrency queda null y saleExchangeRate queda null (moneda base)
+  }
+
   // ── Validar stock antes de iniciar la transacción (pre-check rápido) ──
   for (const item of itemsToProcess) {
     let available: number;
@@ -148,16 +171,16 @@ export const POST = handle(async (req: Request) => {
   }
 
   await transaction(async (conn) => {
-    // Insertar encabezado de venta
+    // Insertar encabezado de venta (incluye moneda)
     await conn.execute(
-      'INSERT INTO sales (id,customer_id,user_id,pos_id,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [saleId, customer_id??null, sessionUser.id, posId || null, saleDate, total, status, notes??null, ts, ts]
+      'INSERT INTO sales (id,customer_id,user_id,pos_id,currency_code,exchange_rate,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      [saleId, customer_id??null, sessionUser.id, posId || null, saleCurrency, saleExchangeRate, saleDate, total, status, notes??null, ts, ts]
     );
     for (const item of itemsToProcess) {
-      // Insertar cada producto vendido (precio y costo desde la BD)
+      // Insertar cada producto vendido (precio, costo y moneda desde la BD)
       await conn.execute(
-        'INSERT INTO sale_items (id,sale_id,product_id,quantity,unit_price,cost,created_at) VALUES (?,?,?,?,?,?,?)',
-        [randomUUID(), saleId, item.product_id, item.quantity, item.unit_price, item.cost, ts]
+        'INSERT INTO sale_items (id,sale_id,currency_code,exchange_rate,product_id,quantity,unit_price,cost,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+        [randomUUID(), saleId, saleCurrency, saleExchangeRate, item.product_id, item.quantity, item.unit_price, item.cost, ts]
       );
       // Validar stock dentro de la transacción con bloqueo de fila (race-condition safe)
       const [lockRows] = await conn.execute(

@@ -46,6 +46,10 @@ export default function VentasPage() {
   const [saleNotes, setSaleNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
+  // ── Monedas para la venta ──
+  type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number };
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
+  const [saleCurrency, setSaleCurrency] = useState('');
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showNew);
   const { user } = useAuthStore();
   const router = useRouter();
@@ -144,6 +148,19 @@ export default function VentasPage() {
       }
       const [s, p, c, l] = await Promise.all([api.getSales(qs.toString()), api.getProducts(), api.getCustomers(), api.getLocations()]);
       setSales(s); setProducts(p); setCustomers(c); setLocations(l);
+      // Cargar monedas para el selector de nueva venta
+      try {
+        const curRes = await fetch('/api/currencies');
+        if (curRes.ok) {
+          const curData = await curRes.json();
+          const rawCurrencies = curData.currencies as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number> }[];
+          const baseCode = rawCurrencies?.find(c => c.is_base)?.code ?? '';
+          setCurrencies((rawCurrencies ?? []).map(c => ({
+            code: c.code, name: c.name, symbol: c.symbol, is_base: c.is_base,
+            rate: c.rates?.[baseCode] ?? 1,
+          })));
+        }
+      } catch { /* monedas opcionales */ }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al cargar los datos');
     } finally {
@@ -181,7 +198,7 @@ export default function VentasPage() {
     setCart(prev => { const ex = prev.find(i=>i.product.id===p.id); return ex ? prev.map(i=>i.product.id===p.id?{...i,quantity:i.quantity+1}:i) : [...prev,{product:p,quantity:1,unit_price:Number(p.sale_price)}]; });
     setProductSearch('');
   }
-  function resetForm() { setCart([]); setLocationId(locations.length > 0 ? String(locations[0].id) : ''); setCustomerId(''); setPayMethod('cash'); setAmountCash(0); setAmountTransfer(0); setSaleNotes(''); resetPos(); }
+  function resetForm() { setCart([]); setLocationId(locations.length > 0 ? String(locations[0].id) : ''); setCustomerId(''); setPayMethod('cash'); setAmountCash(0); setAmountTransfer(0); setSaleNotes(''); setSaleCurrency(''); resetPos(); }
 
   async function openDetail(sale: AnyRecord) {
     const detail = await api.getSaleDetail(String(sale.id));
@@ -260,6 +277,8 @@ export default function VentasPage() {
     setSaving(true);
     try {
       const total = cartTotal;
+      // Buscar la tasa de cambio de la moneda seleccionada
+      const selectedCurrency = currencies.find(c => c.code === saleCurrency);
       const res = await api.createSale({
         items: cart.map(i => ({ product_id: i.product.id, quantity: i.quantity, unit_price: i.unit_price, cost: Number(i.product.cost??0) })),
         payment: { method: payMethod, amount_cash: payMethod==='cash'?total:payMethod==='mixed'?amountCash:0, amount_transfer: payMethod==='transfer'?total:payMethod==='mixed'?amountTransfer:0 },
@@ -267,6 +286,8 @@ export default function VentasPage() {
         location_id: locationId || null,
         pos_id: workMode === 'shifts' ? posId || null : null,
         notes: saleNotes || null,
+        currency_code: saleCurrency || null,
+        exchange_rate: selectedCurrency?.rate ?? null,
       });
       toast.success('Venta registrada'); notifyShiftSummaryChanged();
       // Imprimir ticket automático si está habilitado en Configuración
@@ -479,6 +500,26 @@ export default function VentasPage() {
                 noResultsMessage="Sin almacenes"
               />
             </div>
+            {currencies.length > 1 && (
+              <div><label className="label">Moneda de pago</label>
+                <SearchableSelect
+                  options={currencies.map(c => ({
+                    value: c.code,
+                    label: `${c.symbol} ${c.code}`,
+                    sublabel: c.is_base ? `${c.name} (base)` : c.name,
+                  }))}
+                  value={saleCurrency}
+                  onChange={v => setSaleCurrency(v)}
+                  placeholder="Moneda base"
+                  noResultsMessage="Sin monedas"
+                />
+                {saleCurrency && currencies.find(c => c.code === saleCurrency && !c.is_base) && (
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                    Tasa: 1 {saleCurrency} = {currencies.find(c => c.code === saleCurrency)?.rate ?? '—'} en moneda base
+                  </p>
+                )}
+              </div>
+            )}
             <div><label className="label">Cliente (opcional)</label>
               <SearchableSelect
                 options={[
