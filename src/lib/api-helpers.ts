@@ -7,7 +7,14 @@ import type { AppUser } from '@/types';
 // Funciones para generar respuestas JSON estandarizadas
 
 export function ok<T>(data: T, status = 200) {
-  return NextResponse.json(data, { status });
+  return NextResponse.json(data, {
+    status,
+    headers: {
+      // Prevenir caché del navegador y de proxies/CDN para datos dinámicos.
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache',
+    },
+  });
 }
 
 export function err(message: string, status = 400) {

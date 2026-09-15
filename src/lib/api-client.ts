@@ -56,8 +56,12 @@ function dispatchUnauthorized(url: string) {
 }
 
 export async function apiFetch<T = unknown>(url: string, options?: RequestInit): Promise<T> {
+  const method = (options?.method ?? 'GET').toUpperCase();
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
+    // Prevenir caché del navegador y de Next.js en peticiones GET
+    // para que los datos siempre sean frescos tras mutaciones (CREATE/UPDATE/DELETE).
+    ...(method === 'GET' ? { cache: 'no-store' } : {}),
     ...options,
   });
 
