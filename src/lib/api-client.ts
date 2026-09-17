@@ -28,6 +28,7 @@ export interface SettingsDto {
   receipt_auto_print: boolean;
   show_reservations: boolean;
   enable_touch_pos: boolean;
+  enable_accounting: boolean;
 }
 
 /** Impresora registrada devuelta por /api/printers */

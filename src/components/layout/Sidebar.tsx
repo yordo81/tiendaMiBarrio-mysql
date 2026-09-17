@@ -155,7 +155,8 @@ export default function Sidebar() {
           const items = group.items.filter(item =>
             (!user ? true : item.roles.includes(user.role)) &&
             (!item.workMode || settings?.work_mode === item.workMode) &&
-            (item.href !== '/dashboard/reservaciones' || settings?.show_reservations !== false)
+            (item.href !== '/dashboard/reservaciones' || settings?.show_reservations !== false) &&
+            (item.href !== '/dashboard/contabilidad' || settings?.enable_accounting !== false)
           );
           if (items.length === 0) return null;
           const open = openGroup === group.title;

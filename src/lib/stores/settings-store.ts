@@ -16,6 +16,8 @@ export interface BusinessSettings {
   show_reservations: boolean;
   // Punto de venta táctil para vendedores: true = visible, false = oculto
   enable_touch_pos: boolean;
+  // Módulo de contabilidad: true = visible, false = oculto
+  enable_accounting: boolean;
 }
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
@@ -27,6 +29,7 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   receipt_auto_print: true,
   show_reservations: true,
   enable_touch_pos: true,
+  enable_accounting: true,
 };
 
 interface SettingsState {
@@ -57,6 +60,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
             receipt_auto_print: s?.receipt_auto_print !== false,
             show_reservations: s?.show_reservations !== false,
             enable_touch_pos: s?.enable_touch_pos !== false,
+            enable_accounting: s?.enable_accounting !== false,
           },
           loaded: true,
         });

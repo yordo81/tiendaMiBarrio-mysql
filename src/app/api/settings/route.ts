@@ -36,11 +36,14 @@ export const PUT = handle(async (req: Request) => {
   // Punto de venta táctil para vendedores
   const enableTouchPos = body.enable_touch_pos !== false;
 
+  // Módulo de contabilidad
+  const enableAccounting = body.enable_accounting !== false;
+
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
   try {
     await execute(
-      `INSERT INTO settings (id, business_name, logo_url, work_mode, receipt_printer_width, receipt_print_method, receipt_auto_print, show_reservations, enable_touch_pos, updated_by, updated_at)
-       VALUES ('1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO settings (id, business_name, logo_url, work_mode, receipt_printer_width, receipt_print_method, receipt_auto_print, show_reservations, enable_touch_pos, enable_accounting, updated_by, updated_at)
+       VALUES ('1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          business_name = VALUES(business_name),
          logo_url = VALUES(logo_url),
@@ -50,9 +53,10 @@ export const PUT = handle(async (req: Request) => {
          receipt_auto_print = VALUES(receipt_auto_print),
          show_reservations = VALUES(show_reservations),
          enable_touch_pos = VALUES(enable_touch_pos),
+         enable_accounting = VALUES(enable_accounting),
          updated_by = VALUES(updated_by),
          updated_at = VALUES(updated_at)`,
-      [businessName, logoUrl, workMode, receiptPrinterWidth, receiptPrintMethod, receiptAutoPrint ? 1 : 0, showReservations ? 1 : 0, enableTouchPos ? 1 : 0, user.id, ts]
+      [businessName, logoUrl, workMode, receiptPrinterWidth, receiptPrintMethod, receiptAutoPrint ? 1 : 0, showReservations ? 1 : 0, enableTouchPos ? 1 : 0, enableAccounting ? 1 : 0, user.id, ts]
     );
   } catch (e) {
     // Las columnas show_reservations y enable_touch_pos vienen de las
@@ -80,7 +84,7 @@ export const PUT = handle(async (req: Request) => {
     entity_type: 'settings',
     entity_id: '1',
     entity_name: 'Configuración del negocio',
-    details: { business_name: businessName, work_mode: workMode, logo_updated: !!logoUrl, show_reservations: showReservations, enable_touch_pos: enableTouchPos },
+    details: { business_name: businessName, work_mode: workMode, logo_updated: !!logoUrl, show_reservations: showReservations, enable_touch_pos: enableTouchPos, enable_accounting: enableAccounting },
   });
 
   return ok({ settings: await getBusinessSettings() });

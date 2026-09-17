@@ -535,7 +535,13 @@ ALTER TABLE products
 ALTER TABLE products
   ADD COLUMN sale_currency VARCHAR(10) NULL COMMENT 'Moneda del precio de venta (NULL = moneda base)' AFTER sale_price;
 
+-- Migración 028: Opción para activar/desactivar módulo de contabilidad
 -- ============================================================
--- Fin de todas las migraciones consolidadas (002 → 027)
+ALTER TABLE settings
+  ADD COLUMN enable_accounting TINYINT(1) NOT NULL DEFAULT 1
+  AFTER enable_touch_pos;
+
 -- ============================================================
-SELECT '✅ Todas las migraciones (002-027) aplicadas correctamente' AS status;
+-- Fin de todas las migraciones consolidadas (002 → 028)
+-- ============================================================
+SELECT '✅ Todas las migraciones (002-028) aplicadas correctamente' AS status;
