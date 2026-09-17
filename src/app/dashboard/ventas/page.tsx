@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { formatCurrency, formatDateTime, generateId, cn, formatNumber } from '@/lib/utils';
+import { formatCurrency, formatMoney, formatDateTime, formatNumber } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usePosSelector } from '@/hooks/use-pos';
 import { useSettingsStore } from '@/lib/stores/settings-store';
@@ -14,20 +14,31 @@ import Pagination from '@/components/ui/Pagination';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/toaster';
 import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
-import { ShoppingCart, Plus, Search, X, Eye, CreditCard, CheckCircle, Ban, Printer, Clock3 } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, CreditCard, CheckCircle, Ban, Printer, Clock3 } from 'lucide-react';
 
 type AnyRecord = Record<string,unknown>;
-type PayMethod = 'cash'|'transfer'|'mixed'|'credit';
+
+// Etiqueta compacta de la moneda de una venta (badge de la tabla/detalle)
+function saleCurrencyBadge(s: AnyRecord): { label: string; title: string } | null {
+  const code = String(s.currency_code ?? '').trim();
+  if (!code) return null; // sin moneda = moneda base: no se marca
+  const symbol = String(s.currency_symbol ?? '').trim();
+  return { label: symbol ? `${symbol} ${code}` : code, title: String(s.currency_name ?? code) };
+}
+
+// Convierte el total de la venta a la moneda base con la tasa congelada
+// (NULL/1 = ya está en base). Para mostrar el equivalente en el detalle.
+function saleTotalInBase(s: AnyRecord): number | null {
+  const rate = Number(s.exchange_rate ?? 0);
+  if (!s.currency_code || !rate || rate === 1) return null;
+  return Math.round(Number(s.total) * rate * 100) / 100;
+}
 const statusLabel: Record<string,string> = { completed:'Pagada', pending:'Pendiente', partial:'Parcial', cancelled:'Cancelada' };
 const statusClass: Record<string,string> = { completed:'badge-success', pending:'badge-warning', partial:'badge-info', cancelled:'badge-danger' };
 
 export default function VentasPage() {
   const [sales, setSales] = useState<AnyRecord[]>([]);
-  const [products, setProducts] = useState<AnyRecord[]>([]);
-  const [customers, setCustomers] = useState<AnyRecord[]>([]);
-  const [locations, setLocations] = useState<AnyRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showNew, setShowNew] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [selectedSale, setSelectedSale] = useState<AnyRecord|null>(null);
   const [showPaySale, setShowPaySale] = useState(false);
@@ -36,35 +47,28 @@ export default function VentasPage() {
   const [paySaleForm, setPaySaleForm] = useState({ amount: 0, method: 'cash', notes: '' });
   const [paySaleSaving, setPaySaleSaving] = useState(false);
   const [search, setSearch] = useState('');
-  const [productSearch, setProductSearch] = useState('');
-  const [cart, setCart] = useState<{product:AnyRecord;quantity:number;unit_price:number}[]>([]);
-  const [locationId, setLocationId] = useState('');
-  const [customerId, setCustomerId] = useState('');
-  const [payMethod, setPayMethod] = useState<PayMethod>('cash');
-  const [amountCash, setAmountCash] = useState(0);
-  const [amountTransfer, setAmountTransfer] = useState(0);
-  const [saleNotes, setSaleNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [locationStock, setLocationStock] = useState<Record<string, number>>({});
-  // ── Monedas para la venta ──
-  type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number };
+  // ── Monedas para mostrar tasa en el detalle ──
+  type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; rateUpdatedAt?: string | null };
   const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
-  const [saleCurrency, setSaleCurrency] = useState('');
-  const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showNew);
+  const { workMode } = usePosSelector(false);
   const { user } = useAuthStore();
   const router = useRouter();
   // POS táctil: solo se usa si está activado en Configuración → Operación
   const posEnabled = useSettingsStore(s => s.settings?.enable_touch_pos !== false);
 
-  // Los vendedores usan el punto de venta táctil en lugar de la modal (si
-  // está activado); el resto de roles conserva la ventana modal de nueva venta.
+  // Nuevo: redirigir directo al POS táctil cuando aplica; sin modal.
   function startNewSale() {
     if (user?.role === 'seller' && posEnabled) {
       router.push('/dashboard/ventas/touch');
       return;
     }
-    resetForm();
-    setShowNew(true);
+    // El flujo de modal de nueva venta desaparece: se abre el POS táctil
+    // para todos los roles que puedan registrar ventas, o se redirige.
+    if (user?.role === 'seller' || user?.role === 'admin') {
+      router.push('/dashboard/ventas/touch');
+      return;
+    }
+    toast.info('No tienes permiso para registrar ventas');
   }
 
   // Date range filter — default to current month
@@ -91,8 +95,6 @@ export default function VentasPage() {
   // Cada vendedor ve únicamente sus ventas: en modo turnos las de su turno
   // abierto (desde la apertura de la caja), en modo días las de hoy.
   const isSeller = user?.role === 'seller';
-  // Solo el dueño y el admin pueden modificar el precio de venta
-  const canEditPrice = user?.role === 'owner' || user?.role === 'admin';
   const [myOpenShift, setMyOpenShift] = useState<AnyRecord | null>(null);
   const [myShiftLoaded, setMyShiftLoaded] = useState(false);
 
@@ -146,8 +148,8 @@ export default function VentasPage() {
         qs.set('to', toDate);
         if (posFilter) qs.set('pos_id', posFilter);
       }
-      const [s, p, c, l] = await Promise.all([api.getSales(qs.toString()), api.getProducts(), api.getCustomers(), api.getLocations()]);
-      setSales(s); setProducts(p); setCustomers(c); setLocations(l);
+      const [s] = await Promise.all([api.getSales(qs.toString())]);
+      setSales(s);
       // Cargar monedas para el selector de nueva venta
       try {
         const curRes = await fetch('/api/currencies');
@@ -155,9 +157,11 @@ export default function VentasPage() {
           const curData = await curRes.json();
           const rawCurrencies = curData.currencies as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number> }[];
           const baseCode = rawCurrencies?.find(c => c.is_base)?.code ?? '';
+          const ratesUpdatedAt = (curData.rates_updated_at ?? {}) as Record<string, string>;
           setCurrencies((rawCurrencies ?? []).map(c => ({
             code: c.code, name: c.name, symbol: c.symbol, is_base: c.is_base,
             rate: c.rates?.[baseCode] ?? 1,
+            rateUpdatedAt: c.is_base ? null : (ratesUpdatedAt[`${c.code}->${baseCode}`] ?? null),
           })));
         }
       } catch { /* monedas opcionales */ }
@@ -181,25 +185,6 @@ export default function VentasPage() {
     api.getPos().then(setPosList).catch(() => setPosList([]));
   }, []);
 
-  const cartTotal = cart.reduce((a,i) => a + i.quantity * i.unit_price, 0);
-
-  function getAvailableStock(product: AnyRecord): number {
-    if (locationId && locationStock[String(product.id)] !== undefined) {
-      return locationStock[String(product.id)];
-    }
-    return Number(product.stock ?? 0);
-  }
-
-  function hasStockIssues(): boolean {
-    return cart.some(i => i.quantity > getAvailableStock(i.product));
-  }
-
-  function addToCart(p: AnyRecord) {
-    setCart(prev => { const ex = prev.find(i=>i.product.id===p.id); return ex ? prev.map(i=>i.product.id===p.id?{...i,quantity:i.quantity+1}:i) : [...prev,{product:p,quantity:1,unit_price:Number(p.sale_price)}]; });
-    setProductSearch('');
-  }
-  function resetForm() { setCart([]); setLocationId(locations.length > 0 ? String(locations[0].id) : ''); setCustomerId(''); setPayMethod('cash'); setAmountCash(0); setAmountTransfer(0); setSaleNotes(''); setSaleCurrency(''); resetPos(); }
-
   async function openDetail(sale: AnyRecord) {
     const detail = await api.getSaleDetail(String(sale.id));
     setSelectedSale({ ...sale, items: detail.items, payments: detail.payments, customer_payments: detail.customer_payments, total_paid: detail.total_paid });
@@ -221,7 +206,7 @@ export default function VentasPage() {
   }
 
   // Imprime el comprobante del cliente con los datos de una venta ya registrada
-  async function printTicketFor(opts: { sale: AnyRecord; items: AnyRecord[]; payMethod: string; cash: number; transfer: number; notes?: string | null }) {
+  async function printTicketFor(opts: { sale: AnyRecord; items: AnyRecord[]; payMethod: string; cash: number; transfer: number; notes?: string | null; currencyCode?: string | null; currencySymbol?: string | null; exchangeRate?: number | null; baseCurrencyCode?: string | null; baseCurrencySymbol?: string | null }) {
     await useSettingsStore.getState().load();
     const s = useSettingsStore.getState().settings;
     try {
@@ -239,6 +224,11 @@ export default function VentasPage() {
           cash: opts.cash,
           transfer: opts.transfer,
           notes: opts.notes ?? null,
+          currencyCode: opts.currencyCode ?? (opts.sale.currency_code ? String(opts.sale.currency_code) : null),
+          currencySymbol: opts.currencySymbol ?? (opts.sale.currency_symbol ? String(opts.sale.currency_symbol) : null),
+          exchangeRate: opts.exchangeRate ?? (opts.sale.exchange_rate != null ? Number(opts.sale.exchange_rate) : null),
+          baseCurrencyCode: opts.baseCurrencyCode ?? null,
+          baseCurrencySymbol: opts.baseCurrencySymbol ?? null,
         }),
         { method, width: s?.receipt_printer_width ?? '80', printer }
       );
@@ -263,74 +253,11 @@ export default function VentasPage() {
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Error al registrar pago'); } finally { setPaySaleSaving(false); }
   }
 
-  async function handleSave() {
-    if (cart.length === 0) return;
-    if (payMethod === 'credit' && !customerId) { toast.error('Las ventas a crédito requieren cliente'); return; }
-    // Validar stock antes de enviar
-    const stockErrors = cart.filter(i => i.quantity > getAvailableStock(i.product));
-    if (stockErrors.length > 0) {
-      const names = stockErrors.map(i => `${String(i.product.name)} (disponible: ${formatNumber(getAvailableStock(i.product),1)}, solicitado: ${formatNumber(i.quantity,1)})`).join(', ');
-      toast.error(`Stock insuficiente: ${names}`);
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const total = cartTotal;
-      // Buscar la tasa de cambio de la moneda seleccionada
-      const selectedCurrency = currencies.find(c => c.code === saleCurrency);
-      const res = await api.createSale({
-        items: cart.map(i => ({ product_id: i.product.id, quantity: i.quantity, unit_price: i.unit_price, cost: Number(i.product.cost??0) })),
-        payment: { method: payMethod, amount_cash: payMethod==='cash'?total:payMethod==='mixed'?amountCash:0, amount_transfer: payMethod==='transfer'?total:payMethod==='mixed'?amountTransfer:0 },
-        customer_id: customerId || null,
-        location_id: locationId || null,
-        pos_id: workMode === 'shifts' ? posId || null : null,
-        notes: saleNotes || null,
-        currency_code: saleCurrency || null,
-        exchange_rate: selectedCurrency?.rate ?? null,
-      });
-      toast.success('Venta registrada'); notifyShiftSummaryChanged();
-      // Imprimir ticket automático si está habilitado en Configuración
-      await useSettingsStore.getState().load();
-      if (useSettingsStore.getState().settings?.receipt_auto_print !== false) {
-        const r = res as AnyRecord;
-        await printTicketFor({
-          sale: r,
-          items: (r.items ?? []) as AnyRecord[],
-          payMethod,
-          cash: payMethod==='cash'?total:payMethod==='mixed'?amountCash:0,
-          transfer: payMethod==='transfer'?total:payMethod==='mixed'?amountTransfer:0,
-          notes: saleNotes || null,
-        });
-      }
-      setShowNew(false); resetForm(); load();
-    } catch(e) { toast.error(e instanceof Error ? e.message : 'Error al registrar la venta'); } finally { setSaving(false); }
-  }
-
   const filteredSales = sales.filter(s => String(s.customer_name??'').toLowerCase().includes(search.toLowerCase()));
   const paginatedSales = pageSize === 0 ? filteredSales : filteredSales.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
   // Reset page when search or caja filter changes
   useEffect(() => { setPage(1); }, [search, posFilter]);
-
-  // Fetch location-specific stock when location changes
-  useEffect(() => {
-    if (!locationId) { setLocationStock({}); return; }
-    api.getLocationStock(locationId).then(rows => {
-      const map: Record<string, number> = {};
-      (rows as { product_id: string; quantity: number }[]).forEach(r => {
-        map[r.product_id] = Number(r.quantity);
-      });
-      setLocationStock(map);
-    }).catch(() => setLocationStock({}));
-  }, [locationId]);
-
-  const filteredProducts = products
-    .filter(p => String(p.name).toLowerCase().includes(productSearch.toLowerCase()))
-    // Solo se listan productos con existencia en el almacén de salida
-    // seleccionado (igual que en el módulo de gastos).
-    .filter(p => getAvailableStock(p) > 0)
-    .slice(0, 8);
 
   return (
     <div className="space-y-5">
@@ -400,7 +327,9 @@ export default function VentasPage() {
                   <td className="px-4 py-3 text-[var(--text-primary)]">{s.customer_name?String(s.customer_name):<span className="text-[var(--text-tertiary)] italic">Sin cliente</span>}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{s.user_name?String(s.user_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>
                   {workMode==='shifts'&&<td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{s.pos_name?String(s.pos_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>}
-                  <td className="px-4 py-3 text-[var(--text-primary)] font-semibold">{formatCurrency(Number(s.total))}</td>
+                  <td className="px-4 py-3 text-[var(--text-primary)] font-semibold">
+                    {(() => { const b = saleCurrencyBadge(s); return <span className="inline-flex items-center gap-1.5">{formatMoney(Number(s.total), s.currency_symbol ? String(s.currency_symbol) : null, s.currency_code ? String(s.currency_code) : null)}{b && <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20" title={b.title}>{b.label}</span>}</span>; })()}
+                  </td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{s.status==='pending'?'Crédito':'Contado'}</td>
                   <td className="px-4 py-3"><span className={statusClass[String(s.status)]??'badge-info'}>{statusLabel[String(s.status)]??String(s.status)}</span></td>
                   <td className="px-4 py-3"><button onClick={()=>openDetail(s)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Eye className="w-3.5 h-3.5"/></button></td>
@@ -412,157 +341,6 @@ export default function VentasPage() {
         <Pagination currentPage={page} totalItems={filteredSales.length} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
       </div>
 
-      {/* New Sale Modal */}
-      <Modal open={showNew} onClose={()=>{setShowNew(false);resetForm();}} title="Nueva venta" size="xl">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-          <div className="space-y-3">
-            <div><label className="label">Buscar producto</label>
-              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]"/><input className="input pl-9" placeholder="Nombre..." value={productSearch} onChange={e=>setProductSearch(e.target.value)}/></div>
-              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Solo se muestran productos con existencia en el almacén de salida.</p>
-            </div>
-            {productSearch&&(
-              <div className="border border-[var(--border-secondary)] rounded-xl overflow-hidden bg-[var(--bg-primary)]">
-                {filteredProducts.length===0?<p className="text-center text-[var(--text-tertiary)] py-4 text-sm">Sin resultados</p>
-                :filteredProducts.map(p=>(
-                  <button key={String(p.id)} onClick={()=>addToCart(p)} title={getAvailableStock(p) <= 0 ? 'Producto agotado' : undefined} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-[var(--bg-secondary)] text-left border-b border-[var(--border-primary)] last:border-0 transition-colors', getAvailableStock(p) <= 0 && 'opacity-40 cursor-not-allowed')}>
-                    <div>
-                      <p className={cn('text-sm', getAvailableStock(p) <= 0 ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]')}>{String(p.name)}</p>
-                      {(() => {
-                        const avail = getAvailableStock(p);
-                        const min = Number(p.min_stock ?? 0);
-                        const low = avail > 0 && avail <= min;
-                        const out = avail <= 0;
-                        const cls = out ? 'text-red-400' : low ? 'text-yellow-400' : 'text-[var(--text-tertiary)]';
-                        return <p className={`text-xs ${cls}`}>{out ? `Sin stock — Producto agotado` : `Stock: ${formatNumber(avail,1)}`}</p>;
-                      })()}
-                    </div>
-                    <span className={cn('font-semibold text-sm', getAvailableStock(p) <= 0 ? 'text-[var(--text-tertiary)] line-through' : 'text-brand-400')}>{formatCurrency(Number(p.sale_price))}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {cart.length>0&&(
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Carrito</p>
-                {cart.map(item=>(
-                  <div key={String(item.product.id)} className="flex flex-col xs:flex-row items-stretch xs:items-center gap-2 bg-[var(--bg-primary)] rounded-xl px-3 py-2.5 border border-[var(--border-primary)]">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[var(--text-primary)] truncate">{String(item.product.name)}</p>
-                      {(() => {
-                        const avail = getAvailableStock(item.product);
-                        const exceeds = item.quantity > avail;
-                        return exceeds
-                          ? <p className="text-xs text-red-400 mt-0.5">{`Stock disponible: ${formatNumber(avail,1)} — excede!`}</p>
-                          : <p className="text-xs text-[var(--text-tertiary)]">{`Stock: ${formatNumber(avail,1)}`}</p>;
-                      })()}
-                    </div>
-                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap justify-end">
-                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:Math.max(0.01,i.quantity-1)}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[var(--bg-muted)] text-[var(--text-primary)] hover:bg-[#30363d] flex items-center justify-center text-xs">−</button>
-                      <input type="number" min="0" step="1" value={item.quantity} onChange={e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:parseFloat(e.target.value)||0.01}:i))} className="w-16 sm:w-14 input text-center text-xs py-1.5 sm:py-1"/>
-                      <button onClick={()=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,quantity:i.quantity+1}:i))} className="w-7 h-7 sm:w-6 sm:h-6 rounded-md bg-[var(--bg-muted)] text-[var(--text-primary)] hover:bg-[#30363d] flex items-center justify-center text-xs">+</button>
-                      <input type="number" min="0" step="1" value={item.unit_price} onChange={canEditPrice ? e=>setCart(prev=>prev.map(i=>i.product.id===item.product.id?{...i,unit_price:parseFloat(e.target.value)||0}:i)) : undefined} readOnly={!canEditPrice} className={`w-full sm:w-20 input text-right text-xs py-1.5 sm:py-1 ${!canEditPrice ? 'opacity-60 cursor-not-allowed' : ''}`} title={!canEditPrice ? 'Solo el dueño o admin pueden modificar el precio' : undefined} />
-                      <button onClick={()=>setCart(prev=>prev.filter(i=>i.product.id!==item.product.id))} className="text-[var(--text-tertiary)] hover:text-red-400 p-1"><X className="w-4 h-4"/></button>
-                    </div>
-                  </div>
-                ))}
-                <div className="flex justify-end pt-1"><span className="text-lg font-semibold text-[var(--text-primary)]">Total: {formatCurrency(cartTotal)}</span></div>
-              </div>
-            )}
-          </div>
-          <div className="space-y-4">
-            {workMode==='shifts'&&(
-              <div>
-                <label className="label">Caja (punto de venta)</label>
-                <SearchableSelect
-                  options={posOptions.map(p => ({
-                    value: String(p.id),
-                    label: String(p.name),
-                    sublabel: hasOpenShift(String(p.id))
-                    ? (p.location_name ? `Turno abierto · ${String(p.location_name)}` : 'Turno abierto')
-                    : (p.location_name ? String(p.location_name) : undefined),
-                  }))}
-                  value={posId}
-                  onChange={setPosId}
-                  placeholder="Selecciona la caja…"
-                  noResultsMessage="No hay cajas creadas"
-                />
-                {posId && !hasOpenShift(posId) && (
-                  <p className="text-[10px] text-yellow-400 mt-1">Esta caja no tiene un turno abierto. La venta no se incluirá en ningún arqueo.</p>
-                )}
-              </div>
-            )}
-            <div><label className="label">Almacén de salida *</label>
-              <SearchableSelect
-                options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
-                value={locationId}
-                onChange={v => setLocationId(v)}
-                placeholder={locations.length === 0 ? 'Cargando ubicaciones...' : 'Seleccionar almacén'}
-                noResultsMessage="Sin almacenes"
-              />
-            </div>
-            {currencies.length > 1 && (
-              <div><label className="label">Moneda de pago</label>
-                <SearchableSelect
-                  options={currencies.map(c => ({
-                    value: c.code,
-                    label: `${c.symbol} ${c.code}`,
-                    sublabel: c.is_base ? `${c.name} (base)` : c.name,
-                  }))}
-                  value={saleCurrency}
-                  onChange={v => setSaleCurrency(v)}
-                  placeholder="Moneda base"
-                  noResultsMessage="Sin monedas"
-                />
-                {saleCurrency && currencies.find(c => c.code === saleCurrency && !c.is_base) && (
-                  <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
-                    Tasa: 1 {saleCurrency} = {currencies.find(c => c.code === saleCurrency)?.rate ?? '—'} en moneda base
-                  </p>
-                )}
-              </div>
-            )}
-            <div><label className="label">Cliente (opcional)</label>
-              <SearchableSelect
-                options={[
-                  { value: '', label: 'Sin cliente' },
-                  ...customers.map(c => ({
-                    value: String(c.id),
-                    label: String(c.name),
-                    sublabel: Number(c.balance) > 0 ? `Debe ${formatCurrency(Number(c.balance))}` : undefined
-                  }))
-                ]}
-                value={customerId}
-                onChange={v => setCustomerId(v)}
-                placeholder="Sin cliente"
-                noResultsMessage="Sin clientes"
-              />
-            </div>
-            <div><label className="label">Método de pago</label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['cash','transfer','mixed','credit'] as PayMethod[]).map(m=>{
-                  const labels: Record<PayMethod,string> = {cash:'Efectivo',transfer:'Transferencia',mixed:'Mixto',credit:'Crédito'};
-                  return(<button key={m} onClick={()=>setPayMethod(m)} className={cn('px-3 py-2 rounded-lg text-sm border transition-colors',payMethod===m?'bg-brand-600 border-brand-600 text-white':'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:border-[#6e7681] hover:text-[var(--text-primary)]')}>{labels[m]}</button>);
-                })}
-              </div>
-            </div>
-            {payMethod==='mixed'&&(
-              <div className="grid grid-cols-2 gap-3 p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)]">
-                <div><label className="label">Efectivo</label><input type="number" min="0" step="1" className="input" value={amountCash||''} onChange={e=>setAmountCash(parseFloat(e.target.value)||0)}/></div>
-                <div><label className="label">Transferencia</label><input type="number" min="0" step="1" className="input" value={amountTransfer||''} onChange={e=>setAmountTransfer(parseFloat(e.target.value)||0)}/></div>
-                {(amountCash+amountTransfer)!==cartTotal&&cartTotal>0 ? <p className="col-span-2 text-xs text-yellow-400">⚠ La suma no coincide con el total</p> : null}
-              </div>
-            )}
-            {payMethod==='credit'&&<div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-xs text-yellow-400">⚠ Se registrará como deuda. Debes seleccionar un cliente.</div>}
-            <div><label className="label">Notas</label><input className="input" placeholder="Notas opcionales..." value={saleNotes} onChange={e=>setSaleNotes(e.target.value)}/></div>
-            {hasStockIssues() && !saving && (
-              <p className="text-xs text-red-400 text-center">⚠ Algunos productos exceden el stock disponible. Revisa el carrito.</p>
-            )}
-            <button onClick={handleSave} disabled={saving||cart.length===0||hasStockIssues()} className="btn-primary w-full py-3 text-base disabled:opacity-50">
-              {saving ? 'Registrando...' : `Confirmar — ${formatCurrency(cartTotal)}`}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
       {/* Sale Detail Modal */}
       <Modal open={showDetail} onClose={()=>setShowDetail(false)} title="Detalle de venta" size="lg">
         {selectedSale&&(
@@ -571,6 +349,7 @@ export default function VentasPage() {
               onClick={() => {
                 const pays = (selectedSale.payments as AnyRecord[] | undefined) ?? [];
                 const pay = pays[0] as AnyRecord | undefined;
+                const base = currencies.find(c => c.is_base);
                 printTicketFor({
                   sale: selectedSale,
                   items: ((selectedSale.items as AnyRecord[] | undefined) ?? []) as AnyRecord[],
@@ -578,6 +357,8 @@ export default function VentasPage() {
                   cash: Number(pay?.amount_cash ?? selectedSale.total ?? 0),
                   transfer: Number(pay?.amount_transfer ?? 0),
                   notes: selectedSale.notes ? String(selectedSale.notes) : null,
+                  baseCurrencyCode: base?.code ?? null,
+                  baseCurrencySymbol: base?.symbol ?? null,
                 });
               }}
               className="btn-secondary w-full flex items-center justify-center gap-2 py-3 text-base"
@@ -587,9 +368,24 @@ export default function VentasPage() {
             </button>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Fecha</p><p className="text-[var(--text-primary)]">{selectedSale.date?formatDateTime(String(selectedSale.date)):'—'}</p></div>
-              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Estado</p><span className={statusClass[String(selectedSale.status)]??'badge-info'}>{statusLabel[String(selectedSale.status)]??String(selectedSale.status)}</span></div>
+              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Estado</p><span className={statusClass[String(selectedSale.status)]??'badge-info'}>{statusLabel[String(selectedSale.status)]??String(selectedSale.status)}</span>{(() => { const b = saleCurrencyBadge(selectedSale); return b ? <span className="ml-2 inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20" title={b.title}>{b.label}</span> : null; })()}</div>
               <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Cliente</p><p className="text-[var(--text-primary)]">{String(selectedSale.customer_name??'Sin cliente')}</p></div>
-              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Total</p><p className="text-[var(--text-primary)] font-semibold">{formatCurrency(Number(selectedSale.total))}</p></div>
+              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Total</p>
+                <p className="text-[var(--text-primary)] font-semibold">{formatMoney(Number(selectedSale.total), selectedSale.currency_symbol ? String(selectedSale.currency_symbol) : null, selectedSale.currency_code ? String(selectedSale.currency_code) : null)}</p>
+                {(() => {
+                  // Venta en moneda distinta de la base: tasa y equivalente
+                  const code = String(selectedSale.currency_code ?? '');
+                  const rate = Number(selectedSale.exchange_rate ?? 0);
+                  const inBase = saleTotalInBase(selectedSale);
+                  if (!code || !inBase) return null;
+                  const base = currencies.find(c => c.is_base);
+                  return (
+                    <p className="text-[11px] text-[var(--text-tertiary)] mt-1">
+                      Tasa: 1 {code} = {rate} {base?.code ?? ''} · ≈ {formatMoney(inBase, base?.symbol, base?.code)} en {base?.code ?? 'moneda base'}
+                    </p>
+                  );
+                })()}
+              </div>
             </div>
             {(selectedSale.items as AnyRecord[]|undefined)?.length&&(
               <div>
@@ -625,12 +421,17 @@ export default function VentasPage() {
               </div>
             )}
             {/* Payment method info */}
-            {(selectedSale.payments as AnyRecord[]|undefined)?.map(pay=>(
-              <div key={String(pay.id)} className="flex justify-between items-center text-sm p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)]">
-                <span className="text-[var(--text-secondary)] capitalize">{({cash:'Efectivo',transfer:'Transferencia',mixed:'Mixto',credit:'Crédito'} as Record<string,string>)[String(pay.method)]??String(pay.method)}</span>
-                <span className="text-[var(--text-primary)] font-medium">{pay.method==='mixed'?`Ef: ${formatCurrency(Number(pay.amount_cash))} / Tr: ${formatCurrency(Number(pay.amount_transfer))}`:formatCurrency(Number(pay.amount_cash)+Number(pay.amount_transfer))}</span>
-              </div>
-            ))}
+            {(selectedSale.payments as AnyRecord[]|undefined)?.map(pay=>{
+              const payMethodLabel = (pay.method === 'cash' || !pay.currency_code)
+                ? 'Efectivo'
+                : `${pay.currency_symbol ? String(pay.currency_symbol) : ''}${pay.currency_code ? String(pay.currency_code) : ''} — ${pay.currency_name ? String(pay.currency_name) : pay.currency_code ? String(pay.currency_code) : 'Efectivo'}`;
+              return (
+                <div key={String(pay.id)} className="flex justify-between items-center text-sm p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)]">
+                  <span className="text-[var(--text-secondary)] capitalize">{payMethodLabel}</span>
+                  <span className="text-[var(--text-primary)] font-medium">{pay.method==='mixed'?`Ef: ${formatCurrency(Number(pay.amount_cash))} / Tr: ${formatCurrency(Number(pay.amount_transfer))}`:formatCurrency(Number(pay.amount_cash)+Number(pay.amount_transfer))}</span>
+                </div>
+              );
+            })}
             {/* Abonos vinculados */}
             {(selectedSale as any).customer_payments?.length > 0 && (
               <div>

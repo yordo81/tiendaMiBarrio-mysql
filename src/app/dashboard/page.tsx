@@ -6,7 +6,6 @@ import { formatCurrency, formatNumber, cn } from '@/lib/utils';
 import { api, apiFetch } from '@/lib/api-client';
 import { Clock, DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown, BarChart2, AlertTriangle, Calendar, Plus, ShoppingBag, ExternalLink, Check, Clock3, Play } from 'lucide-react';
 import StatCard from '@/components/ui/StatCard';
-import SaleModal from '@/components/sales/SaleModal';
 import PurchaseModal from '@/components/purchases/PurchaseModal';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuthStore } from '@/lib/stores/auth-store';
@@ -53,8 +52,8 @@ function GeneralDashboard() {
   const [period, setPeriod] = useState<Period>('today');
   const [pendingReservations, setPendingReservations] = useState<{ id: string; customer_name: string; product_name: string; quantity: number; created_at: string }[]>([]);
   const [reservationsLoading, setReservationsLoading] = useState(true);
-  const [showSaleModal, setShowSaleModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const router = useRouter();
 
   // Modo por turnos: aviso cuando no hay turno abierto (las ventas están bloqueadas)
   const workMode = useWorkMode();
@@ -178,7 +177,7 @@ function GeneralDashboard() {
       {/* ── Quick actions ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <button
-          onClick={() => setShowSaleModal(true)}
+          onClick={() => router.push('/dashboard/ventas/touch')}
           className="card p-4 flex items-center gap-3 hover:border-brand-500/30 transition-all duration-200 hover:-translate-y-0.5 group text-left w-full"
         >
           <div className="w-10 h-10 rounded-xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center group-hover:bg-brand-500/20 transition-colors">
@@ -355,16 +354,6 @@ function GeneralDashboard() {
       </div>}
 
       {/* Modals */}
-      <SaleModal
-        open={showSaleModal}
-        onClose={() => setShowSaleModal(false)}
-        onSuccess={() => {
-          // Refresh dashboard data after a sale
-          apiFetch<DashData>('/api/reports?type=dashboard&days=30')
-            .then(d => setData(d))
-            .catch(() => {});
-        }}
-      />
       <PurchaseModal
         open={showPurchaseModal}
         onClose={() => setShowPurchaseModal(false)}
