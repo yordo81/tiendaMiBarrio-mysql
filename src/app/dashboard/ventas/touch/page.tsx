@@ -9,7 +9,7 @@ import {
   TabletSmartphone, Phone, PhoneOff, ChevronDown, KeyRound, LogOut, Play, Square, Clock3,
 } from 'lucide-react';
 import EmptyState from '@/components/ui/EmptyState';
-import { formatCurrency, formatNumber, cn, findProductByBarcode, formatDateTime } from '@/lib/utils';
+import { formatCurrency, formatMoney, formatNumber, cn, findProductByBarcode, formatDateTime } from '@/lib/utils';
 import { normalizePhone } from '@/lib/validate';
 import { api } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/stores/auth-store';
@@ -34,6 +34,7 @@ import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 type AnyRecord = Record<string, unknown>;
 type PayMethod = 'cash' | 'transfer' | 'mixed';
 interface CartLine { product: AnyRecord; quantity: number; unit_price: number; }
+type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; rateUpdatedAt?: string | null };
 
 const PAY_METHODS: { id: PayMethod; label: string; icon: typeof Banknote; desc: string }[] = [
   { id: 'cash', label: 'Efectivo', icon: Banknote, desc: 'Billetes o monedas' },
@@ -41,8 +42,22 @@ const PAY_METHODS: { id: PayMethod; label: string; icon: typeof Banknote; desc: 
   { id: 'mixed', label: 'Mixto', icon: Wallet, desc: 'Efectivo + transferencia' },
 ];
 
-// Billetes rápidos para el cálculo de cambio en efectivo (DOP)
+function currencyPaymentLabel(code: string | null, currencies: CurrencyOption[]): string {
+  if (!code) return 'Efectivo';
+  const c = currencies.find(cur => cur.code === code);
+  return c ? `${c.symbol} ${c.code} — ${c.name}` : code;
+}
+
+// Billetes rápidos para el cálculo de cambio en efectivo (moneda base)
 const CASH_DENOMS = [100, 200, 500, 1000, 2000];
+
+// Billetes rápidos para monedas extranjeras según su tasa (1 moneda = X base):
+// se proponen denominaciones que equivalen a montos redondos en la base.
+function denomsForRate(rate: number): number[] {
+  if (!rate || rate <= 0) return CASH_DENOMS;
+  const list = [1, 5, 10, 20, 50, 100].map(v => Math.max(1, Math.round((v / rate) * 100) / 100));
+  return [...new Set(list)].sort((a, b) => a - b).slice(0, 6);
+}
 
 // ── Borrador del pedido (localStorage, por usuario) ─────────────
 // Conserva el pedido en curso entre recargas: líneas con cantidad por
@@ -58,6 +73,21 @@ interface PosDraft {
 }
 
 function draftKey(userId: string) { return `${DRAFT_PREFIX}:${userId}`; }
+
+// ── Preferencia de moneda (localStorage, por usuario) ───────────
+// Recuerda la última moneda con la que el vendedor cobró, para que la
+// siguiente sesión arranque ya con esa moneda seleccionada.
+const CUR_PREFIX = 'tmb-pos-currency';
+
+function curKey(userId: string) { return `${CUR_PREFIX}:${userId}`; }
+
+function loadPreferredCurrency(userId: string): string | null {
+  try { return localStorage.getItem(curKey(userId)); } catch { return null; }
+}
+
+function savePreferredCurrency(userId: string, code: string) {
+  try { localStorage.setItem(curKey(userId), code); } catch { /* sin almacenamiento */ }
+}
 
 function loadDraft(userId: string): PosDraft | null {
   try {
@@ -151,7 +181,13 @@ export default function TouchPosPage() {
   const [showPay, setShowPay] = useState(false);
   const [cartOpen, setCartOpen] = useState(false); // carrito en móvil
   const [keypadOpen, setKeypadOpen] = useState(false); // teclado numérico en pantalla
-  const [lastSale, setLastSale] = useState<{ id: string; total: number; change: number; method: PayMethod } | null>(null);
+  const [lastSale, setLastSale] = useState<{ id: string; total: number; change: number; method: PayMethod; currency?: { code: string; symbol: string; rate: number } | null } | null>(null);
+
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
+  const [saleCurrency, setSaleCurrency] = useState('');
+
+  // Solo monedas con tasa de pago mayor que cero
+  const activeCurrencies = useMemo(() => currencies.filter(c => c.is_base || Number(c.rate) > 0), [currencies]);
 
   // Menú de usuario y turno de caja
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -163,8 +199,10 @@ export default function TouchPosPage() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const userMenuButtonRef = useRef<HTMLButtonElement>(null);
+  // Fecha de venta (solo para usuarios autorizados a cambiar fecha)
+  const [saleDate, setSaleDate] = useState(''); // '' = fecha actual
 
-  const isSeller = mounted && user?.role === 'seller';
+  const isSeller = mounted && (user?.role === 'seller' || user?.role === 'admin' || user?.role === 'owner');
   const { workMode, posId, setPosId, posOptions, openShifts, hasOpenShift, resetPos, refreshPos } = usePosSelector(isSeller);
 
   // En modo por turnos solo se puede cobrar si la caja seleccionada tiene un
@@ -262,12 +300,11 @@ export default function TouchPosPage() {
   useEffect(() => { loadSettings(); }, [loadSettings]);
   useEffect(() => { setMounted(true); }, []);
 
-  // Guard de acceso: solo vendedores. El resto vuelve a la página de
-  // ventas con la ventana modal.
+  // Guard de acceso: vendedores, administradores y dueños pueden usar el POS táctil.
   useEffect(() => {
     if (!mounted) return;
     if (!user) { router.replace('/dashboard'); return; }
-    if (user.role !== 'seller') { router.replace('/dashboard/ventas'); return; }
+    if (user.role === 'warehouse') { router.replace('/dashboard/ventas'); return; }
   }, [mounted, user, router]);
 
   // Cargar productos, clientes y almacenes
@@ -282,6 +319,28 @@ export default function TouchPosPage() {
         setLocationId(prev => prev || (l.length > 0 ? String(l[0].id) : ''));
       })
       .catch(() => toast.error('Error al cargar datos'));
+    // Cargar monedas (con la fecha de actualización de cada tasa para el
+    // aviso de tasa desactualizada) y restaurar la preferencia del vendedor
+    fetch('/api/currencies').then(r => r.json()).then(d => {
+      if (!alive) return;
+      const raw = d.currencies as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number> }[];
+      const baseCode = raw?.find(c => c.is_base)?.code ?? '';
+      const ratesUpdatedAt = (d.rates_updated_at ?? {}) as Record<string, string>;
+      const list: CurrencyOption[] = (raw ?? []).map(c => ({
+        code: c.code, name: c.name, symbol: c.symbol, is_base: c.is_base,
+        rate: c.rates?.[baseCode] ?? 1,
+        rateUpdatedAt: c.is_base ? null : (ratesUpdatedAt[`${c.code}->${baseCode}`] ?? null),
+      }));
+      setCurrencies(list);
+      // Moneda activa: la última usada por este vendedor (si sigue activa);
+      // si no, la moneda base. Con una sola moneda no se cambia nada.
+      const active = list.filter(c => c.is_base || Number(c.rate) > 0);
+      if (active.length > 1 && user) {
+        const remembered = loadPreferredCurrency(user.id);
+        const found = remembered ? list.find(c => c.code === remembered && (c.is_base || Number(c.rate) > 0)) : null;
+        setSaleCurrency(found && !found.is_base ? found.code : '');
+      }
+    }).catch(() => {});
     return () => { alive = false; };
   }, [isSeller]);
 
@@ -404,6 +463,15 @@ export default function TouchPosPage() {
       .catch(() => setLocationStock({}));
   }, [locationId]);
 
+  // Recalcular precios del carrito cuando cambia la moneda de pago
+  useEffect(() => {
+    if (cart.length === 0 || currencies.length === 0) return;
+    setCart(prev => prev.map(item => ({
+      ...item,
+      unit_price: getConvertedPrice(Number(item.product.sale_price), String(item.product.sale_currency ?? '')),
+    })));
+  }, [saleCurrency]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Restaurar el pedido guardado tras recargar la página ─────
   useEffect(() => {
     if (!isSeller || !user || draftRestoredRef.current) return;
@@ -420,7 +488,7 @@ export default function TouchPosPage() {
       // Tope por stock global para no restaurar cantidades imposibles; el
       // stock por almacén se valida al cobrar (hasStockIssues).
       const globalStock = Number(p.stock ?? 0);
-      lines.push({ product: p, quantity: globalStock > 0 ? Math.min(qty, globalStock) : qty, unit_price: Number(p.sale_price) });
+      lines.push({ product: p, quantity: globalStock > 0 ? Math.min(qty, globalStock) : qty, unit_price: getConvertedPrice(Number(p.sale_price), String(p.sale_currency ?? '')) });
     });
     if (lines.length === 0) return;
     setCart(lines);
@@ -484,8 +552,55 @@ export default function TouchPosPage() {
   const cartTotal = cart.reduce((a, i) => a + i.quantity * i.unit_price, 0);
   const cartCount = cart.reduce((a, i) => a + i.quantity, 0);
 
+  // ── Moneda activa del pedido ──────────────────────────────
+  const activeCurrency = currencies.find(c => c.code === saleCurrency) ?? null;
+  const baseCurrency = currencies.find(c => c.is_base) ?? null;
+  const isForeignSale = !!activeCurrency && !activeCurrency.is_base;
+  // Total equivalente en moneda base (con la tasa de la moneda elegida)
+  const cartTotalBase = isForeignSale && activeCurrency ? Math.round(cartTotal * activeCurrency.rate * 100) / 100 : cartTotal;
+  // Aviso de tasa desactualizada: sin fecha de actualización o con más de 24 h
+  const RATE_STALE_HOURS = 24;
+  const rateAgeHours = (() => {
+    if (!isForeignSale || !activeCurrency?.rateUpdatedAt) return null;
+    const t = new Date(String(activeCurrency.rateUpdatedAt).replace(' ', 'T') + 'Z').getTime();
+    if (isNaN(t)) return null;
+    return Math.floor((Date.now() - t) / 3_600_000);
+  })();
+  const rateIsStale = rateAgeHours == null || rateAgeHours >= RATE_STALE_HOURS;
+  // Formato de montos del pedido con la moneda activa (símbolo real)
+  const activeSymbol = isForeignSale ? activeCurrency?.symbol : (baseCurrency?.symbol ?? null);
+  const activeCode = isForeignSale ? activeCurrency?.code : (baseCurrency?.code ?? null);
+  const fmtMoney = (n: number) => formatMoney(n, activeSymbol, activeCode);
+  // Billetes rápidos según la moneda activa (equivalentes redondos en base)
+  const cashDenoms = isForeignSale && activeCurrency ? denomsForRate(activeCurrency.rate) : CASH_DENOMS;
+
+  // Cambia la moneda del pedido y recuerda la preferencia del vendedor
+  function changeSaleCurrency(code: string) {
+    setSaleCurrency(code);
+    if (user) savePreferredCurrency(user.id, code);
+  }
+
   function hasStockIssues(): boolean {
     return cart.some(i => i.quantity > getAvailableStock(i.product));
+  }
+
+  // Precio convertido a la moneda de pago seleccionada.
+  // Si el producto tiene sale_currency distinta a la moneda de la venta,
+  // se convierte usando las tasas de cambio.
+  function getConvertedPrice(productSalePrice: number, productSaleCurrency?: string | null): number {
+    const fromCode = productSaleCurrency || null; // moneda en que está fijado el precio del producto
+    const toCode = saleCurrency || null;           // moneda en que se cobra la venta
+    // Sin conversión: misma moneda o ambas en base
+    if (!fromCode || !toCode || fromCode === toCode) return productSalePrice;
+    const fromCur = currencies.find(c => c.code === fromCode);
+    const toCur = currencies.find(c => c.code === toCode);
+    if (!fromCur || !toCur) return productSalePrice;
+    // Ambas son moneda base → sin conversión
+    if (fromCur.is_base && toCur.is_base) return productSalePrice;
+    // from → base → to
+    const inBase = fromCur.is_base ? productSalePrice : Math.round((productSalePrice * fromCur.rate) * 100) / 100;
+    if (toCur.is_base) return inBase;
+    return Math.round((inBase / toCur.rate) * 100) / 100;
   }
 
   // Agrega un producto al carrito. Con qty>1 (venta rápida por teclado)
@@ -510,7 +625,7 @@ export default function TouchPosPage() {
       if (found) {
         return prev.map(i => i.product.id === p.id ? { ...i, quantity: nextQty } : i);
       }
-      return [...prev, { product: p, quantity: nextQty, unit_price: Number(p.sale_price) }];
+      return [...prev, { product: p, quantity: nextQty, unit_price: getConvertedPrice(Number(p.sale_price), String(p.sale_currency ?? '')) }];
     });
     playScanBeep();
   }
@@ -651,6 +766,7 @@ export default function TouchPosPage() {
     setAmountTransfer(0);
     setTransferPhone('');
     setTransferRef('');
+    setSaleDate('');
   }
 
   // Efectivo que aplica al total según el método (para el cálculo de cambio)
@@ -687,6 +803,10 @@ export default function TouchPosPage() {
           cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? cartTotal - amountTransfer : 0,
           transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
           notes: transferDetails() || null,
+          // Moneda de la venta para el ticket (símbolo real + tasa y
+          // equivalente en base cuando se cobró en moneda extranjera)
+          baseCurrencyCode: baseCurrency?.code ?? null,
+          baseCurrencySymbol: baseCurrency?.symbol ?? null,
         }),
         { method, width: s?.receipt_printer_width ?? '80', printer }
       );
@@ -738,6 +858,11 @@ export default function TouchPosPage() {
           unit_price: i.unit_price,
           cost: Number(i.product.cost ?? 0),
         })),
+        // Moneda de la venta + tasa congelada (el servidor la valida);
+        // '' = moneda base. La venta queda identificada con su moneda
+        // en el historial, el ticket y el arqueo por moneda del turno.
+        currency_code: saleCurrency || null,
+        exchange_rate: isForeignSale && activeCurrency ? activeCurrency.rate : null,
         payment: {
           method: payMethod,
           amount_cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? cartTotal - amountTransfer : 0,
@@ -749,6 +874,7 @@ export default function TouchPosPage() {
         location_id: locationId || null,
         pos_id: workMode === 'shifts' ? posId || null : null,
         notes: null,
+        date: saleDate || undefined, // '' = fecha actual del servidor
       });
       toast.success('Venta registrada');
       notifyShiftSummaryChanged();
@@ -767,9 +893,16 @@ export default function TouchPosPage() {
       const changeAmt = cashReceived > cashDue ? cashReceived - cashDue : 0;
       // La venta quedó registrada: ya no debe restaurarse este pedido
       if (user) clearDraft(user.id);
-      setLastSale({ id: String((res as AnyRecord).id ?? ''), total, change: changeAmt, method: payMethod });
+      setLastSale({
+        id: String((res as AnyRecord).id ?? ''),
+        total,
+        change: changeAmt,
+        method: payMethod,
+        currency: isForeignSale && activeCurrency ? { code: activeCurrency.code, symbol: activeCurrency.symbol, rate: activeCurrency.rate } : null,
+      });
       setShowPay(false);
       setCartOpen(false);
+      setSaleDate(''); // Resetear a fecha actual
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al registrar la venta');
     } finally {
@@ -798,7 +931,7 @@ export default function TouchPosPage() {
                   <div className="min-w-0 flex-1 pt-0.5">
                     <p className="truncate text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{String(line.product.name)}</p>
                     <p className="mt-0.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                      {formatCurrency(line.unit_price)}
+                      {fmtMoney(line.unit_price)}
                       {line.product.unit ? <span className="uppercase"> / {String(line.product.unit)}</span> : null}
                     </p>
                   </div>
@@ -831,7 +964,7 @@ export default function TouchPosPage() {
                       <Plus className="w-4 h-4" />
                     </button>
                   </div>
-                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(line.quantity * line.unit_price)}</span>
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{fmtMoney(line.quantity * line.unit_price)}</span>
                 </div>
               </div>
             ))
@@ -849,8 +982,21 @@ export default function TouchPosPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Total</span>
-                  <span className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(cartTotal)}</span>
+                  <span className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cartTotal)}</span>
                 </div>
+                {/* Total dual: equivalente en la otra moneda (base ↔ extranjera) */}
+                {cart.length > 0 && (isForeignSale
+                  ? <p className="text-xs text-right" style={{ color: 'var(--text-tertiary)' }}>
+                      ≈ {formatMoney(cartTotalBase, baseCurrency?.symbol, baseCurrency?.code)} en {baseCurrency?.code ?? 'moneda base'}
+                    </p>
+                  : (currencies.filter(c => !c.is_base).length > 0
+                    ? (() => {
+                        const cur = currencies.find(c => !c.is_base);
+                        return <p className="text-xs text-right" style={{ color: 'var(--text-tertiary)' }}>
+                          ≈ {formatMoney(Math.round((cartTotal / (cur?.rate || 1)) * 100) / 100, cur?.symbol, cur?.code)} en {cur?.code}
+                        </p>;
+                      })()
+                    : null))}
                 {issues && !saving && (
                   <p className="text-xs flex items-center gap-1.5 text-red-400">
                     <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
@@ -869,7 +1015,7 @@ export default function TouchPosPage() {
                   className="w-full rounded-xl py-4 text-lg font-semibold text-white transition-all active:scale-[0.98] disabled:opacity-40 shadow-lg"
                   style={{ backgroundColor: 'var(--brand-600)', boxShadow: '0 10px 25px -5px color-mix(in srgb, var(--brand-500) 40%, transparent)' }}
                 >
-                  {saving ? 'Registrando...' : `Cobrar ${cart.length > 0 ? formatCurrency(cartTotal) : ''}`}
+                  {saving ? 'Registrando...' : `Cobrar ${cart.length > 0 ? fmtMoney(cartTotal) : ''}`}
                 </button>
               </>
             );
@@ -905,6 +1051,11 @@ export default function TouchPosPage() {
       </div>
     );
   }
+
+  // ── Permiso: cambiar fecha de venta ──
+  // Solo usuarios con el permiso 'sales.change_date' pueden modificar la fecha.
+  const canChangeDate = user?.role === 'owner' || user?.role === 'admin' ||
+    Boolean(user?.permissions?.some(p => p.module === 'sales' && p.actions.includes('update')));
 
   return (
     <div className="flex h-screen flex-col overflow-hidden select-none" style={{ backgroundColor: 'var(--bg-primary)' }}>
@@ -1191,7 +1342,7 @@ export default function TouchPosPage() {
                         <p className="text-sm font-medium leading-snug line-clamp-2" style={{ color: 'var(--text-primary)' }}>{String(p.name)}</p>
                         <div>
                           <p className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                            {formatCurrency(Number(p.sale_price))}
+                            {fmtMoney(getConvertedPrice(Number(p.sale_price), String(p.sale_currency ?? '')))}
                             {p.unit ? <span className="text-[10px] font-normal uppercase ml-1" style={{ color: 'var(--text-tertiary)' }}>{String(p.unit)}</span> : null}
                           </p>
                           <p className="mt-0.5 text-[10px] uppercase tracking-widest truncate" style={{ color: 'var(--text-tertiary)' }}>
@@ -1247,7 +1398,7 @@ export default function TouchPosPage() {
           style={{ backgroundColor: 'var(--brand-600)' }}
         >
           <ShoppingCart className="w-5 h-5" />
-          {formatNumber(cartCount, 0)} · {formatCurrency(cartTotal)}
+          {formatNumber(cartCount, 0)} · {fmtMoney(cartTotal)}
         </button>
       )}
 
@@ -1336,13 +1487,75 @@ export default function TouchPosPage() {
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2 rounded-xl border p-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
               <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Total a cobrar</p>
-              <p className="text-2xl font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{formatCurrency(cartTotal)}</p>
+              <p className="text-2xl font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cartTotal)}</p>
+              {isForeignSale && (
+                <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
+                  Tasa: 1 {activeCurrency?.code} = {activeCurrency?.rate} {baseCurrency?.code ?? ''} · ≈ {formatMoney(cartTotalBase, baseCurrency?.symbol, baseCurrency?.code)}
+                </p>
+              )}
             </div>
             <div className="rounded-xl border p-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
               <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Artículos</p>
               <p className="text-2xl font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{formatNumber(cartCount, 0)}</p>
             </div>
           </div>
+
+          {/* Moneda de pago: selector rápido + aviso de tasa desactualizada */}
+          {currencies.filter(c => c.is_base || c.rate > 0).length > 1 && (
+            <div>
+              <label className="label">Moneda de pago</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => changeSaleCurrency('')}
+                  className={cn(
+                    'rounded-xl border p-3 text-left transition-all active:scale-[0.97]',
+                    !isForeignSale ? 'text-white shadow-lg' : 'hover:brightness-105'
+                  )}
+                  style={
+                    !isForeignSale
+                      ? { backgroundColor: 'var(--brand-600)', borderColor: 'var(--brand-600)' }
+                      : { backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }
+                  }
+                >
+                  <p className={cn('font-semibold text-sm', isForeignSale && 'text-[var(--text-primary)]')}>
+                    {baseCurrency?.symbol ?? '$'} {baseCurrency?.code ?? 'Base'}
+                  </p>
+                  <p className={cn('text-[10px] mt-0.5', !isForeignSale ? 'text-white/70' : 'text-[var(--text-tertiary)]')}>
+                    {baseCurrency?.name ?? 'Moneda base'} (base)
+                  </p>
+                </button>
+                {currencies.filter(c => !c.is_base).map(c => (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onClick={() => changeSaleCurrency(c.code)}
+                    className={cn(
+                      'rounded-xl border p-3 text-left transition-all active:scale-[0.97]',
+                      saleCurrency === c.code ? 'text-white shadow-lg' : 'hover:brightness-105'
+                    )}
+                    style={
+                      saleCurrency === c.code
+                        ? { backgroundColor: 'var(--brand-600)', borderColor: 'var(--brand-600)' }
+                        : { backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }
+                    }
+                  >
+                    <p className={cn('font-semibold text-sm', saleCurrency !== c.code && 'text-[var(--text-primary)]')}>
+                      {c.symbol} {c.code}
+                    </p>
+                    <p className={cn('text-[10px] mt-0.5', saleCurrency === c.code ? 'text-white/70' : 'text-[var(--text-tertiary)]')}>
+                      Tasa: {c.rate} {baseCurrency?.code ?? ''}
+                    </p>
+                  </button>
+                ))}
+              </div>
+              {isForeignSale && rateIsStale && (
+                <p className="text-[10px] text-yellow-400 mt-1.5">
+                  ⚠ Tasa de {activeCurrency?.code} sin actualizar {rateAgeHours != null ? `desde hace ${rateAgeHours} h` : 'recientemente'}. Pídele al dueño que la revise si cambió.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Caja (modo turnos) */}
           {workMode === 'shifts' && (
@@ -1401,6 +1614,23 @@ export default function TouchPosPage() {
             )}
           </div>
 
+          {/* Fecha de venta (solo usuarios autorizados) */}
+          {canChangeDate && (
+            <div>
+              <label className="label">Fecha de venta</label>
+              <input
+                type="date"
+                className="input"
+                value={saleDate}
+                onChange={e => setSaleDate(e.target.value)}
+                max={new Date().toISOString().slice(0, 10)}
+              />
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                {saleDate ? `Venta registrada el ${saleDate}` : 'Fecha actual (por defecto)'}
+              </p>
+            </div>
+          )}
+
           {/* Método de pago */}
           <div>
             <label className="label">Método de pago</label>
@@ -1425,13 +1655,11 @@ export default function TouchPosPage() {
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Efectivo recibido + cambio */}
-          {(payMethod === 'cash' || payMethod === 'mixed') && (
-            <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
-              <div className="flex items-center justify-between">
-                <label className="label mb-0">Efectivo recibido</label>
+          </div>              {/* Efectivo recibido + cambio */}
+              {(payMethod === 'cash' || payMethod === 'mixed') && (
+                <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+                  <div className="flex items-center justify-between">
+                    <label className="label mb-0">{currencyPaymentLabel(payMethod === 'cash' ? saleCurrency : null, currencies)} recibido</label>
                 <button
                   onClick={() => setCashReceived(payMethod === 'cash' ? cartTotal : cashDue)}
                   className="text-xs font-medium px-2.5 py-1.5 rounded-lg text-white transition-transform active:scale-95"
@@ -1449,21 +1677,24 @@ export default function TouchPosPage() {
                 value={cashReceived || ''}
                 onChange={e => setCashReceived(parseFloat(e.target.value) || 0)}
               />
+              {/* Billetes rápidos según la moneda activa: en moneda base son los
+                  billetes locales; en moneda extranjera, montos equivalentes a
+                  cantidades redondas de la moneda base */}
               <div className="flex flex-wrap gap-2">
-                {CASH_DENOMS.map(d => (
+                {cashDenoms.map(d => (
                   <button
                     key={d}
-                    onClick={() => setCashReceived(v => (v || 0) + d)}
+                    onClick={() => setCashReceived(v => Math.round(((v || 0) + d) * 100) / 100)}
                     className="px-3.5 py-2 rounded-lg text-sm font-semibold transition-transform active:scale-95"
                     style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }}
                   >
-                    +{formatCurrency(d)}
+                    +{fmtMoney(d)}
                   </button>
                 ))}
               </div>
               {cashReceived > 0 && (
                 <p className={cn('text-sm font-semibold flex items-center gap-1.5', change >= 0 ? 'text-green-400' : 'text-red-400')}>
-                  {change >= 0 ? <>Cambio: {formatCurrency(change)}</> : <>Faltan: {formatCurrency(-change)}</>}
+                  {change >= 0 ? <>Cambio: {fmtMoney(change)}</> : <>Faltan: {fmtMoney(-change)}</>}
                 </p>
               )}
             </div>
@@ -1484,7 +1715,7 @@ export default function TouchPosPage() {
               />
               {amountTransfer > 0 && amountTransfer < cartTotal && (
                 <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                  El resto ({formatCurrency(cartTotal - amountTransfer)}) se cobra en efectivo.
+                  El resto ({fmtMoney(cartTotal - amountTransfer)}) se cobra en efectivo.
                 </p>
               )}
               {amountTransfer >= cartTotal && (
@@ -1495,18 +1726,16 @@ export default function TouchPosPage() {
 
           {payMethod === 'transfer' && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Se cobrará el total ({formatCurrency(cartTotal)}) por transferencia bancaria. El teléfono celular del cliente es obligatorio.
+              Se cobrará el total ({fmtMoney(cartTotal)}) por transferencia bancaria. El teléfono celular del cliente es obligatorio.
             </div>
-          )}
-
-          {/* Datos de la transferencia */}
+          )}          {/* Datos de la transferencia */}
           {(payMethod === 'transfer' || payMethod === 'mixed') && (
             <div className="rounded-xl border p-4" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
               <p className="label mb-3">Datos de la transferencia</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Teléfono celular del cliente *</label>
-                  <div className="relative">
+                <div className="relative">
                     {transferPhone.trim() ? (
                       transferPhoneValid ? (
                         <CheckCircle className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-400" />
@@ -1556,7 +1785,7 @@ export default function TouchPosPage() {
               disabled={saving || cart.length === 0 || hasStockIssues() || !canCharge}
               className="btn-primary flex-1 py-3.5 text-base disabled:opacity-50"
             >
-              {saving ? 'Registrando...' : `Confirmar — ${formatCurrency(cartTotal)}`}
+              {saving ? 'Registrando...' : `Confirmar — ${fmtMoney(cartTotal)}`}
             </button>
           </div>
         </div>
@@ -1602,6 +1831,21 @@ export default function TouchPosPage() {
                 onChange={e => setCloseForm(f => ({ ...f, closing_cash: parseFloat(e.target.value) || 0 }))}
               />
             </div>
+            {(() => {
+              // Ayuda para el arqueo por moneda: cuánto se espera de cada moneda.
+              // El total esperado está en moneda base; las otras monedas se listan aparte.
+              const byCur = ((myShiftSummary as unknown as { cash_by_currency?: { code: string; amount: number }[] } | null)?.cash_by_currency ?? []);
+              const others = byCur.filter(c => c.amount !== 0 && (!baseCurrency || c.code !== baseCurrency.code) && c.code !== 'BASE');
+              if (others.length === 0) return null;
+              return (
+                <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5">
+                  Además del efectivo en {baseCurrency?.code ?? 'moneda base'}, se espera en caja:{' '}
+                  <span className="font-medium text-[var(--text-secondary)]">
+                    {others.map(c => `${formatMoney(c.amount, undefined, c.code)}`).join(' · ')}
+                  </span>{' '}(convertido con la tasa del turno)
+                </p>
+              );
+            })()}
           </div>
           <div>
             <label className="label">Nota (opcional)</label>
@@ -1640,12 +1884,23 @@ export default function TouchPosPage() {
             <div className="my-6 space-y-2">
               <div className="flex justify-between text-sm" style={{ color: 'var(--text-secondary)' }}>
                 <span>Total</span>
-                <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(lastSale.total)}</span>
+                <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {formatMoney(lastSale.total, lastSale.currency?.symbol ?? baseCurrency?.symbol, lastSale.currency?.code ?? baseCurrency?.code)}
+                  {lastSale.currency && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">{lastSale.currency.code}</span>}
+                </span>
               </div>
+              {lastSale.currency && lastSale.currency.rate > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span style={{ color: 'var(--text-tertiary)' }}>Tasa</span>
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>1 {lastSale.currency.code} = {lastSale.currency.rate} {baseCurrency?.code ?? ''}</span>
+                </div>
+              )}
               {lastSale.change > 0 && (
                 <div className="flex justify-between text-sm">
                   <span>Cambio</span>
-                  <span className="font-bold text-green-400">{formatCurrency(lastSale.change)}</span>
+                  <span className="font-bold text-green-400">
+                    {formatMoney(lastSale.change, lastSale.currency?.symbol ?? baseCurrency?.symbol, lastSale.currency?.code ?? baseCurrency?.code)}
+                  </span>
                 </div>
               )}
             </div>

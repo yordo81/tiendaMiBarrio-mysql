@@ -503,6 +503,39 @@ INSERT IGNORE INTO currency_rates (id, from_currency, to_currency, rate, updated
   (UUID(), 'MLC', 'EUR', 0.461000,   NOW());
 
 -- ============================================================
--- Fin de todas las migraciones consolidadas (002 → 025)
+-- Migración 026: Moneda en los pagos (arqueo por moneda)
 -- ============================================================
-SELECT '✅ Todas las migraciones (002-025) aplicadas correctamente' AS status;
+ALTER TABLE payments
+  ADD COLUMN currency_code  VARCHAR(10)  NULL COMMENT 'Moneda del pago' AFTER amount_transfer,
+  ADD COLUMN exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento del pago (1 moneda = X base)' AFTER currency_code;
+
+ALTER TABLE customer_payments
+  ADD COLUMN currency_code  VARCHAR(10)  NULL COMMENT 'Moneda del abono' AFTER amount,
+  ADD COLUMN exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento del abono (1 moneda = X base)' AFTER currency_code;
+
+-- Los pagos históricos heredan la moneda de su venta (NULL = moneda base)
+UPDATE payments p
+  JOIN sales s ON s.id = p.sale_id
+  SET p.currency_code = s.currency_code,
+      p.exchange_rate = s.exchange_rate
+  WHERE p.currency_code IS NULL AND s.currency_code IS NOT NULL;
+
+UPDATE customer_payments cp
+  JOIN sales s ON s.id = cp.sale_id
+  SET cp.currency_code = s.currency_code,
+      cp.exchange_rate = s.exchange_rate
+  WHERE cp.currency_code IS NULL AND s.currency_code IS NOT NULL;
+
+-- ============================================================
+-- Migración 027: Monedas en productos (costo y venta)
+-- ============================================================
+ALTER TABLE products
+  ADD COLUMN cost_currency VARCHAR(10) NULL COMMENT 'Moneda del precio de costo (NULL = moneda base)' AFTER cost;
+
+ALTER TABLE products
+  ADD COLUMN sale_currency VARCHAR(10) NULL COMMENT 'Moneda del precio de venta (NULL = moneda base)' AFTER sale_price;
+
+-- ============================================================
+-- Fin de todas las migraciones consolidadas (002 → 027)
+-- ============================================================
+SELECT '✅ Todas las migraciones (002-027) aplicadas correctamente' AS status;

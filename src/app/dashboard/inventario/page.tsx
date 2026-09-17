@@ -71,6 +71,7 @@ export default function InventarioPage() {
     localStorage.removeItem('inv_hide_expiry');
   }
   const [showExpiringOnly, setShowExpiringOnly] = useState(false);
+  const [showOutOfStock, setShowOutOfStock] = useState(false);
   // Nota: el aviso de stock bajo se movió al módulo de Notificaciones
   // (generado por /api/notifications/check-expiration, tipo low_stock/out_of_stock)
   const [showCatModal, setShowCatModal] = useState(false);
@@ -83,6 +84,10 @@ export default function InventarioPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // ── Monedas para productos ──
+  type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean };
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
+  const baseCurrency = currencies.find(c => c.is_base);
 
   // Inicialización única del filtro de ubicación
   const locInitialized = useRef(false);
@@ -91,13 +96,25 @@ export default function InventarioPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const load = useCallback(async (locId?: string) => {
+  const load = useCallback(async (locId?: string, includeEmpty?: boolean) => {
     setLoading(true);
-    const parts = ['stock_filter=in_stock'];
+    const parts: string[] = [];
+    if (!includeEmpty) parts.push('stock_filter=in_stock');
     if (locId) parts.push(`location_id=${locId}`);
     const params = parts.join('&');
     const [prods, cats, sups, locs] = await Promise.all([api.getProducts(params), api.getCategories(), api.getSuppliers(), api.getLocations()]);
-    setProducts(prods); setCategories(cats); setSuppliers(sups); setLocations(locs); setLoading(false);
+    setProducts(prods); setCategories(cats); setSuppliers(sups); setLocations(locs);
+    // Cargar monedas
+    try {
+      const curRes = await fetch('/api/currencies');
+      if (curRes.ok) {
+        const curData = await curRes.json();
+        setCurrencies((curData.currencies ?? []).map((c: { code: string; name: string; symbol: string; is_base: boolean }) => ({
+          code: c.code, name: c.name, symbol: c.symbol, is_base: Boolean(c.is_base),
+        })));
+      }
+    } catch { /* monedas opcionales */ }
+    setLoading(false);
   }, []);
 
   // Inicializar locFilter con el primer almacén (solo una vez al montar)
@@ -108,10 +125,10 @@ export default function InventarioPage() {
     }
   }, [locations]);
 
-  // Cargar datos cada vez que cambie el filtro de ubicación
-  useEffect(() => { load(locFilter || undefined); }, [load, locFilter]);
+  // Cargar datos cada vez que cambie el filtro de ubicación o el filtro de agotados
+  useEffect(() => { load(locFilter || undefined, showOutOfStock); }, [load, locFilter, showOutOfStock]);
 
-  function openNew() { setEditProduct(null); setForm({ name:'', barcode:'', sale_price:0, cost:0, stock:0, min_stock:0, unit:'unidad', expiration_date:'', is_perishable: false, supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '', is_capital: false }); setImageFile(null); setImagePreview(null); setShowModal(true); }
+  function openNew() { setEditProduct(null); setForm({ name:'', barcode:'', sale_price:0, cost:0, sale_currency: baseCurrency?.code ?? '', cost_currency: baseCurrency?.code ?? '', stock:0, min_stock:0, unit:'unidad', expiration_date:'', is_perishable: false, supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '', is_capital: false }); setImageFile(null); setImagePreview(null); setShowModal(true); }
   function openEdit(p: AnyRecord) { setEditProduct(p); setForm({ ...p, is_perishable: Boolean(p.is_perishable), supplier_ids: (p.supplier_ids as string[]|undefined) ?? [] }); setImageFile(null); setImagePreview(String(p.image_url??'')); setShowModal(true); }
 
   async function handleSave() {
@@ -282,7 +299,7 @@ export default function InventarioPage() {
   const paginated = pageSize === 0 ? filtered : filtered.slice(0, page * pageSize).slice((page - 1) * pageSize);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, catFilter, locFilter, showExpiringOnly]);
+  useEffect(() => { setPage(1); }, [search, catFilter, locFilter, showExpiringOnly, showOutOfStock]);
   // Productos próximos a vencer (30 días)
   useEffect(() => {
     const today = new Date();
@@ -300,7 +317,7 @@ export default function InventarioPage() {
   }, [products]);
 
   // Filtros activos para el badge del menú (el almacén no cuenta: es el contexto de la vista)
-  const activeFilterCount = (catFilter ? 1 : 0) + (showExpiringOnly ? 1 : 0);
+  const activeFilterCount = (catFilter ? 1 : 0) + (showExpiringOnly ? 1 : 0) + (showOutOfStock ? 1 : 0);
 
   // Cerrar el menú de filtros al hacer clic fuera
   useEffect(() => {
@@ -471,6 +488,13 @@ export default function InventarioPage() {
                       >
                         <span className={cn('w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0', showExpiringOnly ? 'bg-orange-500 border-orange-500 text-white' : 'border-[var(--border-secondary)]')}>{showExpiringOnly && '✓'}</span>
                         Solo próximos a vencer
+                      </button>
+                      <button
+                        onClick={()=>setShowOutOfStock(v=>!v)}
+                        className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors', showOutOfStock ? 'text-red-400 bg-red-500/10' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]')}
+                      >
+                        <span className={cn('w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0', showOutOfStock ? 'bg-red-500 border-red-500 text-white' : 'border-[var(--border-secondary)]')}>{showOutOfStock && '✓'}</span>
+                        Incluir agotados (stock = 0)
                       </button>
 
                     </div>
@@ -743,8 +767,46 @@ export default function InventarioPage() {
               </div>
             )}
           </div>
-          <div><label className="label">Precio de venta</label><input type="number" min="0" step="1" className="input" value={Number(form.sale_price??0)} onChange={e=>setForm(f=>({...f,sale_price:parseFloat(e.target.value)||0}))}/></div>
-          <div><label className="label">Costo</label><input type="number" min="0" step="1" className="input" value={Number(form.cost??0)} onChange={e=>setForm(f=>({...f,cost:parseFloat(e.target.value)||0}))}/></div>
+          <div className="sm:col-span-2 grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Precio de venta</label>
+              <input type="number" min="0" step="1" className="input" value={Number(form.sale_price??0)} onChange={e=>setForm(f=>({...f,sale_price:parseFloat(e.target.value)||0}))}/>
+            </div>
+            <div>
+              <label className="label">Moneda venta</label>
+              {currencies.length > 1 ? (
+                <SearchableSelect
+                  options={currencies.map(c => ({ value: c.code, label: `${c.symbol} ${c.code}`, sublabel: c.is_base ? `${c.name} (base)` : c.name }))}
+                  value={String(form.sale_currency ?? '')}
+                  onChange={v => setForm(f => ({ ...f, sale_currency: v || null }))}
+                  placeholder={baseCurrency ? `${baseCurrency.symbol} ${baseCurrency.code}` : 'Moneda base'}
+                  noResultsMessage="Sin monedas"
+                />
+              ) : (
+                <input className="input" value={baseCurrency ? `${baseCurrency.symbol} ${baseCurrency.code}` : '—'} disabled />
+              )}
+            </div>
+          </div>
+          <div className="sm:col-span-2 grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Costo</label>
+              <input type="number" min="0" step="1" className="input" value={Number(form.cost??0)} onChange={e=>setForm(f=>({...f,cost:parseFloat(e.target.value)||0}))}/>
+            </div>
+            <div>
+              <label className="label">Moneda costo</label>
+              {currencies.length > 1 ? (
+                <SearchableSelect
+                  options={currencies.map(c => ({ value: c.code, label: `${c.symbol} ${c.code}`, sublabel: c.is_base ? `${c.name} (base)` : c.name }))}
+                  value={String(form.cost_currency ?? '')}
+                  onChange={v => setForm(f => ({ ...f, cost_currency: v || null }))}
+                  placeholder={baseCurrency ? `${baseCurrency.symbol} ${baseCurrency.code}` : 'Moneda base'}
+                  noResultsMessage="Sin monedas"
+                />
+              ) : (
+                <input className="input" value={baseCurrency ? `${baseCurrency.symbol} ${baseCurrency.code}` : '—'} disabled />
+              )}
+            </div>
+          </div>
           <div>
             <label className="label">Stock {editProduct?'actual':'inicial'}</label>
             <input type="number" min="0" step="1" className="input" value={Number(form.stock??0)} onChange={e=>setForm(f=>({...f,stock:parseFloat(e.target.value)||0}))}/>

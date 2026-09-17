@@ -67,8 +67,8 @@ export const PUT = handle(async (request: Request, ctx) => {
   })();
 
   await execute(
-    `UPDATE products SET name=?,barcode=?,description=?,category_id=?,sale_price=?,cost=?,stock=?,min_stock=?,unit=?,expiration_date=?,is_perishable=?,image_url=?,updated_at=? WHERE id=?`,
-    [String(body.name ?? '').trim() || 'Producto', barcode, body.description??null, body.category_id??null, salePrice, cost,
+    `UPDATE products SET name=?,barcode=?,description=?,category_id=?,sale_price=?,sale_currency=?,cost=?,cost_currency=?,stock=?,min_stock=?,unit=?,expiration_date=?,is_perishable=?,image_url=?,updated_at=? WHERE id=?`,
+    [String(body.name ?? '').trim() || 'Producto', barcode, body.description??null, body.category_id??null, salePrice, body.sale_currency || null, cost, body.cost_currency || null,
      newStock, minStock, body.unit??'unidad', expirationDate, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, id]
   );
 
