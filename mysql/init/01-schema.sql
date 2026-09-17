@@ -10,7 +10,7 @@
 -- Control de migraciones
 -- ============================================================
 -- Este esquema inicial YA INCLUYE el efecto de todas las migraciones
--- existentes (002 a 025: columnas, tablas, enums y FKs integradas
+-- existentes (002 a 027: columnas, tablas, enums y FKs integradas
 -- arriba). Se declaran aquí para que entrypoint.sh NO las vuelva a
 -- aplicar: las migraciones NUEVAS que se agreguen en el futuro se
 -- aplican después, en orden, sobre este esquema.
@@ -53,7 +53,9 @@ CREATE TABLE IF NOT EXISTS products (
   description     TEXT          NULL,
   category_id     CHAR(36)      NULL,
   sale_price      DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  sale_currency   VARCHAR(10)   NULL COMMENT 'Moneda del precio de venta (NULL = moneda base)',
   cost            DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  cost_currency   VARCHAR(10)   NULL COMMENT 'Moneda del precio de costo (NULL = moneda base)',
   stock           DECIMAL(12,3) NOT NULL DEFAULT 0.000,
   min_stock       DECIMAL(12,3) NOT NULL DEFAULT 0.000,
   unit            VARCHAR(50)   NOT NULL DEFAULT 'unidad',
@@ -129,6 +131,8 @@ CREATE TABLE IF NOT EXISTS sales (
   customer_id CHAR(36)      NULL,
   user_id     CHAR(36)      NULL,
   pos_id      VARCHAR(36)   NULL COMMENT 'Punto de venta / caja donde se realizó la venta',
+  currency_code  VARCHAR(10)   NULL COMMENT 'Moneda de la venta',
+  exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta',
   date        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   total       DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   status      ENUM('completed','partial','pending','cancelled') NOT NULL DEFAULT 'completed',
@@ -144,6 +148,8 @@ CREATE TABLE IF NOT EXISTS sales (
 CREATE TABLE IF NOT EXISTS sale_items (
   id         CHAR(36)      NOT NULL PRIMARY KEY,
   sale_id    CHAR(36)      NOT NULL,
+  currency_code  VARCHAR(10)   NULL COMMENT 'Moneda del precio unitario',
+  exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta',
   product_id CHAR(36)      NULL,
   quantity   DECIMAL(12,3) NOT NULL,
   unit_price DECIMAL(12,2) NOT NULL,
@@ -275,6 +281,8 @@ CREATE TABLE IF NOT EXISTS purchases (
   user_id     CHAR(36)      NULL,
   pos_id      VARCHAR(36)   NULL COMMENT 'Punto de venta / caja donde se registró la compra',
   invoice_number VARCHAR(100) NULL COMMENT 'Número de factura de compra',
+  currency_code  VARCHAR(10)   NULL COMMENT 'Moneda del precio de compra',
+  exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la compra',
   created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (product_id)  REFERENCES products(id)  ON DELETE CASCADE,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
@@ -503,21 +511,6 @@ CREATE TABLE IF NOT EXISTS currency_rates (
   FOREIGN KEY (from_currency) REFERENCES currencies(code) ON DELETE CASCADE,
   FOREIGN KEY (to_currency)   REFERENCES currencies(code) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tasas de cambio entre monedas';
-
--- Columnas de moneda en compras
-ALTER TABLE purchases
-  ADD COLUMN currency_code  VARCHAR(10)   NULL COMMENT 'Moneda del precio de compra' AFTER pos_id,
-  ADD COLUMN exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la compra' AFTER currency_code;
-
--- Columnas de moneda en ventas
-ALTER TABLE sales
-  ADD COLUMN currency_code  VARCHAR(10)   NULL COMMENT 'Moneda de la venta' AFTER pos_id,
-  ADD COLUMN exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta' AFTER currency_code;
-
--- Columnas de moneda en líneas de venta
-ALTER TABLE sale_items
-  ADD COLUMN currency_code  VARCHAR(10)   NULL COMMENT 'Moneda del precio unitario' AFTER sale_id,
-  ADD COLUMN exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta' AFTER currency_code;
 
 -- Monedas comunes
 INSERT IGNORE INTO currencies (code, name, symbol, is_base, active) VALUES

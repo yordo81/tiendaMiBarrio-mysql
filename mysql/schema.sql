@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS products (
   description     TEXT          NULL,
   category_id     CHAR(36)      NULL,
   sale_price      DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  sale_currency   VARCHAR(10)   NULL COMMENT 'Moneda del precio de venta (NULL = moneda base)',
   cost            DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  cost_currency   VARCHAR(10)   NULL COMMENT 'Moneda del precio de costo (NULL = moneda base)',
   stock           DECIMAL(12,3) NOT NULL DEFAULT 0.000,
   min_stock       DECIMAL(12,3) NOT NULL DEFAULT 0.000,
   unit            VARCHAR(50)   NOT NULL DEFAULT 'unidad',
@@ -118,6 +120,8 @@ CREATE TABLE IF NOT EXISTS sales (
   created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+  currency_code  VARCHAR(10)   NULL COMMENT 'Moneda de la venta',
+  exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta',
   FOREIGN KEY (user_id)     REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (pos_id)      REFERENCES pos(id) ON DELETE SET NULL,
   INDEX idx_date (date), INDEX idx_status (status), INDEX idx_sales_pos (pos_id)
@@ -126,6 +130,8 @@ CREATE TABLE IF NOT EXISTS sales (
 CREATE TABLE IF NOT EXISTS sale_items (
   id         CHAR(36)      NOT NULL PRIMARY KEY,
   sale_id    CHAR(36)      NOT NULL,
+  currency_code  VARCHAR(10)   NULL COMMENT 'Moneda del precio unitario',
+  exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta',
   product_id CHAR(36)      NOT NULL,
   quantity   DECIMAL(12,3) NOT NULL,
   unit_price DECIMAL(12,2) NOT NULL,
@@ -232,7 +238,7 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
   id               CHAR(36)      NOT NULL PRIMARY KEY,
   from_location_id CHAR(36)      NOT NULL,
   to_location_id   CHAR(36)      NOT NULL,
-  product_id       CHAR(36)      NOT NULL,
+  product_id       CHAR(36)      NULL,
   quantity         DECIMAL(12,3) NOT NULL,
   notes            TEXT          NULL,
   user_id          CHAR(36)      NULL,
@@ -241,7 +247,7 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
   INDEX idx_stock_transfers_batch (batch_id),
   FOREIGN KEY (from_location_id) REFERENCES locations(id),
   FOREIGN KEY (to_location_id)   REFERENCES locations(id),
-  FOREIGN KEY (product_id)       REFERENCES products(id),
+  FOREIGN KEY (product_id)       REFERENCES products(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id)          REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -257,6 +263,8 @@ CREATE TABLE IF NOT EXISTS purchases (
   user_id     CHAR(36)      NULL,
   pos_id      VARCHAR(36)   NULL COMMENT 'Punto de venta / caja donde se registró la compra',
   invoice_number VARCHAR(100) NULL COMMENT 'Número de factura de compra',
+  currency_code  VARCHAR(10)   NULL COMMENT 'Moneda del precio de compra',
+  exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la compra',
   created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (product_id)  REFERENCES products(id)  ON DELETE CASCADE,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
@@ -431,6 +439,53 @@ CREATE TABLE IF NOT EXISTS printers (
   UNIQUE KEY uq_printers_device_key (device_key),
   INDEX idx_printers_default (is_default)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Impresoras registradas para imprimir tickets de venta';
+
+-- ============================================================
+-- MULTI-MONEDA (tasas de cambio)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS currencies (
+  code        VARCHAR(10)  NOT NULL PRIMARY KEY COMMENT 'Código ISO de la moneda (ej: CUP, USD, EUR)',
+  name        VARCHAR(100) NOT NULL COMMENT 'Nombre de la moneda (ej: Peso Cubano)',
+  symbol      VARCHAR(10)  NOT NULL COMMENT 'Símbolo de la moneda (ej: $, €, ₽)',
+  is_base     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '1 = moneda base del negocio',
+  active      TINYINT(1)   NOT NULL DEFAULT 1,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Monedas disponibles en el sistema';
+
+CREATE TABLE IF NOT EXISTS currency_rates (
+  id            CHAR(36)      NOT NULL PRIMARY KEY,
+  from_currency VARCHAR(10)   NOT NULL COMMENT 'Moneda origen',
+  to_currency   VARCHAR(10)   NOT NULL COMMENT 'Moneda destino',
+  rate          DECIMAL(16,6) NOT NULL COMMENT 'Tasa: 1 from_currency = X to_currency',
+  updated_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  updated_by    VARCHAR(36)   NULL,
+  UNIQUE KEY uq_rate_pair (from_currency, to_currency),
+  FOREIGN KEY (from_currency) REFERENCES currencies(code) ON DELETE CASCADE,
+  FOREIGN KEY (to_currency)   REFERENCES currencies(code) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tasas de cambio entre monedas';
+
+-- Monedas comunes
+INSERT IGNORE INTO currencies (code, name, symbol, is_base, active) VALUES
+  ('CUP', 'Peso Cubano',         '$',  1, 1),
+  ('USD', 'Dólar Estadounidense', '$',  0, 1),
+  ('EUR', 'Euro',                 '€',  0, 1),
+  ('MLC', 'Moneda Libremente Convertible', '₱', 0, 1);
+
+-- Tasas de cambio iniciales
+INSERT IGNORE INTO currency_rates (id, from_currency, to_currency, rate, updated_at) VALUES
+  (UUID(), 'USD', 'CUP', 240.000000, NOW()),
+  (UUID(), 'EUR', 'CUP', 260.000000, NOW()),
+  (UUID(), 'MLC', 'CUP', 120.000000, NOW()),
+  (UUID(), 'CUP', 'USD', 0.004167,   NOW()),
+  (UUID(), 'CUP', 'EUR', 0.003846,   NOW()),
+  (UUID(), 'CUP', 'MLC', 0.008333,   NOW()),
+  (UUID(), 'USD', 'EUR', 0.920000,   NOW()),
+  (UUID(), 'EUR', 'USD', 1.087000,   NOW()),
+  (UUID(), 'USD', 'MLC', 2.000000,   NOW()),
+  (UUID(), 'MLC', 'USD', 0.500000,   NOW()),
+  (UUID(), 'EUR', 'MLC', 2.167000,   NOW()),
+  (UUID(), 'MLC', 'EUR', 0.461000,   NOW());
 
 -- Las cajas (pos) pertenecen a un punto de venta (locations type='store')
 ALTER TABLE pos ADD CONSTRAINT fk_pos_location FOREIGN KEY (location_id) REFERENCES locations(id);

@@ -7,7 +7,8 @@
 # 1. Espera a que MySQL esté disponible.
 # 2. Garantiza la tabla de control `schema_migrations`.
 # 3. Aplica all-migrations.sql si no se ha ejecutado aún (contiene
-#    todas las migraciones 002-025 en un solo archivo).
+#    todas las migraciones 002-027 en un solo archivo).
+# 3b. Aplica migraciones individuales (migration-XXX-*.sql) pendientes.
 # 4. Arranca la aplicación.
 #
 # Variables: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
@@ -109,6 +110,24 @@ elif [ "$done_count" != "0" ]; then
 else
   log "Sin archivo all-migrations.sql — omitiendo."
 fi
+
+# ── 3b. Aplicar migraciones individuales (migration-XXX-*.sql) ──
+# Busca archivos migration-*.sql en el directorio de migraciones,
+# excluye all-migrations.sql y los que ya fueron aplicados.
+for mfile in "$MIGRATIONS_DIR"/migration-*.sql; do
+  [ -f "$mfile" ] || continue  # sin glob: saltar
+  mname=$(basename "$mfile")
+  mcount=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM schema_migrations WHERE filename = '$mname'")
+  if [ "$mcount" = "0" ]; then
+    log "Aplicando migración individual: $mname ..."
+    if ! mysql_cmd < "$mfile"; then
+      log "ERROR: falló $mname. Corrige el SQL o la BD y reinicia el contenedor."
+      exit 1
+    fi
+    mysql_cmd -e "INSERT INTO schema_migrations (filename) VALUES ('$mname')"
+    log "✓ $mname aplicada."
+  fi
+done
 
 # ── 4. Arrancar la aplicación ──
 log "Arrancando la aplicación..."
