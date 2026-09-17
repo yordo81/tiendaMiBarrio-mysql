@@ -34,6 +34,7 @@ export default function InventoryExportModal({ open, onClose, products, location
   const [blind, setBlind] = useState(false);
   const [sampleSeed, setSampleSeed] = useState(1);
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null);
+  const [sortBy, setSortBy] = useState<'supplier' | 'category'>('category');
 
   // Productos del almacén elegido dentro del modal (independiente del filtro de la página)
   const [items, setItems] = useState<R[]>(products);
@@ -64,15 +65,21 @@ export default function InventoryExportModal({ open, onClose, products, location
     return () => { cancelled = true; };
   }, [open, locationId]);
 
-  // Orden estable: por categoría y nombre (normal) o por proveedor y nombre (ciego)
+  // Orden estable: por categoría/proveedor y nombre
   const sorted = useMemo(() => {
     return [...items].sort((a, b) => {
-      const sa = String(Array.isArray(a.supplier_names) ? a.supplier_names[0] : a.supplier_names ?? '').toLowerCase();
-      const sb = String(Array.isArray(b.supplier_names) ? b.supplier_names[0] : b.supplier_names ?? '').toLowerCase();
-      if (sa !== sb) return sa < sb ? -1 : 1;
+      if (sortBy === 'supplier') {
+        const sa = String(Array.isArray(a.supplier_names) ? a.supplier_names[0] : a.supplier_names ?? '').toLowerCase();
+        const sb = String(Array.isArray(b.supplier_names) ? b.supplier_names[0] : b.supplier_names ?? '').toLowerCase();
+        if (sa !== sb) return sa < sb ? -1 : 1;
+      } else {
+        const ca = String(a.category_name ?? '').toLowerCase();
+        const cb = String(b.category_name ?? '').toLowerCase();
+        if (ca !== cb) return ca < cb ? -1 : 1;
+      }
       return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'es');
     });
-  }, [items]);
+  }, [items, sortBy]);
 
   // Muestra según el alcance elegido: 100% o % aleatorio de la cantidad de productos
   const sample = useMemo(() => {
@@ -125,11 +132,13 @@ export default function InventoryExportModal({ open, onClose, products, location
       const body: Cell[][] = [];
       let lastCat = '';
       sample.forEach(p => {
-        const cat = String(Array.isArray(p.supplier_names) ? p.supplier_names[0] ?? '—' : p.supplier_names ?? '—');
-        if (cat !== lastCat) {
-          lastCat = cat;
+        const groupLabel = sortBy === 'supplier'
+        ? String(Array.isArray(p.supplier_names) ? p.supplier_names[0] ?? '—' : p.supplier_names ?? '—')
+        : String(p.category_name ?? '—');
+        if (groupLabel !== lastCat) {
+          lastCat = groupLabel;
           body.push([{
-            content: `Proveedor: ${cat}`,
+            content: `${sortBy === 'supplier' ? 'Proveedor' : 'Categoría'}: ${groupLabel}`,
             colSpan: heads[0].length,
             styles: { fillColor: [240, 243, 247], textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 8 },
           }]);
@@ -206,10 +215,12 @@ export default function InventoryExportModal({ open, onClose, products, location
     const rowsHtml: string[] = [];
     let lastCat = '';
     sample.forEach(p => {
-      const cat = String(Array.isArray(p.supplier_names) ? p.supplier_names[0] ?? '—' : p.supplier_names ?? '—');
-      if (cat !== lastCat) {
-        lastCat = cat;
-        rowsHtml.push(`<tr class="cat"><td colspan="${heads.length}">${escapeHtml(`Proveedor: ${cat}`)}</td></tr>`);
+      const groupLabel = sortBy === 'supplier'
+        ? String(Array.isArray(p.supplier_names) ? p.supplier_names[0] ?? '—' : p.supplier_names ?? '—')
+        : String(p.category_name ?? '—');
+      if (groupLabel !== lastCat) {
+        lastCat = groupLabel;
+        rowsHtml.push(`<tr class="cat"><td colspan="${heads.length}">${escapeHtml(`${sortBy === 'supplier' ? 'Proveedor' : 'Categoría'}: ${groupLabel}`)}</td></tr>`);
       }
       const dataCells = blind
         ? [String(p.name ?? ''), '', '', '', '', '']
@@ -279,7 +290,7 @@ export default function InventoryExportModal({ open, onClose, products, location
             noResultsMessage="Sin almacenes"
           />
           <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
-            Elige el almacén a exportar; los productos se cargan de ese almacén, <span className="font-medium text-[var(--text-primary)]">siempre ordenados por categoría</span>.
+            Elige el almacén a exportar; los productos se cargan de ese almacén.
           </p>
         </div>
 
@@ -328,6 +339,27 @@ export default function InventoryExportModal({ open, onClose, products, location
             </p>
           </div>
         )}
+
+        {/* Ordenar por */}
+        <div>
+          <label className="label">Ordenar por</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setSortBy('category')}
+              className={cn('flex flex-col items-start gap-1 p-3 rounded-xl border text-left transition-colors', sortBy === 'category' ? 'bg-brand-600/15 border-brand-500/50' : 'border-[var(--border-primary)] hover:border-[#6e7681]')}
+            >
+              <span className={cn('text-sm font-medium', sortBy === 'category' ? 'text-brand-400' : 'text-[var(--text-primary)]')}>Categorías</span>
+              <span className="text-[10px] text-[var(--text-tertiary)]">Agrupa por categoría del producto</span>
+            </button>
+            <button
+              onClick={() => setSortBy('supplier')}
+              className={cn('flex flex-col items-start gap-1 p-3 rounded-xl border text-left transition-colors', sortBy === 'supplier' ? 'bg-brand-600/15 border-brand-500/50' : 'border-[var(--border-primary)] hover:border-[#6e7681]')}
+            >
+              <span className={cn('text-sm font-medium', sortBy === 'supplier' ? 'text-brand-400' : 'text-[var(--text-primary)]')}>Proveedores</span>
+              <span className="text-[10px] text-[var(--text-tertiary)]">Agrupa por proveedor asignado</span>
+            </button>
+          </div>
+        </div>
 
         {/* Inventario ciego */}
         <div>
