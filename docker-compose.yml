@@ -45,13 +45,13 @@ services:
     image: valkey/valkey:9.1-alpine
     container_name: tienda_mb_valkey
     restart: unless-stopped
-    command: valkey-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: valkey-server --maxmemory 128mb --maxmemory-policy allkeys-lru --requirepass ${VALKEY_PASSWORD:-tienda_valkey_secret}
     ports:
       - "${VALKEY_PORT_EXTERNAL:-6380}:6379"
     volumes:
       - valkey_data:/data
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD", "valkey-cli", "-a", "${VALKEY_PASSWORD:-tienda_valkey_secret}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -78,7 +78,7 @@ services:
       # descarta la cookie y el login rebota al login sin error.
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TIMEZONE: ${TIMEZONE:-America/Havana}
-      VALKEY_URL: redis://valkey:6379
+      VALKEY_URL: redis://:${VALKEY_PASSWORD:-tienda_valkey_secret}@valkey:6379
       HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
       USER_ACTIVE_CACHE_TTL_MS: ${USER_ACTIVE_CACHE_TTL_MS:-30000}

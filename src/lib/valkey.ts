@@ -28,9 +28,18 @@ function createValkeyClient(): Redis | null {
     connectTimeout: 3000,
   });
 
-  // Cerrar silenciosamente si Valkey no está disponible
+  // Logear errores de conexión (en producción solo el primer error por conexión)
+  let lastErrorLog = 0;
   client.on('error', (err) => {
-    if (process.env.NODE_ENV === 'production') return;
+    const now = Date.now();
+    // En producción: logear una vez por minuto para no llenar logs
+    if (process.env.NODE_ENV === 'production') {
+      if (now - lastErrorLog > 60_000) {
+        console.error('[valkey] Error de conexión:', err.message);
+        lastErrorLog = now;
+      }
+      return;
+    }
     console.error('[valkey] Error de conexión:', err.message);
   });
 

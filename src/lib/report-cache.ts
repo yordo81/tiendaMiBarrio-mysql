@@ -96,20 +96,25 @@ export async function invalidateReportCache(
   // Invalidar todas las variaciones de días para este tipo/usuario/ubicación
   const loc = locationId ?? 'all';
   const date = todayKey();
-  const patterns = [
-    `report:${type}:${userId}:${loc}:*:${date}`,
-  ];
+  const pattern = `report:${type}:${userId}:${loc}:*:${date}`;
 
-  for (const pattern of patterns) {
-    try {
-      // ioredis keys() con patrón
-      const keys = await valkey!.keys(pattern);
-      if (keys.length > 0) {
-        await valkeyDel(...keys);
-      }
-    } catch {
-      // No-op: si falla la invalidación, el TTL se encargará
+  try {
+    // Usar SCAN en lugar de KEYS para no bloquear Valkey en producción
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const [nextCursor, foundKeys] = await valkey!.scan(
+        cursor, 'MATCH', pattern, 'COUNT', 100
+      );
+      cursor = nextCursor;
+      keys.push(...foundKeys);
+    } while (cursor !== '0');
+
+    if (keys.length > 0) {
+      await valkeyDel(...keys);
     }
+  } catch {
+    // No-op: si falla la invalidación, el TTL se encargará
   }
 }
 
@@ -127,7 +132,17 @@ export async function invalidateAllReportCaches(userId: string): Promise<void> {
   for (const type of types) {
     try {
       const pattern = `report:${type}:${userId}:*:${date}`;
-      const keys = await valkey!.keys(pattern);
+      // Usar SCAN en lugar de KEYS para no bloquear Valkey en producción
+      const keys: string[] = [];
+      let cursor = '0';
+      do {
+        const [nextCursor, foundKeys] = await valkey!.scan(
+          cursor, 'MATCH', pattern, 'COUNT', 100
+        );
+        cursor = nextCursor;
+        keys.push(...foundKeys);
+      } while (cursor !== '0');
+
       if (keys.length > 0) {
         await valkeyDel(...keys);
       }
