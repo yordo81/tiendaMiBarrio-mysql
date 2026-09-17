@@ -372,45 +372,92 @@ export default function ReportesPage() {
             </ResponsiveContainer>
           </div>
 
-          {/* Resumen diario de ventas: efectivo vs transferencia */}
-          {salesData.length > 0 && (
-            <div className="card p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Resumen diario de ventas</h3>
-                <button onClick={()=>exportCSV(salesData,'ventas-diario')} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[var(--border-primary)]">
-                      <th className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Fecha</th>
-                      <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Efectivo</th>
-                      <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Transferencia</th>
-                      <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {salesData.map((row, i) => (
-                      <tr key={i} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
-                        <td className="px-3 py-2.5 text-[var(--text-secondary)]">{String(row.date)}</td>
-                        <td className="px-3 py-2.5 text-blue-400 text-right">{formatCurrency(Number(row.cash_total ?? 0))}</td>
-                        <td className="px-3 py-2.5 text-purple-400 text-right">{formatCurrency(Number(row.transfer_total ?? 0))}</td>
-                        <td className="px-3 py-2.5 text-[var(--text-primary)] font-medium text-right">{formatCurrency(Number(row.total ?? 0))}</td>
+          {/* Resumen diario de ventas: por moneda de pago */}
+          {salesData.length > 0 && (() => {
+            // Collect all currency codes that have any non-zero amount across all rows
+            const allCurCodes = new Set<string>();
+            const firstCurrencyNames = (salesData[0] as R)?.currency_names as Record<string, { name: string; symbol: string }> | undefined ?? {};
+            for (const row of salesData) {
+              const breakdown = (row as R).currency_breakdown as Record<string, number> | undefined;
+              if (breakdown) {
+                for (const [code, val] of Object.entries(breakdown)) {
+                  if (Number(val) > 0) allCurCodes.add(code);
+                }
+              }
+            }
+            // Sort: base currency first, then alphabetical
+            const sortedCodes = Array.from(allCurCodes).sort((a, b) => {
+              const aBase = firstCurrencyNames[a] ? 0 : 1;
+              const bBase = firstCurrencyNames[b] ? 0 : 1;
+              return aBase - bBase || a.localeCompare(b);
+            });
+
+            function curLabel(code: string): string {
+              if (!code) return 'Efectivo';
+              const info = firstCurrencyNames[code];
+              return info ? `${info.symbol} ${info.name}` : code;
+            }
+            function curColor(code: string): string {
+              const colors = ['text-blue-400', 'text-purple-400', 'text-emerald-400', 'text-amber-400', 'text-rose-400', 'text-cyan-400'];
+              const idx = sortedCodes.indexOf(code);
+              return colors[idx % colors.length];
+            }
+
+            return (
+              <div className="card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">Resumen diario de ventas</h3>
+                  <button onClick={()=>exportCSV(salesData,'ventas-diario')} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
+                </div>
+                {/* Totales por moneda (encabezado) */}
+                <div className="flex flex-wrap gap-3 mb-4">
+                  {sortedCodes.map(code => {
+                    const sum = salesData.reduce((acc, r) => {
+                      const breakdown = (r as R).currency_breakdown as Record<string, number> | undefined;
+                      return acc + Number(breakdown?.[code] ?? 0);
+                    }, 0);
+                    return (
+                      <div key={code} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+                        <span className="text-xs text-[var(--text-tertiary)]">{curLabel(code)}</span>
+                        <span className={`text-sm font-bold ${curColor(code)}`}>{formatCurrency(sum)}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+                    <span className="text-xs text-[var(--text-tertiary)]">Transferencia</span>
+                    <span className="text-sm font-bold text-purple-400">{formatCurrency(salesData.reduce((sum, r) => sum + Number(r.transfer_total ?? 0), 0))}</span>
+                  </div>
+                </div>
+                {/* Tabla diaria */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--border-primary)]">
+                        <th className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Fecha</th>
+                        {sortedCodes.map(code => (
+                          <th key={code} className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{curLabel(code)}</th>
+                        ))}
+                        <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Transferencia</th>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-[var(--border-primary)] font-semibold">
-                      <td className="px-3 py-2.5 text-[var(--text-primary)]">Total</td>
-                      <td className="px-3 py-2.5 text-blue-400 text-right">{formatCurrency(salesData.reduce((sum, r) => sum + Number(r.cash_total ?? 0), 0))}</td>
-                      <td className="px-3 py-2.5 text-purple-400 text-right">{formatCurrency(salesData.reduce((sum, r) => sum + Number(r.transfer_total ?? 0), 0))}</td>
-                      <td className="px-3 py-2.5 text-[var(--text-primary)] text-right">{formatCurrency(salesData.reduce((sum, r) => sum + Number(r.total ?? 0), 0))}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+                    </thead>
+                    <tbody>
+                      {salesData.map((row, i) => (
+                        <tr key={i} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                          <td className="px-3 py-2.5 text-[var(--text-secondary)]">{String(row.date)}</td>
+                          {sortedCodes.map(code => {
+                            const breakdown = (row as R).currency_breakdown as Record<string, number> | undefined;
+                            const val = breakdown?.[code] ?? 0;
+                            return <td key={code} className={`px-3 py-2.5 ${curColor(code)} text-right`}>{formatCurrency(Number(val))}</td>;
+                          })}
+                          <td className="px-3 py-2.5 text-purple-400 text-right">{formatCurrency(Number(row.transfer_total ?? 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
 

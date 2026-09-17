@@ -202,17 +202,8 @@ export const GET = handle(async (req: Request) => {
     const fromDate = searchParams.get('from');
     const toDate = searchParams.get('to');
     const data = await cachedReport('sales_detail', user.id, locationId, days, async () => {
-      // Subquery: aggregate payment amounts per sale to avoid duplicate rows
-      // when a sale has multiple payments (e.g., mixed cash + transfer).
-      // Incluye conversión a moneda base cuando la venta fue en otra moneda.
-      let sql = `
-        SELECT DATE(s.date) AS date,
-               COUNT(*) AS count,
-               COALESCE(SUM(s.total),0) AS total,
-               COALESCE(SUM(pay.cash_amount),0) AS cash_total,
-               COALESCE(SUM(pay.transfer_amount),0) AS transfer_total,
-               COALESCE(SUM(CASE WHEN s.currency_code IS NOT NULL AND s.currency_code != '' THEN s.total * COALESCE(s.exchange_rate, 1) ELSE s.total END),0) AS total_base,
-               COALESCE(SUM(CASE WHEN s.currency_code IS NOT NULL AND s.currency_code != '' THEN s.total * COALESCE(s.exchange_rate, 1) ELSE s.total END) - SUM(s.total),0) AS currency_diff
+      // 1) Totales diarios generales (efectivo, transferencia, total)
+      let baseSql = `
         FROM sales s
         LEFT JOIN (
           SELECT sale_id,
@@ -220,20 +211,64 @@ export const GET = handle(async (req: Request) => {
                  SUM(CASE WHEN method IN ('transfer','mixed') THEN amount_transfer ELSE 0 END) AS transfer_amount
           FROM payments GROUP BY sale_id
         ) pay ON pay.sale_id=s.id`;
-      const sp: unknown[] = [];
+      const bp: unknown[] = [];
       if (locationId) {
-        sql += ` JOIN location_movements lm ON lm.reference_id=s.id AND lm.type='venta' AND lm.location_id=?`;
-        sp.push(locationId);
+        baseSql += ` JOIN location_movements lm ON lm.reference_id=s.id AND lm.type='venta' AND lm.location_id=?`;
+        bp.push(locationId);
       }
-      if (fromDate && toDate) {
-        sql += ` WHERE s.date>=? AND s.date<=? AND s.status!='cancelled'`;
-        sp.push(fromDate, toDate + ' 23:59:59');
-      } else {
-        sql += ` WHERE s.date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND s.status!='cancelled'`;
-        sp.push(days);
+      const whereBase = fromDate && toDate
+        ? ` WHERE s.date>=? AND s.date<=? AND s.status!='cancelled'`
+        : ` WHERE s.date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND s.status!='cancelled'`;
+      const whereParams = fromDate && toDate ? [fromDate, toDate + ' 23:59:59'] : [days];
+
+      const rowsSql = `
+        SELECT DATE(s.date) AS date,
+               COUNT(*) AS count,
+               COALESCE(SUM(s.total),0) AS total,
+               COALESCE(SUM(pay.cash_amount),0) AS cash_total,
+               COALESCE(SUM(pay.transfer_amount),0) AS transfer_total,
+               COALESCE(SUM(CASE WHEN s.currency_code IS NOT NULL AND s.currency_code != '' THEN s.total * COALESCE(s.exchange_rate, 1) ELSE s.total END),0) AS total_base,
+               COALESCE(SUM(CASE WHEN s.currency_code IS NOT NULL AND s.currency_code != '' THEN s.total * COALESCE(s.exchange_rate, 1) ELSE s.total END) - SUM(s.total),0) AS currency_diff
+        ${baseSql}${whereBase}
+        GROUP BY DATE(s.date) ORDER BY DATE(s.date) ASC`;
+      const rows = await query<Record<string, unknown>>(rowsSql, [...bp, ...whereParams]);
+
+      // 2) Totales diarios por moneda de pago (payments.currency_code)
+      let curSql = `
+        SELECT DATE(s.date) AS date,
+               COALESCE(pay.currency_code, '') AS pay_currency,
+               SUM(pay.amount_cash + pay.amount_transfer) AS currency_total
+        FROM sales s
+        JOIN (
+          SELECT sale_id, currency_code,
+                 SUM(amount_cash) AS amount_cash, SUM(amount_transfer) AS amount_transfer
+          FROM payments GROUP BY sale_id, currency_code
+        ) pay ON pay.sale_id=s.id`;
+      const cp: unknown[] = [];
+      if (locationId) {
+        curSql += ` JOIN location_movements lm ON lm.reference_id=s.id AND lm.type='venta' AND lm.location_id=?`;
+        cp.push(locationId);
       }
-      sql += ` GROUP BY DATE(s.date) ORDER BY DATE(s.date) ASC`;
-      return query(sql, sp);
+      curSql += whereBase + ` GROUP BY DATE(s.date), pay.currency_code ORDER BY DATE(s.date) ASC, pay.currency_code`;
+      const curRows = await query<{ date: string; pay_currency: string; currency_total: number }>(curSql, [...cp, ...whereParams]);
+
+      // 3) Obtener nombres de monedas
+      const curNames = await query<{ code: string; name: string; symbol: string }>('SELECT code, name, symbol FROM currencies WHERE active=1');
+      const curNameMap: Record<string, { name: string; symbol: string }> = {};
+      for (const c of curNames) curNameMap[c.code] = { name: c.name, symbol: c.symbol };
+
+      // 4) Enriquecir filas con montos por moneda
+      const curByDate = new Map<string, Record<string, number>>();
+      for (const cr of curRows) {
+        if (!curByDate.has(cr.date)) curByDate.set(cr.date, {});
+        curByDate.get(cr.date)![cr.pay_currency] = Number(cr.currency_total);
+      }
+
+      return rows.map(r => {
+        const dateStr = String(r.date);
+        const curMap = curByDate.get(dateStr) ?? {};
+        return { ...r, currency_breakdown: curMap, currency_names: curNameMap };
+      });
     });
     return ok(data);
   }

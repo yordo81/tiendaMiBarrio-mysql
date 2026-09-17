@@ -10,7 +10,7 @@ export const GET = handle(async () => {
       l.id AS location_id,
       l.name AS location_name,
       l.type AS location_type,
-      COUNT(DISTINCT ls.product_id) AS product_count,
+      COUNT(DISTINCT CASE WHEN ls.quantity > 0 THEN ls.product_id END) AS product_count,
       COALESCE(SUM(ls.quantity), 0) AS total_quantity,
       COALESCE(SUM(ls.quantity * p.cost), 0) AS total_value
     FROM locations l
