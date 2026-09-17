@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { formatCurrency, formatDateTime, cn } from '@/lib/utils';
+import { formatCurrency, formatMoney, formatDateTime, cn } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
 import Modal from '@/components/ui/Modal';
@@ -86,7 +86,14 @@ export default function TurnosPage() {
   // Cajas que ya tienen un turno abierto (para marcarlas al abrir uno nuevo)
   const openPosIds = new Set(shiftsData.open.map(s => String(s.pos_id)));
   // Acumulado en vivo del turno (lo adjunta el GET /api/shifts)
-  const summaryOf = (s: R) => (s.summary as { total_sales: number; total_cash: number; expected_cash: number } | null);
+  const summaryOf = (s: R) => (s.summary as { total_sales: number; total_cash: number; expected_cash: number; cash_by_currency?: { code: string; amount: number }[] } | null);
+
+  // Desglose del efectivo esperado por moneda ("cuánto hay de cada una en caja")
+  function cashByCurrencyLines(summary: R | null): string | null {
+    const list = (summary?.cash_by_currency ?? []) as { code: string; amount: number }[];
+    if (!list || list.length === 0) return null;
+    return list.map(c => `${formatMoney(c.amount, undefined, c.code)}`).join(' · ');
+  }
 
   if (!settingsLoaded || loading) {
     return (
@@ -209,6 +216,11 @@ export default function TurnosPage() {
                     <div className="rounded-lg bg-[var(--bg-muted)] border border-[var(--border-primary)] px-3 py-2">
                       <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Esperado</p>
                       <p className="text-sm font-semibold text-[var(--text-primary)] mt-0.5 truncate">{formatCurrency(summaryOf(s)!.expected_cash)}</p>
+                      {cashByCurrencyLines(summaryOf(s) as unknown as R) && (
+                        <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 truncate" title="Efectivo esperado por moneda">
+                          {cashByCurrencyLines(summaryOf(s) as unknown as R)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -312,6 +324,23 @@ export default function TurnosPage() {
                 onChange={e => setCloseForm(f => ({ ...f, closing_cash: parseFloat(e.target.value) || 0 }))}
               />
             </div>
+            {(() => {
+              // Ayuda para el arqueo por moneda: cuánto se espera de cada moneda
+              // además del efectivo en moneda base (el total esperado está en base).
+              const summary = closeShift?.summary as { base_currency?: string; cash_by_currency?: { code: string; amount: number }[] } | null;
+              const byCur = summary?.cash_by_currency ?? [];
+              const baseCode = String(summary?.base_currency ?? '');
+              const others = byCur.filter(c => c.amount !== 0 && c.code !== 'BASE' && (!baseCode || c.code !== baseCode));
+              if (others.length === 0) return null;
+              return (
+                <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5">
+                  Además del efectivo en {baseCode || 'moneda base'}, se espera en caja:{' '}
+                  <span className="font-medium text-[var(--text-secondary)]">
+                    {others.map(c => `${formatMoney(c.amount, undefined, c.code)}`).join(' · ')}
+                  </span>{' '}(convertido con la tasa del turno)
+                </p>
+              );
+            })()}
           </div>
           <div>
             <label className="label">Nota (opcional)</label>

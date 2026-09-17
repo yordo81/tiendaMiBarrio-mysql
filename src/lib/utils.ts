@@ -14,6 +14,23 @@ export function formatCurrency(n: number, currency = 'DOP') {
   return `$${new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2 }).format(n)}`;
 }
 
+/**
+ * Formatea un monto con el símbolo de la moneda en que fue cobrado.
+ * A diferencia de formatCurrency (que siempre antepone "$"), usa el
+ * símbolo real guardado en la tabla currencies (ej: "€", "₱", "$"),
+ * y acepta el código como respaldo cuando no hay símbolo.
+ * Ej: formatMoney(1200, '$', 'CUP') → "$1,200.00"
+ *     formatMoney(20, null, 'USD') → "USD 20.00"
+ */
+export function formatMoney(n: number, symbol?: string | null, code?: string | null): string {
+  if (typeof n !== 'number' || isNaN(n)) n = 0;
+  const formatted = new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  const sym = (symbol ?? '').trim();
+  if (sym) return `${sym}${formatted}`;
+  const c = (code ?? '').trim().toUpperCase();
+  return c ? `${c} ${formatted}` : `$${formatted}`;
+}
+
 export function formatNumber(n: number, d = 2) {
   return new Intl.NumberFormat('es-DO', {
     minimumFractionDigits: 0, maximumFractionDigits: d,

@@ -20,7 +20,8 @@ export const GET = handle(async () => {
     active: number;
   }>('SELECT code, name, symbol, is_base, active FROM currencies ORDER BY is_base DESC, code ASC');
 
-  // Obtener todas las tasas de cambio
+  // Obtener todas las tasas de cambio (con la fecha de la última actualización:
+  // el POS la usa para avisar al vendedor cuando la tasa está desactualizada)
   const rates = await query<{
     from_currency: string;
     to_currency: string;
@@ -42,6 +43,10 @@ export const GET = handle(async () => {
       active: Boolean(c.active),
       rates: rateMap[c.code] ?? {},
     })),
+    // Fecha de la última actualización de cada tasa (para avisos de tasa vieja)
+    rates_updated_at: Object.fromEntries(
+      rates.map(r => [`${r.from_currency}->${r.to_currency}`, r.updated_at])
+    ),
   });
 });
 

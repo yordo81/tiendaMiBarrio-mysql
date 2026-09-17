@@ -20,7 +20,20 @@ export const POST = handle(async (req: Request) => {
   const id = randomUUID(); const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   await transaction(async (conn) => {
     const validMethod = validateCustomerPaymentMethodOrDefault(method);
-    await conn.execute('INSERT INTO customer_payments (id,customer_id,sale_id,amount,method,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?)',[id,customer_id,sale_id??null,amount,validMethod,ts,notes??null,ts]);
+    // Si el abono está vinculado a una venta, hereda su moneda y tasa
+    // congelada (la deuda se sigue en la moneda en que se vendió y el
+    // arqueo por moneda del turno necesita esa clasificación).
+    let currencyCode: string | null = null;
+    let exchangeRate: number | null = null;
+    if (sale_id) {
+      const [saleRows] = await conn.execute('SELECT currency_code, exchange_rate FROM sales WHERE id=?', [sale_id]);
+      const sale = (saleRows as { currency_code: string | null; exchange_rate: number | null }[])[0];
+      if (sale?.currency_code) {
+        currencyCode = String(sale.currency_code);
+        exchangeRate = sale.exchange_rate != null && Number(sale.exchange_rate) > 0 ? Number(sale.exchange_rate) : null;
+      }
+    }
+    await conn.execute('INSERT INTO customer_payments (id,customer_id,sale_id,amount,currency_code,exchange_rate,method,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',[id,customer_id,sale_id??null,amount,currencyCode,exchangeRate,validMethod,ts,notes??null,ts]);
     await conn.execute('UPDATE customers SET balance=GREATEST(0,balance-?),updated_at=? WHERE id=?',[amount,ts,customer_id]);
 
     if (sale_id) {

@@ -70,12 +70,20 @@ export const GET = handle(async (_req: Request, ctx) => {
   const openedAtIso = new Date(shift.opened_at_raw.replace(' ', 'T') + 'Z').toISOString();
   const closedAtIso = closed ? new Date(shift.closed_at_raw!.replace(' ', 'T') + 'Z').toISOString() : null;
 
-  // ── Ingresos: ventas con sus pagos (no canceladas), SOLO de la caja del turno ──
+  // Moneda base del negocio (para clasificar las ventas sin moneda)
+  const baseRows = await query<{ code: string }>("SELECT code FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1");
+  const baseCurrency = baseRows[0]?.code ?? '';
+
+  // ── Ingresos: ventas con sus pagos (no canceladas), SOLO de la caja del turno.
+  // Se incluye la moneda de la venta para identificar en qué moneda se cobró.
   const sales = await query<Record<string, unknown>>(
-    `SELECT s.id, s.date, s.total, s.status, p.method, p.amount_cash, p.amount_transfer, c.name AS customer_name
+    `SELECT s.id, s.date, s.total, s.status, s.currency_code, s.exchange_rate,
+            cur.symbol AS currency_symbol,
+            p.method, p.amount_cash, p.amount_transfer, c.name AS customer_name
      FROM sales s
      JOIN payments p ON p.sale_id = s.id
      LEFT JOIN customers c ON c.id = s.customer_id
+     LEFT JOIN currencies cur ON cur.code = s.currency_code
      WHERE s.status != 'cancelled' AND s.date BETWEEN ? AND ? AND s.pos_id = ?`,
     [fromLocal, toLocal, shift.pos_id]
   );
@@ -157,9 +165,23 @@ export const GET = handle(async (_req: Request, ctx) => {
     paymentBreakdown[method] = b;
   }
 
+  // ── Desglose de ventas completadas por moneda (en qué moneda se vendió) ──
+  const salesByCurrency: Record<string, { count: number; total: number }> = {};
+  for (const s of completedSalesFallback(sales)) {
+    const code = String(s.currency_code ?? '') || baseCurrency || 'BASE';
+    const b = salesByCurrency[code] ?? { count: 0, total: 0 };
+    b.count += 1;
+    b.total = r2(b.total + Number(s.total ?? 0));
+    salesByCurrency[code] = b;
+  }
+
   // ── Totales ──
   // Solo ventas completadas (las de crédito pendiente no son ingreso aún)
   const completedSales = sales.filter(s => String(s.status) === 'completed');
+  /** Helper para el desglose por moneda (evita TDZ con completedSales). */
+  function completedSalesFallback(rows: Record<string, unknown>[]) {
+    return rows.filter(s => String(s.status) === 'completed');
+  }
   const totalSalesCash = completedSales.reduce((acc, s) => acc + Number(s.amount_cash ?? 0), 0);
   const totalSalesTransfer = completedSales.reduce((acc, s) => acc + Number(s.amount_transfer ?? 0), 0);
   const totalSales = completedSales.reduce((acc, s) => acc + Number(s.total ?? 0), 0);
@@ -215,5 +237,8 @@ export const GET = handle(async (_req: Request, ctx) => {
     stock_adjustments: stockAdjustments,
     sold_products: soldProducts,
     payment_breakdown: paymentBreakdown,
+    // Moneda base y desglose de ventas completadas por moneda
+    base_currency: baseCurrency || null,
+    sales_by_currency: salesByCurrency,
   });
 });

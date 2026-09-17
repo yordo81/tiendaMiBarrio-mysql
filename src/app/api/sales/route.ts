@@ -21,7 +21,7 @@ export const GET = handle(async (req: Request) => {
   const userId = searchParams.get('user_id');
   const limit = Math.max(1, Math.min(500, parseInt(searchParams.get('limit') ?? '50') || 50));
 
-  let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name,p.name AS pos_name,cur.symbol AS currency_symbol,cur.name AS currency_name FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id LEFT JOIN currencies cur ON cur.code=s.currency_code`;
+  let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name,p.name AS pos_name,cur.symbol AS currency_symbol,cur.name AS currency_name,cur.is_base AS currency_is_base FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id LEFT JOIN currencies cur ON cur.code=s.currency_code`;
   const params: unknown[] = [];
   const where: string[] = [];
   if (from) { where.push('s.date>=?'); params.push(from); }
@@ -243,13 +243,14 @@ export const POST = handle(async (req: Request) => {
       }
     }
 
-    // Registrar el pago
+    // Registrar el pago (con la moneda y tasa congeladas de la venta:
+    // el arqueo por moneda del turno necesita saber en qué moneda se cobró)
     const method = validatePaymentMethodOrDefault(payment?.method);
     const amountCash = method === 'cash' ? total : (payment?.amount_cash ?? 0);
     const amountTransfer = method === 'transfer' ? total : (payment?.amount_transfer ?? 0);
     await conn.execute(
-      'INSERT INTO payments (id,sale_id,method,amount_cash,amount_transfer,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?)',
-      [randomUUID(), saleId, method, amountCash, amountTransfer, saleDate, payment?.notes??null, ts]
+      'INSERT INTO payments (id,sale_id,method,amount_cash,amount_transfer,currency_code,exchange_rate,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [randomUUID(), saleId, method, amountCash, amountTransfer, saleCurrency, saleExchangeRate, saleDate, payment?.notes??null, ts]
     );
 
     // Si es crédito, actualizar saldo del cliente

@@ -11,6 +11,10 @@ export const POST = handle(async (req: Request, ctx) => {
   const saleRows = await query('SELECT * FROM sales WHERE id=?', [saleId]);
   const sale = (saleRows as Record<string,unknown>[])[0];
   if (!sale) return notFound('Venta no encontrada');
+  // La deuda se sigue en la moneda de la venta: el abono hereda su moneda y
+  // tasa congelada (el arqueo por moneda del turno lo necesita).
+  const currencyCode = sale.currency_code ? String(sale.currency_code) : null;
+  const exchangeRate = sale.exchange_rate != null && Number(sale.exchange_rate) > 0 ? Number(sale.exchange_rate) : null;
   if (sale.status === 'cancelled') return err('La venta está cancelada');
   if (sale.status === 'completed') return err('La venta ya está pagada');
   if (!sale.customer_id) return err('La venta no tiene cliente asociado');
@@ -27,8 +31,8 @@ export const POST = handle(async (req: Request, ctx) => {
 
   await transaction(async (conn) => {
     await conn.execute(
-      'INSERT INTO customer_payments (id,customer_id,sale_id,amount,method,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?)',
-      [paymentId, sale.customer_id, saleId, amount, method, ts, notes, ts]
+      'INSERT INTO customer_payments (id,customer_id,sale_id,amount,currency_code,exchange_rate,method,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [paymentId, sale.customer_id, saleId, amount, currencyCode, exchangeRate, method, ts, notes, ts]
     );
 
     await conn.execute('UPDATE customers SET balance=GREATEST(0,balance-?),updated_at=? WHERE id=?', [amount, ts, sale.customer_id]);

@@ -29,11 +29,30 @@ export interface ReceiptData {
   cashAmount: number;
   transferAmount: number;
   notes?: string | null;
+  /** Moneda de la venta (código, ej: USD). null = moneda base */
+  currencyCode?: string | null;
+  /** Símbolo de la moneda de la venta (ej: $, €) */
+  currencySymbol?: string | null;
+  /** Tasa aplicada: 1 moneda de la venta = X moneda base */
+  exchangeRate?: number | null;
+  /** Código de la moneda base del negocio (para el equivalente) */
+  baseCurrencyCode?: string | null;
+  /** Símbolo de la moneda base del negocio */
+  baseCurrencySymbol?: string | null;
 }
 
 // ── Formato común ────────────────────────────────────────────────
 function money(n: number): string {
   return '$' + n.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Formatea un monto con el símbolo/código de una moneda concreta. */
+function moneyCur(n: number, symbol?: string | null, code?: string | null): string {
+  const formatted = n.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sym = (symbol ?? '').trim();
+  if (sym) return sym + formatted;
+  const c = (code ?? '').trim().toUpperCase();
+  return c ? `${c} ${formatted}` : '$' + formatted;
 }
 
 function qty(n: number): string {
@@ -71,10 +90,17 @@ export function buildReceiptHtml(data: ReceiptData, width: '57' | '80'): string 
 
   const itemRows = data.items.map(it => {
     const nameLines = wrapText(it.name, small ? 30 : 42).map(l => `<div class="row name">${esc(l)}</div>`).join('');
-    const qtyLine = `${qty(it.quantity)} x ${money(it.unit_price)}`;
+    const qtyLine = `${qty(it.quantity)} x ${moneyCur(it.unit_price, data.currencySymbol, data.currencyCode)}`;
     return `${nameLines}
-      <div class="row sub"><span>${esc(qtyLine)}</span><span class="right">${money(it.quantity * it.unit_price)}</span></div>`;
+      <div class="row sub"><span>${esc(qtyLine)}</span><span class="right">${moneyCur(it.quantity * it.unit_price, data.currencySymbol, data.currencyCode)}</span></div>`;
   }).join('');
+  // Moneda de la venta distinta de la base: mostrar la tasa y el equivalente
+  const isForeign = !!data.currencyCode && !!data.exchangeRate && data.exchangeRate !== 1;
+  const foreignLine = isForeign
+    ? `  <div class="row"><span>Tasa:</span><span>1 ${esc(data.currencyCode!)} = ${data.exchangeRate} ${esc(data.baseCurrencyCode ?? '')}</span></div>
+  <div class="row"><span>Equiv.:</span><span>${moneyCur(data.total * data.exchangeRate!, data.baseCurrencySymbol, data.baseCurrencyCode)}</span></div>
+`
+    : '';
 
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <title>Ticket ${esc(data.saleId)}</title>
@@ -103,8 +129,8 @@ export function buildReceiptHtml(data: ReceiptData, width: '57' | '80'): string 
   <div class="sep"></div>
   ${itemRows}
   <div class="sep"></div>
-  <div class="row total"><span>TOTAL</span><span>${money(data.total)}</span></div>
-  ${data.notes ? `<div class="row"><span>Nota:</span><span>${esc(data.notes)}</span></div>` : ''}
+  <div class="row total"><span>TOTAL</span><span>${moneyCur(data.total, data.currencySymbol, data.currencyCode)}</span></div>
+${foreignLine}  ${data.notes ? `<div class="row"><span>Nota:</span><span>${esc(data.notes)}</span></div>` : ''}
   <div class="sep"></div>
   <div class="center">¡Gracias por su compra!</div>
   <div class="center">${esc(data.businessName)}</div>
@@ -178,8 +204,8 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
   // Productos
   for (const it of data.items) {
     for (const ln of wrapText(it.name, cols)) push(ln, { bold: true });
-    const qtyLine = `${qty(it.quantity)} x ${money(it.unit_price)}`;
-    const sub = money(it.quantity * it.unit_price);
+    const qtyLine = `${qty(it.quantity)} x ${moneyCur(it.unit_price, data.currencySymbol, data.currencyCode)}`;
+    const sub = moneyCur(it.quantity * it.unit_price, data.currencySymbol, data.currencyCode);
     const gap = Math.max(1, cols - qtyLine.length - sub.length);
     push(qtyLine + ' '.repeat(gap) + sub);
   }
@@ -188,7 +214,13 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
   // Total — el monto en doble tamaño se alinea a la derecha con ESC a (la
   // impresora maneja la alineación; el padding manual desbordaría el papel).
   push('TOTAL', { bold: true });
-  push(money(data.total), { bold: true, double: true, align: 'right' });
+  push(moneyCur(data.total, data.currencySymbol, data.currencyCode), { bold: true, double: true, align: 'right' });
+  // Venta en moneda distinta de la base: tasa aplicada y equivalente
+  const isForeign = !!data.currencyCode && !!data.exchangeRate && data.exchangeRate !== 1;
+  if (isForeign) {
+    push(`Tasa: 1 ${data.currencyCode} = ${data.exchangeRate} ${data.baseCurrencyCode ?? ''}`);
+    push(`Equiv: ${moneyCur(data.total * data.exchangeRate!, data.baseCurrencySymbol, data.baseCurrencyCode)}`);
+  }
   if (data.notes) {
     for (const ln of wrapText(`Nota: ${data.notes}`, cols)) push(ln);
   }
@@ -393,6 +425,13 @@ export function buildReceiptFromSale(opts: {
   transfer: number;
   notes?: string | null;
   sellerName?: string | null;
+  /** Moneda base del negocio (para el equivalente en el ticket) */
+  baseCurrencyCode?: string | null;
+  baseCurrencySymbol?: string | null;
+  /** Moneda de la venta: por defecto se toma de opts.sale, admite override */
+  currencyCode?: string | null;
+  currencySymbol?: string | null;
+  exchangeRate?: number | null;
 }): ReceiptData {
   return {
     businessName: opts.businessName,
@@ -412,6 +451,11 @@ export function buildReceiptFromSale(opts: {
     cashAmount: opts.cash,
     transferAmount: opts.transfer,
     notes: opts.notes ?? null,
+    currencyCode: opts.currencyCode ?? (opts.sale.currency_code ? String(opts.sale.currency_code) : null),
+    currencySymbol: opts.currencySymbol ?? (opts.sale.currency_symbol ? String(opts.sale.currency_symbol) : null),
+    exchangeRate: opts.exchangeRate ?? (opts.sale.exchange_rate != null && Number(opts.sale.exchange_rate) > 0 ? Number(opts.sale.exchange_rate) : null),
+    baseCurrencyCode: opts.baseCurrencyCode ?? null,
+    baseCurrencySymbol: opts.baseCurrencySymbol ?? null,
   };
 }
 
