@@ -7,7 +7,7 @@ const m = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 
 const BASE = process.env.QA_BASE ?? 'http://localhost:3011';
-const env = fs.readFileSync('.env.local', 'utf8');
+const env = fs.readFileSync('.env', 'utf8');
 const DB = {
   host: 'localhost', port: 3306, user: 'root',
   password: env.match(/DB_PASSWORD=(\S+)/)[1], database: 'tienda_mi_barrio',

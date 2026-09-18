@@ -62,14 +62,11 @@ npm install
 > Si ves un error de `ENOTEMPTY`, ejecuta `npm install` una segunda vez.
 > En Mac/Linux, también puedes usar: `rm -rf node_modules && npm install`
 
-### 3. Configura las variables de entorno
-
-```bash
-cp .env.local.example .env.local
+### 3. Configura las variables de entorno```bash
+cp .env.example .env
 ```
 
-Edita `.env.local` con tus datos:
-
+Edita `.env` con tus datos:
 ```env
 DB_HOST=localhost
 DB_PORT=3306
@@ -154,7 +151,7 @@ mysql -u root -p < mysql/migration-020-reservations-toggle.sql
 mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
 ```
 
-> 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` a `node scripts/apply-migration-020.js` aplican las migraciones 012-020 de forma idempotente leyendo las credenciales de `.env.local` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
+> 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` a `node scripts/apply-migration-020.js` aplican las migraciones 012-020 de forma idempotente leyendo las credenciales de `.env` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
 
 | Migración | Descripción |
 |-----------|-------------|
@@ -290,10 +287,10 @@ npm install
 
 ### Error: Cannot connect to MySQL
 - Verifica que MySQL esté corriendo: `mysql -u root -p`
-- Comprueba que las credenciales en `.env.local` sean correctas
+- Comprueba que las credenciales en `.env` sean correctas
 
 ### Error: SESSION_SECRET not set
-- El archivo `.env.local` debe existir con un SESSION_SECRET de al menos 32 caracteres
+- El archivo `.env` debe existir con un SESSION_SECRET de al menos 32 caracteres
 
 ### La app redirige siempre a /auth/login
 - Verifica que la cookie `tienda_session` se está creando

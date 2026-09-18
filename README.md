@@ -77,10 +77,10 @@ npm install
 ### 2. Configurar variables de entorno
 
 ```bash
-cp .env.local.example .env.local
+cp .env.example .env
 ```
 
-Edita `.env.local`:
+Edita `.env`:
 ```env
 DB_HOST=localhost
 DB_PORT=3306

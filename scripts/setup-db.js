@@ -13,9 +13,9 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-// Load .env.local if it exists
+// Load .env if it exists
 try {
-  const env = fs.readFileSync(path.join(__dirname, '../.env.local'), 'utf-8');
+  const env = fs.readFileSync(path.join(__dirname, '../.env'), 'utf-8');
   env.split('\n').forEach(line => {
     const [key, ...rest] = line.split('=');
     if (key && rest.length && !key.startsWith('#')) {

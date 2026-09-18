@@ -17,7 +17,7 @@
 set -e
 
 # ── Entorno ──
-ENV_FILE="${ENV_FILE:-/app/.env.local}"
+ENV_FILE="${ENV_FILE:-/app/.env}"
 if [ -z "${DB_HOST:-}" ] && [ -f "$ENV_FILE" ]; then
   set -a
   . "$ENV_FILE"

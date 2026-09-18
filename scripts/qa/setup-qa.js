@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
 
-const env = fs.readFileSync('.env.local', 'utf8');
+const env = fs.readFileSync('.env', 'utf8');
 const DB = {
   host: 'localhost',
   port: 3306,

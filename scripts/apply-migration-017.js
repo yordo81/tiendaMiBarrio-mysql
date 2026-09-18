@@ -3,7 +3,7 @@
  *
  * Uso: node scripts/apply-migration-017.js
  *
- * Lee las credenciales de .env.local (o variables de entorno ya cargadas) y
+ * Lee las credenciales de .env (o variables de entorno ya cargadas) y
  * ejecuta las sentencias de mysql/migration-017-purchases-invoice.sql.
  * Es idempotente: si las columnas ya existen, lo reporta y termina.
  */
@@ -12,9 +12,9 @@ const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
 
-// Cargar .env.local si existe (sin pisar variables ya definidas)
+// Cargar .env si existe (sin pisar variables ya definidas)
 try {
-  const env = fs.readFileSync(path.join(__dirname, '../.env.local'), 'utf-8');
+  const env = fs.readFileSync(path.join(__dirname, '../.env'), 'utf-8');
   env.split('\n').forEach(line => {
     const [key, ...rest] = line.split('=');
     if (key && rest.length && !key.startsWith('#') && !process.env[key.trim()]) {
