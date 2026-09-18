@@ -1,7 +1,9 @@
 -- ============================================================
 -- Migración 027: Monedas en productos (costo y venta)
 -- ============================================================
-USE tienda_mi_barrio;
+-- NOTA: sin USE — la base de datos la selecciona quien ejecuta el
+-- script (entrypoint.sh pasa $DB_NAME al cliente mysql).
+-- ============================================================
 
 -- Agregar columna de moneda del costo
 ALTER TABLE products

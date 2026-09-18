@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT IGNORE INTO schema_migrations (filename) VALUES
-  ('all-migrations.sql');
+  ('all-migrations.sql'),
+  ('migration-026-payments-currency.sql'),
+  ('migration-027-product-currencies.sql'),
+  ('migration-028-enable-accounting.sql');
 
 CREATE TABLE IF NOT EXISTS users (
   id            CHAR(36)     NOT NULL PRIMARY KEY,

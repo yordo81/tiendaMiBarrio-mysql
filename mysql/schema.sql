@@ -6,6 +6,20 @@
 CREATE DATABASE IF NOT EXISTS tienda_mi_barrio CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE tienda_mi_barrio;
 
+-- Tabla de control de migraciones: registra el esquema y las migraciones
+-- ya integradas para que entrypoint.sh no las re-aplique si luego se usa
+-- el contenedor de la app sobre esta base de datos.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  filename   VARCHAR(255) NOT NULL PRIMARY KEY,
+  applied_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO schema_migrations (filename) VALUES
+  ('all-migrations.sql'),
+  ('migration-026-payments-currency.sql'),
+  ('migration-027-product-currencies.sql'),
+  ('migration-028-enable-accounting.sql');
+
 CREATE TABLE IF NOT EXISTS users (
   id            CHAR(36)     NOT NULL PRIMARY KEY,
   name          VARCHAR(255) NOT NULL,
@@ -132,13 +146,13 @@ CREATE TABLE IF NOT EXISTS sale_items (
   sale_id    CHAR(36)      NOT NULL,
   currency_code  VARCHAR(10)   NULL COMMENT 'Moneda del precio unitario',
   exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta',
-  product_id CHAR(36)      NOT NULL,
+  product_id CHAR(36)      NULL,
   quantity   DECIMAL(12,3) NOT NULL,
   unit_price DECIMAL(12,2) NOT NULL,
   cost       DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   created_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (sale_id)    REFERENCES sales(id)    ON DELETE CASCADE,
-  FOREIGN KEY (product_id) REFERENCES products(id),
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
   INDEX idx_sale (sale_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -199,7 +213,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 
 CREATE TABLE IF NOT EXISTS stock_movements (
   id           CHAR(36)      NOT NULL PRIMARY KEY,
-  product_id   CHAR(36)      NOT NULL,
+  product_id   CHAR(36)      NULL,
   type         ENUM('in','out','adjust','expense') NOT NULL,
   quantity     DECIMAL(12,3) NOT NULL,
   reason       VARCHAR(255)  NOT NULL,
@@ -207,7 +221,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   user_id      CHAR(36)      NULL,
   date         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
   FOREIGN KEY (user_id)    REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_product (product_id), INDEX idx_date (date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
