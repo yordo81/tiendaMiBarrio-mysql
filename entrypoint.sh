@@ -7,7 +7,9 @@
 # 1. Espera a que MySQL esté disponible.
 # 2. Garantiza la tabla de control `schema_migrations`.
 # 3. Aplica all-migrations.sql si no se ha ejecutado aún (contiene
-#    todas las migraciones 002-027 en un solo archivo).
+#    todas las migraciones 002-028 en un solo archivo).
+# 3a. Detecta si 01-schema.sql ya aplicó el esquema completo y
+#     registra el marker sin re-ejecutar.
 # 3b. Aplica migraciones individuales (migration-XXX-*.sql) pendientes.
 # 4. Arranca la aplicación.
 #
@@ -97,10 +99,43 @@ fi
 CONSOLIDATED="$MIGRATIONS_DIR/all-migrations.sql"
 done_count=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM schema_migrations WHERE filename = 'all-migrations.sql'")
 
+# ── 3a. Detectar esquema completo sin marker ──
+# Si 01-schema.sql creó el esquema completo pero el INSERT en
+# schema_migrations falló (o el volumen ya tenía el esquema),
+# las tablas base existen. Registramos el marker sin re-ejecutar.
+if [ "$done_count" = "0" ] && [ -f "$CONSOLIDATED" ]; then
+  base_tables=$(mysql_cmd -N -s -e "
+    SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema = '$DB_NAME'
+      AND table_name IN ('sales','products','users','settings','expenses')
+  ")
+  if [ "$base_tables" = "5" ]; then
+    mysql_cmd -e "INSERT IGNORE INTO schema_migrations (filename) VALUES ('all-migrations.sql')"
+    log "Esquema base completo detectado (5 tablas principales existen)."
+    log "all-migrations.sql registrado como aplicado — omitiendo."
+    done_count=1
+  fi
+fi
+
 if [ "$done_count" = "0" ] && [ -f "$CONSOLIDATED" ]; then
   log "Aplicando migraciones consolidadas (all-migrations.sql)..."
   if ! mysql_cmd < "$CONSOLIDATED"; then
-    log "ERROR: falló all-migrations.sql. Corrige el SQL o la BD y reinicia el contenedor."
+    log "ERROR: falló all-migrations.sql."
+    # Diagnóstico: ¿faltan las tablas base?
+    missing=$(mysql_cmd -N -s -e "
+      SELECT GROUP_CONCAT(t) FROM (
+        SELECT 'sales' AS t WHERE NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='$DB_NAME' AND table_name='sales')
+        UNION ALL
+        SELECT 'products' WHERE NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='$DB_NAME' AND table_name='products')
+        UNION ALL
+        SELECT 'users' WHERE NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='$DB_NAME' AND table_name='users')
+      ) x
+    ")
+    if [ -n "$missing" ]; then
+      log "Tablas faltantes: $missing"
+      log "01-schema.sql no se ejecutó correctamente en MySQL."
+      log "Solución: docker compose down -v && docker compose up -d"
+    fi
     exit 1
   fi
   mysql_cmd -e "INSERT INTO schema_migrations (filename) VALUES ('all-migrations.sql')"
