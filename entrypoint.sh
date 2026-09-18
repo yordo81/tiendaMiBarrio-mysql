@@ -7,11 +7,9 @@
 # 1. Espera a que MySQL esté disponible.
 # 2. Garantiza la tabla de control `schema_migrations`.
 # 3. Aplica all-migrations.sql si no se ha ejecutado aún (contiene
-#    todas las migraciones 002-028 en un solo archivo).
-# 3a. Detecta si 01-schema.sql ya aplicó el esquema completo y
-#     registra el marker sin re-ejecutar.
-# 3b. Aplica migraciones individuales (migration-XXX-*.sql) pendientes.
-# 4. Arranca la aplicación.
+#    el esquema base COMPLETO + todas las migraciones 002-028).
+# 4. Aplica migraciones individuales (migration-XXX-*.sql) pendientes.
+# 5. Arranca la aplicación.
 #
 # Variables: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
 # (las define docker-compose).
@@ -69,6 +67,7 @@ log "MySQL disponible."
 table_exists=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB_NAME' AND table_name = 'schema_migrations'")
 
 if [ "$table_exists" = "0" ]; then
+  log "Creando tabla schema_migrations..."
   mysql_cmd -e "CREATE TABLE schema_migrations (
     filename   VARCHAR(255) NOT NULL PRIMARY KEY,
     applied_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -79,46 +78,31 @@ else
   JUST_CREATED=0
 fi
 
-# ── 2b. Volumen antiguo: detectar instalación pre-consolidación ──
-# Si la tabla schema_migrations no tiene 'all-migrations.sql' pero
-# tiene los archivos individuales (migration-002..025), significa que
-# la BD ya fue migrada antes de la consolidación. Solo registramos
-# el consolidado como aplicado sin volver a ejecutar nada.
-if [ "$JUST_CREATED" = "1" ]; then
-  has_consolidated=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM schema_migrations WHERE filename = 'all-migrations.sql'")
-  if [ "$has_consolidated" = "0" ]; then
-    has_old=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM schema_migrations WHERE filename LIKE 'migration-%'")
-    if [ "$has_old" != "0" ]; then
-      mysql_cmd -e "INSERT IGNORE INTO schema_migrations (filename) VALUES ('all-migrations.sql')"
-      log "Volumen heredado: migraciones individuales detectadas, consolidado registrado."
-    fi
-  fi
-fi
-
 # ── 3. Aplicar migración consolidada (all-migrations.sql) ──
 CONSOLIDATED="$MIGRATIONS_DIR/all-migrations.sql"
 done_count=$(mysql_cmd -N -s -e "SELECT COUNT(*) FROM schema_migrations WHERE filename = 'all-migrations.sql'")
 
 # ── 3a. Detectar esquema completo sin marker ──
-# Si 01-schema.sql creó el esquema completo pero el INSERT en
-# schema_migrations falló (o el volumen ya tenía el esquema),
-# las tablas base existen. Registramos el marker sin re-ejecutar.
+# Si el esquema base está completo pero el marker no existe,
+# registramos el marker sin re-ejecutar.
 if [ "$done_count" = "0" ] && [ -f "$CONSOLIDATED" ]; then
   base_tables=$(mysql_cmd -N -s -e "
     SELECT COUNT(*) FROM information_schema.tables
     WHERE table_schema = '$DB_NAME'
-      AND table_name IN ('sales','products','users','settings','expenses')
+      AND table_name IN ('sales','products','users','settings','expenses','locations','purchases','pos')
   ")
-  if [ "$base_tables" = "5" ]; then
+  # 8 tablas principales = esquema completo
+  if [ "$base_tables" = "8" ]; then
     mysql_cmd -e "INSERT IGNORE INTO schema_migrations (filename) VALUES ('all-migrations.sql')"
-    log "Esquema base completo detectado (5 tablas principales existen)."
+    log "Esquema base detectado (8 tablas principales existen)."
     log "all-migrations.sql registrado como aplicado — omitiendo."
     done_count=1
   fi
 fi
 
+# ── 3b. Ejecutar consolidado si no se ha aplicado ──
 if [ "$done_count" = "0" ] && [ -f "$CONSOLIDATED" ]; then
-  log "Aplicando migraciones consolidadas (all-migrations.sql)..."
+  log "Aplicando esquema base + migraciones (all-migrations.sql)..."
   if ! mysql_cmd < "$CONSOLIDATED"; then
     log "ERROR: falló all-migrations.sql."
     # Diagnóstico: ¿faltan las tablas base?
@@ -133,22 +117,22 @@ if [ "$done_count" = "0" ] && [ -f "$CONSOLIDATED" ]; then
     ")
     if [ -n "$missing" ]; then
       log "Tablas faltantes: $missing"
-      log "01-schema.sql no se ejecutó correctamente en MySQL."
-      log "Solución: docker compose down -v && docker compose up -d"
+      log "ERROR: El esquema base no se aplicó correctamente."
+      log "Verifica el archivo all-migrations.sql o el estado de la base de datos."
     fi
     exit 1
   fi
-  mysql_cmd -e "INSERT INTO schema_migrations (filename) VALUES ('all-migrations.sql')"
-  log "✓ all-migrations.sql aplicada."
+  mysql_cmd -e "INSERT IGNORE INTO schema_migrations (filename) VALUES ('all-migrations.sql')"
+  log "✓ Esquema base + migraciones aplicados."
 elif [ "$done_count" != "0" ]; then
-  log "Sin migraciones pendientes (consolidado ya aplicado)."
+  log "Sin migraciones pendientes (esquema ya aplicado)."
 else
   log "Sin archivo all-migrations.sql — omitiendo."
 fi
 
-# ── 3b. Aplicar migraciones individuales (migration-XXX-*.sql) ──
+# ── 4. Aplicar migraciones individuales (migration-XXX-*.sql) ──
 # Busca archivos migration-*.sql en el directorio de migraciones,
-# excluye all-migrations.sql y los que ya fueron aplicados.
+# excluye los que ya fueron aplicados.
 for mfile in "$MIGRATIONS_DIR"/migration-*.sql; do
   [ -f "$mfile" ] || continue  # sin glob: saltar
   mname=$(basename "$mfile")
@@ -159,11 +143,11 @@ for mfile in "$MIGRATIONS_DIR"/migration-*.sql; do
       log "ERROR: falló $mname. Corrige el SQL o la BD y reinicia el contenedor."
       exit 1
     fi
-    mysql_cmd -e "INSERT INTO schema_migrations (filename) VALUES ('$mname')"
+    mysql_cmd -e "INSERT IGNORE INTO schema_migrations (filename) VALUES ('$mname')"
     log "✓ $mname aplicada."
   fi
 done
 
-# ── 4. Arrancar la aplicación ──
+# ── 5. Arrancar la aplicación ──
 log "Arrancando la aplicación..."
 exec "$@"

@@ -6,21 +6,11 @@
 #   docker compose logs -f          # Ver logs
 #   docker compose down -v          # Detener y eliminar volúmenes
 # ============================================================
-# Configura las variables en un archivo .env (ver .env.example)
-# o directamente en el entorno.
-#
-# Migraciones: al arrancar, el contenedor app ejecuta entrypoint.sh,
-# que aplica automáticamente mysql/all-migrations.sql si no se ha
-# ejecutado aún (controlado en la tabla schema_migrations). Para
-# agregar una migración nueva, editar all-migrations.sql y reconstruir
-# la imagen de la app.
-# ============================================================
 
 services:
   # ---- MySQL 8 ----
   db:
     image: mysql:8.4.9-oraclelinux9
-    container_name: tienda_mb_db
     restart: unless-stopped
     environment:
       TZ: ${TIMEZONE:-America/Havana}
@@ -35,15 +25,14 @@ services:
       - ./mysql/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-rootpassword}"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 30s
+      retries: 5
+      start_period: 20s
 
   # ---- Valkey (Redis-compatible cache) ----
   valkey:
     image: valkey/valkey:9.1-alpine
-    container_name: tienda_mb_valkey
     restart: unless-stopped
     command: valkey-server --maxmemory 128mb --maxmemory-policy allkeys-lru --requirepass ${VALKEY_PASSWORD:-tienda_valkey_secret}
     ports:
@@ -59,12 +48,19 @@ services:
   # ---- Next.js App ----
   app:
     image: yordo81/tienda_mb_app:latest
-    container_name: tienda_mb_app
     restart: unless-stopped
+    # El orden real lo garantiza entrypoint.sh (espera a MySQL y aplica
+    # migraciones antes de arrancar); depends_on solo fija el orden de
+    # arranque de los contenedores.
+    depends_on:
+      db:
+        condition: service_started
+      valkey:
+        condition: service_started
     entrypoint: ["/entrypoint.sh"]
     command: ["node", "server.js"]
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_PORT:-3001}:3000"
     environment:
       NODE_ENV: production
       DB_HOST: db
@@ -73,23 +69,15 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-rootpassword}
       DB_NAME: ${DB_NAME:-tienda_mi_barrio}
       SESSION_SECRET: ${SESSION_SECRET:-cambiar_esto_por_un_secreto_de_32_caracteres}
-      # Secure en la cookie de sesión: solo activar detrás de HTTPS.
-      # Con HTTP plano (LAN/hosts) debe quedar false o el navegador
-      # descarta la cookie y el login rebota al login sin error.
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TIMEZONE: ${TIMEZONE:-America/Havana}
       VALKEY_URL: redis://:${VALKEY_PASSWORD:-tienda_valkey_secret}@valkey:6379
       HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
-      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3001}
       USER_ACTIVE_CACHE_TTL_MS: ${USER_ACTIVE_CACHE_TTL_MS:-30000}
-    depends_on:
-      db:
-        condition: service_healthy
-      valkey:
-        condition: service_healthy
 
 volumes:
   mysql_data:
-    name: tienda_mb_data
+    name: tienda_mb_data_cache
   valkey_data:
-    name: tienda_mb_valkey
+    name: tienda_mb_valkey_cache
