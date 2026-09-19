@@ -20,6 +20,13 @@ export const GET = handle(async (req: Request) => {
   }
   function locParams(): unknown[] { return locationId ? [locationId] : []; }
 
+  // ── Conversión a moneda base ─────────────────────────────────────
+  // SQL que devuelve el monto de una columna de venta ajustado a la moneda
+  // base: si la venta tiene moneda distinta de la base, multiplica por la
+  // tasa congelada (1 moneda = X base). Los NULL se tratan como base.
+  const baseExpr = (col: string, alias = 's') =>
+    `CASE WHEN ${alias}.currency_code IS NOT NULL AND ${alias}.currency_code!='' AND ${alias}.currency_code!=(SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1) THEN ${alias}.${col}*COALESCE(${alias}.exchange_rate,1) ELSE ${alias}.${col} END`;
+
   if (type === 'dashboard') {
     // El reporte general (ganancia neta, gastos, deudas) es solo para roles de gestión
     if (user.role === 'seller') return forbidden('Este reporte no está disponible para vendedores');
@@ -33,24 +40,25 @@ export const GET = handle(async (req: Request) => {
         };
       };
 
-      // NOTA: Los totales de ventas incluyen la conversión a moneda base.
-      // Si una venta se hizo en USD con tasa 240, el total en la BD está en USD,
-      // pero para los reportes se convierte a CUP (moneda base).
-      const baseCurrencyCode = (await query<{code:string}>("SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1"))[0]?.code ?? 'CUP';
+      // NOTA: Todos los totales se convierten a la moneda base usando la
+      // tasa congelada en cada venta/abono, para que ventas en USD y en la
+      // moneda base se sumen de forma consistente.
+      // Filtro opcional por almacén (locationId): subquery reutilizable.
+      const locFilter = locationId ? `s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND ` : '';
       const [today, week, month, expenses, cogs, debt, lowStock, chart, top, expensesToday, expensesWeek, cogsToday, cogsWeek] = await Promise.all([
-        query<{total:number}>(`SELECT COALESCE(SUM(CASE WHEN s.currency_code IS NOT NULL AND s.currency_code!='' AND s.currency_code!='${baseCurrencyCode}' THEN s.total*COALESCE(s.exchange_rate,1) ELSE s.total END),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} DATE(${locationId?'s.':''}date)=CURDATE() AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
-        query<{total:number}>(`SELECT COALESCE(SUM(CASE WHEN s.currency_code IS NOT NULL AND s.currency_code!='' AND s.currency_code!='${baseCurrencyCode}' THEN s.total*COALESCE(s.exchange_rate,1) ELSE s.total END),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
-        query<{total:number}>(`SELECT COALESCE(SUM(CASE WHEN s.currency_code IS NOT NULL AND s.currency_code!='' AND s.currency_code!='${baseCurrencyCode}' THEN s.total*COALESCE(s.exchange_rate,1) ELSE s.total END),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_FORMAT(CURDATE(), '%Y-%m-01') AND${locationId?' s.':' '}status!='cancelled'`,locParams()),
+        query<{total:number}>(`SELECT COALESCE(SUM(${baseExpr('total')}),0) AS total FROM sales s WHERE ${locFilter}DATE(s.date)=CURDATE() AND s.status!='cancelled'`,locParams()),
+        query<{total:number}>(`SELECT COALESCE(SUM(${baseExpr('total')}),0) AS total FROM sales s WHERE ${locFilter}s.date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) AND s.status!='cancelled'`,locParams()),
+        query<{total:number}>(`SELECT COALESCE(SUM(${baseExpr('total')}),0) AS total FROM sales s WHERE ${locFilter}s.date>=DATE_FORMAT(CURDATE(), '%Y-%m-01') AND s.status!='cancelled'`,locParams()),
         query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE date>=DATE_FORMAT(CURDATE(), '%Y-%m-01')`),
-        query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_FORMAT(CURDATE(), '%Y-%m-01') AND s.status!='cancelled'`,locParams()),
+        query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*${baseExpr('cost','si')}),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_FORMAT(CURDATE(), '%Y-%m-01') AND s.status!='cancelled'`,locParams()),
         query<{total:number;count:number}>(`SELECT COALESCE(SUM(balance),0) AS total,COUNT(*) AS count FROM customers WHERE balance>0`),
         query<{count:number}>(`SELECT COUNT(*) AS count FROM products p WHERE p.active=1${locationId?' AND p.id IN (SELECT product_id FROM location_stock WHERE location_id=?)':''} AND (SELECT COALESCE(${locationId?'quantity,0':'SUM(quantity),0'}) FROM location_stock WHERE product_id=p.id${locationId?' AND location_id=?':''}) <= p.min_stock`, (locationId ? [locationId, locationId] : []) as unknown[]),
-        query<{date:string;total:number}>(`SELECT DATE_FORMAT(${locationId?'s.':''}date,'%d/%m') AS date,COALESCE(SUM(${locationId?'s.':''}total),0) AS total FROM sales${locationId?' s':''} WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND${locationId?' s.':' '}status!='cancelled' GROUP BY DATE(${locationId?'s.':''}date),DATE_FORMAT(${locationId?'s.':''}date,'%d/%m') ORDER BY DATE(${locationId?'s.':''}date) ASC`, locationId ? [locationId, days] : [days]),
-        query<{name:string;total:number}>(`SELECT p.name,COALESCE(SUM(si.quantity*si.unit_price),0) AS total FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_FORMAT(CURDATE(), '%Y-%m-01') AND s.status!='cancelled' GROUP BY p.id,p.name ORDER BY total DESC LIMIT 5`,locParams()),
+        query<{date:string;total:number}>(`SELECT DATE_FORMAT(s.date,'%d/%m') AS date,COALESCE(SUM(${baseExpr('total')}),0) AS total FROM sales s WHERE ${locFilter}s.date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND s.status!='cancelled' GROUP BY DATE(s.date),DATE_FORMAT(s.date,'%d/%m') ORDER BY DATE(s.date) ASC`, locationId ? [locationId, days] : [days]),
+        query<{name:string;total:number}>(`SELECT p.name,COALESCE(SUM(si.quantity*${baseExpr('unit_price','si')}),0) AS total FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} si.created_at>=DATE_FORMAT(CURDATE(), '%Y-%m-01') AND s.status!='cancelled' GROUP BY p.id,p.name ORDER BY total DESC LIMIT 5`,locParams()),
         query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE${locationId?` id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='gasto' AND DATE(date)=CURDATE()) AND`:''} DATE(date)=CURDATE()`,locParams()),
         query<{total:number}>(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE${locationId?` id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='gasto') AND`:''} date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)`,locParams()),
-        query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} DATE(${locationId?'s.':''}date)=CURDATE() AND s.status!='cancelled'`,locParams()),
-        query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*si.cost),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) AND s.status!='cancelled'`,locParams()),
+        query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*${baseExpr('cost','si')}),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} DATE(${locationId?'s.':''}date)=CURDATE() AND s.status!='cancelled'`,locParams()),
+        query<{total:number}>(`SELECT COALESCE(SUM(si.quantity*${baseExpr('cost','si')}),0) AS total FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE${locationId?` s.id IN (SELECT reference_id FROM location_movements WHERE location_id=? AND type='venta') AND`:''} ${locationId?'s.':''}date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) AND s.status!='cancelled'`,locParams()),
       ]);
       const salesTodayVal = today[0]?.total ?? 0;
       const salesWeekVal = week[0]?.total ?? 0;
@@ -100,12 +108,12 @@ export const GET = handle(async (req: Request) => {
 
     const data = await cachedReport('seller', uid, locationId, days, async () => {
       const [myToday, myCountToday, myWeek, myMonth, chart, top, debtors, lowStock] = await Promise.all([
-        query<{ total: number }>(`SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE user_id=? AND DATE(date)=CURDATE() AND status!='cancelled'`, [uid]),
-        query<{ count: number }>(`SELECT COUNT(*) AS count FROM sales WHERE user_id=? AND DATE(date)=CURDATE() AND status!='cancelled'`, [uid]),
-        query<{ total: number }>(`SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE user_id=? AND date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) AND status!='cancelled'`, [uid]),
-        query<{ total: number }>(`SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE user_id=? AND date>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND status!='cancelled'`, [uid]),
-        query<{ date: string; total: number }>(`SELECT DATE_FORMAT(date,'%d/%m') AS date,COALESCE(SUM(total),0) AS total FROM sales WHERE user_id=? AND date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND status!='cancelled' GROUP BY DATE(date),DATE_FORMAT(date,'%d/%m') ORDER BY DATE(date) ASC`, [uid, days]),
-        query<{ name: string; total: number }>(`SELECT p.name,COALESCE(SUM(si.quantity*si.unit_price),0) AS total FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id WHERE si.created_at>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND s.status!='cancelled' GROUP BY p.id,p.name ORDER BY total DESC LIMIT 5`),
+        query<{ total: number }>(`SELECT COALESCE(SUM(${baseExpr('total')}),0) AS total FROM sales s WHERE s.user_id=? AND DATE(s.date)=CURDATE() AND s.status!='cancelled'`, [uid]),
+        query<{ count: number }>(`SELECT COUNT(*) AS count FROM sales s WHERE s.user_id=? AND DATE(s.date)=CURDATE() AND s.status!='cancelled'`, [uid]),
+        query<{ total: number }>(`SELECT COALESCE(SUM(${baseExpr('total')}),0) AS total FROM sales s WHERE s.user_id=? AND s.date>=DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY) AND s.status!='cancelled'`, [uid]),
+        query<{ total: number }>(`SELECT COALESCE(SUM(${baseExpr('total')}),0) AS total FROM sales s WHERE s.user_id=? AND s.date>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND s.status!='cancelled'`, [uid]),
+        query<{ date: string; total: number }>(`SELECT DATE_FORMAT(s.date,'%d/%m') AS date,COALESCE(SUM(${baseExpr('total')}),0) AS total FROM sales s WHERE s.user_id=? AND s.date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND s.status!='cancelled' GROUP BY DATE(s.date),DATE_FORMAT(s.date,'%d/%m') ORDER BY DATE(s.date) ASC`, [uid, days]),
+        query<{ name: string; total: number }>(`SELECT p.name,COALESCE(SUM(si.quantity*${baseExpr('unit_price','si')}),0) AS total FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id WHERE si.created_at>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND s.status!='cancelled' GROUP BY p.id,p.name ORDER BY total DESC LIMIT 5`),
         query<{ count: number }>(`SELECT COUNT(*) AS count FROM customers WHERE balance>0`),
         query<{ count: number }>(`SELECT COUNT(*) AS count FROM products p WHERE p.active=1 AND (SELECT COALESCE(SUM(quantity),0) FROM location_stock WHERE product_id=p.id) <= p.min_stock`),
       ]);
@@ -135,7 +143,11 @@ export const GET = handle(async (req: Request) => {
 
   if (type === 'margins') {
     const data = await cachedReport('margins', user.id, locationId, days, async () => {
-      let sql = `SELECT p.name,AVG(si.unit_price) AS sale_price,AVG(si.cost) AS cost,AVG(si.unit_price-si.cost) AS margin,AVG((si.unit_price-si.cost)/NULLIF(si.unit_price,0)*100) AS margin_pct,SUM(si.quantity*si.unit_price) AS total_sold,SUM(si.quantity*si.cost) AS total_cost,SUM(si.quantity*(si.unit_price-si.cost)) AS gross_profit FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id`;
+      // Montos convertidos a moneda base (venta y costo) para que el reporte
+      // sea consistente aunque haya ventas en moneda extranjera.
+      const px = baseExpr('unit_price', 'si');
+      const cx = baseExpr('cost', 'si');
+      let sql = `SELECT p.name,AVG(${px}) AS sale_price,AVG(${cx}) AS cost,AVG(${px}-${cx}) AS margin,AVG((${px}-${cx})/NULLIF(${px},0)*100) AS margin_pct,SUM(si.quantity*${px}) AS total_sold,SUM(si.quantity*${cx}) AS total_cost,SUM(si.quantity*(${px}-${cx})) AS gross_profit FROM sale_items si JOIN products p ON p.id=si.product_id JOIN sales s ON s.id=si.sale_id`;
       const mp: unknown[] = [];
       if (locationId) {
         sql += ` JOIN location_movements lm ON lm.reference_id=s.id AND lm.type='venta' AND lm.location_id=?`;
@@ -207,9 +219,9 @@ export const GET = handle(async (req: Request) => {
         FROM sales s
         LEFT JOIN (
           SELECT sale_id,
-                 SUM(CASE WHEN method='cash' THEN amount_cash ELSE 0 END) AS cash_amount,
-                 SUM(CASE WHEN method IN ('transfer','mixed') THEN amount_transfer ELSE 0 END) AS transfer_amount
-          FROM payments GROUP BY sale_id
+                 SUM(CASE WHEN method='cash' THEN CASE WHEN p.currency_code IS NOT NULL AND p.currency_code!='' AND p.currency_code!=(SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1) THEN amount_cash*COALESCE(p.exchange_rate,1) ELSE amount_cash END ELSE 0 END) AS cash_amount,
+                 SUM(CASE WHEN method IN ('transfer','mixed') THEN CASE WHEN p.currency_code IS NOT NULL AND p.currency_code!='' AND p.currency_code!=(SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1) THEN amount_transfer*COALESCE(p.exchange_rate,1) ELSE amount_transfer END ELSE 0 END) AS transfer_amount
+          FROM payments p GROUP BY sale_id
         ) pay ON pay.sale_id=s.id`;
       const bp: unknown[] = [];
       if (locationId) {
@@ -224,11 +236,12 @@ export const GET = handle(async (req: Request) => {
       const rowsSql = `
         SELECT DATE(s.date) AS date,
                COUNT(*) AS count,
-               COALESCE(SUM(s.total),0) AS total,
+               COALESCE(SUM(${baseExpr('total')}),0) AS total,
+               COALESCE(SUM(${baseExpr('total')}),0) AS total_base,
+               COALESCE(SUM(s.total),0) AS total_original,
+               COALESCE(SUM(${baseExpr('total')}),0) - COALESCE(SUM(s.total),0) AS currency_diff,
                COALESCE(SUM(pay.cash_amount),0) AS cash_total,
-               COALESCE(SUM(pay.transfer_amount),0) AS transfer_total,
-               COALESCE(SUM(CASE WHEN s.currency_code IS NOT NULL AND s.currency_code != '' THEN s.total * COALESCE(s.exchange_rate, 1) ELSE s.total END),0) AS total_base,
-               COALESCE(SUM(CASE WHEN s.currency_code IS NOT NULL AND s.currency_code != '' THEN s.total * COALESCE(s.exchange_rate, 1) ELSE s.total END) - SUM(s.total),0) AS currency_diff
+               COALESCE(SUM(pay.transfer_amount),0) AS transfer_total
         ${baseSql}${whereBase}
         GROUP BY DATE(s.date) ORDER BY DATE(s.date) ASC`;
       const rows = await query<Record<string, unknown>>(rowsSql, [...bp, ...whereParams]);
@@ -312,7 +325,9 @@ export const GET = handle(async (req: Request) => {
       // del pago (formato del POS táctil: "ID pago: XXX · Tel: XXX") o del
       // teléfono del cliente asociado a la venta.
       let sql = `
-        SELECT p.id AS payment_id, p.method, p.amount_transfer, p.notes AS payment_notes,
+        SELECT p.id AS payment_id, p.method, p.amount_transfer,
+               CASE WHEN p.currency_code IS NOT NULL AND p.currency_code!='' AND p.currency_code!=(SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1) THEN p.amount_transfer*COALESCE(p.exchange_rate,1) ELSE p.amount_transfer END AS amount_transfer_base,
+               p.currency_code, p.notes AS payment_notes,
                p.date AS payment_date, s.id AS sale_id, s.date AS sale_date,
                pr.name AS product_name, si.quantity, si.unit_price,
                c.name AS customer_name, c.phone AS customer_phone
@@ -345,6 +360,9 @@ export const GET = handle(async (req: Request) => {
           unit_price: Number(r.unit_price ?? 0),
           subtotal: Number(r.quantity ?? 0) * Number(r.unit_price ?? 0),
           amount_transfer: Number(r.amount_transfer ?? 0),
+          // Monto convertido a la moneda base con la tasa congelada del pago
+          amount_transfer_base: Number(r.amount_transfer_base ?? 0),
+          currency_code: r.currency_code ?? null,
           method: r.method,
           customer_name: r.customer_name ?? null,
           phone: phone || null,

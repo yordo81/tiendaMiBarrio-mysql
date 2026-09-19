@@ -23,9 +23,21 @@ export const GET = handle(async (req) => {
   const to = searchParams.get('to');      // Fecha fin para filtro personalizado
   const hasCustomRange = !!(from && to);
 
+  // ── Conversión a moneda base ─────────────────────────────────
+  // Los pagos de ventas y abonos de clientes pueden registrarse en una
+  // moneda distinta de la base (con la tasa congelada al momento de la
+  // operación). Para que la contabilidad sea consistente, todos los
+  // montos se convierten a la moneda base: monto * tasa cuando la moneda
+  // del registro es distinta de la base; el monto tal cual en caso
+  // contrario o cuando no hay moneda (registros antiguos).
+  const baseSub = "(SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1)";
+  const payCashBase = `CASE WHEN p.currency_code IS NOT NULL AND p.currency_code!='' AND p.currency_code!=${baseSub} THEN p.amount_cash*COALESCE(p.exchange_rate,1) ELSE p.amount_cash END`;
+  const payTransferBase = `CASE WHEN p.currency_code IS NOT NULL AND p.currency_code!='' AND p.currency_code!=${baseSub} THEN p.amount_transfer*COALESCE(p.exchange_rate,1) ELSE p.amount_transfer END`;
+  const cpAmountBase = `CASE WHEN currency_code IS NOT NULL AND currency_code!='' AND currency_code!=${baseSub} THEN amount*COALESCE(exchange_rate,1) ELSE amount END`;
+
   // ── 1. Ingresos de efectivo desde pagos de ventas ──
   const cashFromSales = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(p.amount_cash), 0) AS total
+    `SELECT COALESCE(SUM(${payCashBase}), 0) AS total
      FROM payments p
      JOIN sales s ON s.id = p.sale_id
      WHERE s.status != 'cancelled'`
@@ -33,7 +45,7 @@ export const GET = handle(async (req) => {
 
   // ── 2. Ingresos por transferencia desde pagos de ventas ──
   const transferFromSales = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(p.amount_transfer), 0) AS total
+    `SELECT COALESCE(SUM(${payTransferBase}), 0) AS total
      FROM payments p
      JOIN sales s ON s.id = p.sale_id
      WHERE s.status != 'cancelled'`
@@ -41,23 +53,20 @@ export const GET = handle(async (req) => {
 
   // ── 3. Efectivo desde abonos de clientes ──
   const cashFromCustomers = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(amount), 0) AS total
-     FROM customer_payments
-     WHERE method = 'cash'`
+    `SELECT COALESCE(SUM(CASE WHEN method = 'cash' THEN ${cpAmountBase} ELSE 0 END), 0) AS total
+     FROM customer_payments`
   );
 
   // ── 4. Transferencia desde abonos de clientes ──
   const transferFromCustomers = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(amount), 0) AS total
-     FROM customer_payments
-     WHERE method = 'transfer'`
+    `SELECT COALESCE(SUM(CASE WHEN method = 'transfer' THEN ${cpAmountBase} ELSE 0 END), 0) AS total
+     FROM customer_payments`
   );
 
   // ── 5. Abonos mixtos de clientes (se dividen 50/50 como aproximación) ──
   const mixedFromCustomers = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(amount), 0) AS total
-     FROM customer_payments
-     WHERE method = 'mixed'`
+    `SELECT COALESCE(SUM(CASE WHEN method = 'mixed' THEN ${cpAmountBase} ELSE 0 END), 0) AS total
+     FROM customer_payments`
   );
 
   // ── 6. Egresos en efectivo desde gastos ──
@@ -108,8 +117,8 @@ export const GET = handle(async (req) => {
   const periodSalesInflows = await query<{ cash: number; transfer: number; period: string }>(`
     SELECT
       'week' AS period,
-      COALESCE(SUM(p.amount_cash), 0) AS cash,
-      COALESCE(SUM(p.amount_transfer), 0) AS transfer
+      COALESCE(SUM(${payCashBase}), 0) AS cash,
+      COALESCE(SUM(${payTransferBase}), 0) AS transfer
     FROM payments p
     JOIN sales s ON s.id = p.sale_id
     WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)
@@ -118,8 +127,8 @@ export const GET = handle(async (req) => {
 
     SELECT
       'month' AS period,
-      COALESCE(SUM(p.amount_cash), 0) AS cash,
-      COALESCE(SUM(p.amount_transfer), 0) AS transfer
+      COALESCE(SUM(${payCashBase}), 0) AS cash,
+      COALESCE(SUM(${payTransferBase}), 0) AS transfer
     FROM payments p
     JOIN sales s ON s.id = p.sale_id
     WHERE s.status != 'cancelled' AND p.date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
@@ -128,8 +137,8 @@ export const GET = handle(async (req) => {
 
     SELECT
       '90days' AS period,
-      COALESCE(SUM(p.amount_cash), 0) AS cash,
-      COALESCE(SUM(p.amount_transfer), 0) AS transfer
+      COALESCE(SUM(${payCashBase}), 0) AS cash,
+      COALESCE(SUM(${payTransferBase}), 0) AS transfer
     FROM payments p
     JOIN sales s ON s.id = p.sale_id
     WHERE s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
@@ -139,31 +148,31 @@ export const GET = handle(async (req) => {
   const periodCustomerInflows = await query<{ cash: number; transfer: number; mixed: number; period: string }>(`
     SELECT
       'week' AS period,
-      COALESCE(SUM(CASE WHEN method='cash' THEN amount ELSE 0 END), 0) AS cash,
-      COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
-      COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
-    FROM customer_payments
-    WHERE date >= DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)
+      COALESCE(SUM(CASE WHEN method='cash' THEN ${cpAmountBase} ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN method='transfer' THEN ${cpAmountBase} ELSE 0 END), 0) AS transfer,
+      COALESCE(SUM(CASE WHEN method='mixed' THEN ${cpAmountBase} ELSE 0 END), 0) AS mixed
+    FROM customer_payments cp
+    WHERE cp.date >= DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)
 
     UNION ALL
 
     SELECT
       'month' AS period,
-      COALESCE(SUM(CASE WHEN method='cash' THEN amount ELSE 0 END), 0) AS cash,
-      COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
-      COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
-    FROM customer_payments
-    WHERE date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+      COALESCE(SUM(CASE WHEN method='cash' THEN ${cpAmountBase} ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN method='transfer' THEN ${cpAmountBase} ELSE 0 END), 0) AS transfer,
+      COALESCE(SUM(CASE WHEN method='mixed' THEN ${cpAmountBase} ELSE 0 END), 0) AS mixed
+    FROM customer_payments cp
+    WHERE cp.date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
 
     UNION ALL
 
     SELECT
       '90days' AS period,
-      COALESCE(SUM(CASE WHEN method='cash' THEN amount ELSE 0 END), 0) AS cash,
-      COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
-      COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
-    FROM customer_payments
-    WHERE date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+      COALESCE(SUM(CASE WHEN method='cash' THEN ${cpAmountBase} ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN method='transfer' THEN ${cpAmountBase} ELSE 0 END), 0) AS transfer,
+      COALESCE(SUM(CASE WHEN method='mixed' THEN ${cpAmountBase} ELSE 0 END), 0) AS mixed
+    FROM customer_payments cp
+    WHERE cp.date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
   `);
 
   // ── Egresos por periodo (gastos) ──
@@ -242,13 +251,13 @@ export const GET = handle(async (req) => {
 
   // ── Ingresos de hoy: pagos de ventas ──
   const todayCashIn = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(p.amount_cash), 0) AS total
+    `SELECT COALESCE(SUM(${payCashBase}), 0) AS total
      FROM payments p JOIN sales s ON s.id = p.sale_id
      WHERE s.status != 'cancelled' AND DATE(p.date) = ?`,
     [todayStr]
   );
   const todayTransferIn = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(p.amount_transfer), 0) AS total
+    `SELECT COALESCE(SUM(${payTransferBase}), 0) AS total
      FROM payments p JOIN sales s ON s.id = p.sale_id
      WHERE s.status != 'cancelled' AND DATE(p.date) = ?`,
     [todayStr]
@@ -256,21 +265,21 @@ export const GET = handle(async (req) => {
 
   // ── Ingresos de hoy: abonos de clientes ──
   const todayCashFromCust = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(amount), 0) AS total
+    `SELECT COALESCE(SUM(CASE WHEN method = 'cash' THEN ${cpAmountBase} ELSE 0 END), 0) AS total
      FROM customer_payments
-     WHERE method = 'cash' AND DATE(date) = ?`,
+     WHERE DATE(date) = ?`,
     [todayStr]
   );
   const todayTransferFromCust = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(amount), 0) AS total
+    `SELECT COALESCE(SUM(CASE WHEN method = 'transfer' THEN ${cpAmountBase} ELSE 0 END), 0) AS total
      FROM customer_payments
-     WHERE method = 'transfer' AND DATE(date) = ?`,
+     WHERE DATE(date) = ?`,
     [todayStr]
   );
   const todayMixedFromCust = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(amount), 0) AS total
+    `SELECT COALESCE(SUM(CASE WHEN method = 'mixed' THEN ${cpAmountBase} ELSE 0 END), 0) AS total
      FROM customer_payments
-     WHERE method = 'mixed' AND DATE(date) = ?`,
+     WHERE DATE(date) = ?`,
     [todayStr]
   );
 
@@ -315,8 +324,8 @@ export const GET = handle(async (req) => {
          WHERE si.sale_id = s.id),
         CONCAT('Venta #', LEFT(s.id, 8))
       ) AS description,
-      p.method, p.amount_cash AS cash_amount, p.amount_transfer AS transfer_amount,
-      (p.amount_cash + p.amount_transfer) AS total_amount,
+      p.method, ${payCashBase} AS cash_amount, ${payTransferBase} AS transfer_amount,
+      (${payCashBase} + ${payTransferBase}) AS total_amount,
       s.id AS reference
     FROM payments p JOIN sales s ON s.id = p.sale_id
     WHERE s.status != 'cancelled' ${hasCustomRange ? 'AND p.date >= ? AND p.date <= ?' : ''})
@@ -324,8 +333,9 @@ export const GET = handle(async (req) => {
     (SELECT
       cp.id, cp.date, 'Abono cliente' AS type,
       CONCAT('Abono de ', c.name) AS description,
-      cp.method, cp.amount AS cash_amount, 0 AS transfer_amount,
-      cp.amount AS total_amount,
+      cp.method, CASE WHEN cp.method = 'cash' THEN ${cpAmountBase} ELSE 0 END AS cash_amount,
+      CASE WHEN cp.method IN ('transfer','mixed') THEN CASE WHEN cp.method = 'transfer' THEN ${cpAmountBase} ELSE ${cpAmountBase}/2 END ELSE 0 END AS transfer_amount,
+      ${cpAmountBase} AS total_amount,
       c.name AS reference
     FROM customer_payments cp JOIN customers c ON c.id = cp.customer_id
     ${hasCustomRange ? 'WHERE cp.date >= ? AND cp.date <= ?' : ''})
@@ -369,6 +379,7 @@ export const GET = handle(async (req) => {
   const evoStartDate = hasCustomRange ? from! : `DATE_SUB(NOW(), INTERVAL ${evoDays} DAY)`;
 
   // 1. Ingresos diarios: pagos de ventas + abonos de clientes
+  // (montos convertidos a moneda base con la tasa congelada)
   const dailyInflows = await query<{ date: string; cash: number; transfer: number }>(`
     SELECT
       DATE(date) AS date,
@@ -377,8 +388,8 @@ export const GET = handle(async (req) => {
     FROM (
       SELECT
         p.date AS date,
-        p.amount_cash AS cash,
-        p.amount_transfer AS transfer
+        ${payCashBase} AS cash,
+        ${payTransferBase} AS transfer
       FROM payments p
       JOIN sales s ON s.id = p.sale_id
       WHERE s.status != 'cancelled' ${hasCustomRange ? 'AND p.date >= ? AND p.date <= ?' : `AND p.date >= DATE_SUB(NOW(), INTERVAL ${evoDays} DAY)`}
@@ -387,11 +398,11 @@ export const GET = handle(async (req) => {
 
       SELECT
         cp.date AS date,
-        CASE WHEN cp.method = 'cash' THEN cp.amount
-             WHEN cp.method = 'mixed' THEN cp.amount / 2
+        CASE WHEN cp.method = 'cash' THEN CASE WHEN cp.currency_code IS NOT NULL AND cp.currency_code!='' AND cp.currency_code!=${baseSub} THEN cp.amount*COALESCE(cp.exchange_rate,1) ELSE cp.amount END
+             WHEN cp.method = 'mixed' THEN CASE WHEN cp.currency_code IS NOT NULL AND cp.currency_code!='' AND cp.currency_code!=${baseSub} THEN cp.amount*COALESCE(cp.exchange_rate,1) ELSE cp.amount END / 2
              ELSE 0 END AS cash,
-        CASE WHEN cp.method = 'transfer' THEN cp.amount
-             WHEN cp.method = 'mixed' THEN cp.amount / 2
+        CASE WHEN cp.method = 'transfer' THEN CASE WHEN cp.currency_code IS NOT NULL AND cp.currency_code!='' AND cp.currency_code!=${baseSub} THEN cp.amount*COALESCE(cp.exchange_rate,1) ELSE cp.amount END
+             WHEN cp.method = 'mixed' THEN CASE WHEN cp.currency_code IS NOT NULL AND cp.currency_code!='' AND cp.currency_code!=${baseSub} THEN cp.amount*COALESCE(cp.exchange_rate,1) ELSE cp.amount END / 2
              ELSE 0 END AS transfer
       FROM customer_payments cp
       ${hasCustomRange ? 'WHERE cp.date >= ? AND cp.date <= ?' : `WHERE cp.date >= DATE_SUB(NOW(), INTERVAL ${evoDays} DAY)`}
@@ -539,8 +550,8 @@ export const GET = handle(async (req) => {
   if (hasCustomRange) {
     const cSales = await query<{ total_cash: number; total_transfer: number }>(
       `SELECT
-         COALESCE(SUM(p.amount_cash), 0) AS total_cash,
-         COALESCE(SUM(p.amount_transfer), 0) AS total_transfer
+         COALESCE(SUM(${payCashBase}), 0) AS total_cash,
+         COALESCE(SUM(${payTransferBase}), 0) AS total_transfer
        FROM payments p
        JOIN sales s ON s.id = p.sale_id
        WHERE s.status != 'cancelled' AND p.date >= ? AND p.date <= ?`,
@@ -548,9 +559,9 @@ export const GET = handle(async (req) => {
     );
     const cCust = await query<{ cash: number; transfer: number; mixed: number }>(
       `SELECT
-         COALESCE(SUM(CASE WHEN method='cash' THEN amount ELSE 0 END), 0) AS cash,
-         COALESCE(SUM(CASE WHEN method='transfer' THEN amount ELSE 0 END), 0) AS transfer,
-         COALESCE(SUM(CASE WHEN method='mixed' THEN amount ELSE 0 END), 0) AS mixed
+         COALESCE(SUM(CASE WHEN method='cash' THEN ${cpAmountBase} ELSE 0 END), 0) AS cash,
+         COALESCE(SUM(CASE WHEN method='transfer' THEN ${cpAmountBase} ELSE 0 END), 0) AS transfer,
+         COALESCE(SUM(CASE WHEN method='mixed' THEN ${cpAmountBase} ELSE 0 END), 0) AS mixed
        FROM customer_payments
        WHERE date >= ? AND date <= ?`,
       [from!, to! + ' 23:59:59']

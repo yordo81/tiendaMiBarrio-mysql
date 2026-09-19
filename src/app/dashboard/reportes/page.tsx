@@ -229,14 +229,15 @@ export default function ReportesPage() {
       ? String(locations.find(l => String(l.id) === locationFilter)?.name ?? '—')
       : null;
 
-    // Totales agrupando por pago (una venta puede tener varias líneas)
+    // Totales agrupando por pago (una venta puede tener varias líneas);
+    // el total transferido se suma convertido a la moneda base.
     const seen = new Set<string>();
     let totalTransfer = 0;
     let totalSubtotal = 0;
     transfers.forEach(r => {
       totalSubtotal += Number(r.subtotal ?? 0);
       const pid = String(r.payment_id ?? '');
-      if (pid && !seen.has(pid)) { seen.add(pid); totalTransfer += Number(r.amount_transfer ?? 0); }
+      if (pid && !seen.has(pid)) { seen.add(pid); totalTransfer += Number(r.amount_transfer_base ?? r.amount_transfer ?? 0); }
     });
 
     // Encabezado
@@ -549,14 +550,16 @@ export default function ReportesPage() {
       {!loading&&tab==='transferencias'&&(
         <div className="space-y-5">
           {(() => {
-            // Total transferido agrupando por pago (una venta puede tener varias líneas)
+            // Total transferido agrupando por pago (una venta puede tener varias líneas).
+            // Se suma el monto convertido a la moneda base (amount_transfer_base)
+            // para que ventas cobradas en moneda extranjera no distorsionen el total.
             const seen = new Set<string>();
             let totalTransfer = 0;
             let totalSubtotal = 0;
             transfers.forEach(r => {
               totalSubtotal += Number(r.subtotal ?? 0);
               const pid = String(r.payment_id ?? '');
-              if (pid && !seen.has(pid)) { seen.add(pid); totalTransfer += Number(r.amount_transfer ?? 0); }
+              if (pid && !seen.has(pid)) { seen.add(pid); totalTransfer += Number(r.amount_transfer_base ?? r.amount_transfer ?? 0); }
             });
             return (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
