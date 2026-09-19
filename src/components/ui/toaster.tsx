@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, randomUUID } from '@/lib/utils';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -22,7 +22,7 @@ function notify(listeners: Array<(t: Toast[]) => void>, t: Toast[]) {
 
 export const toast = {
   show(message: string, type: ToastType = 'info', duration = 4000) {
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     toasts = [...toasts, { id, message, type, duration }];
     notify(listeners, toasts);
     if (duration > 0) {
