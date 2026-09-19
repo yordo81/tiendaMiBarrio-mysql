@@ -57,14 +57,10 @@ export default function VentasPage() {
   const posEnabled = useSettingsStore(s => s.settings?.enable_touch_pos !== false);
 
   // Nuevo: redirigir directo al POS táctil cuando aplica; sin modal.
+  // Owner, administrador y vendedor registran ventas desde el POS táctil.
   function startNewSale() {
-    if (user?.role === 'seller' && posEnabled) {
-      router.push('/dashboard/ventas/touch');
-      return;
-    }
-    // El flujo de modal de nueva venta desaparece: se abre el POS táctil
-    // para todos los roles que puedan registrar ventas, o se redirige.
-    if (user?.role === 'seller' || user?.role === 'admin') {
+    const canSell = user?.role === 'owner' || user?.role === 'admin' || user?.role === 'seller';
+    if (canSell && posEnabled) {
       router.push('/dashboard/ventas/touch');
       return;
     }

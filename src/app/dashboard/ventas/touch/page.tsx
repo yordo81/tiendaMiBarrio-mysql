@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Search, ScanBarcode, Minus, Plus, Trash2, ShoppingCart, X, CheckCircle,
-  Banknote, Landmark, Wallet, Package, History,
+  Banknote, Landmark, Wallet, HandCoins, Package, History,
   Receipt, AlertTriangle, Loader2, Store, User, Keyboard, Delete,
   TabletSmartphone, Phone, PhoneOff, ChevronDown, KeyRound, LogOut, Play, Square, Clock3,
 } from 'lucide-react';
@@ -32,7 +32,7 @@ import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 // roles conserva la ventana modal de venta en /dashboard/ventas.
 
 type AnyRecord = Record<string, unknown>;
-type PayMethod = 'cash' | 'transfer' | 'mixed';
+type PayMethod = 'cash' | 'transfer' | 'mixed' | 'credit';
 interface CartLine { product: AnyRecord; quantity: number; unit_price: number; }
 type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; rateUpdatedAt?: string | null };
 
@@ -40,6 +40,8 @@ const PAY_METHODS: { id: PayMethod; label: string; icon: typeof Banknote; desc: 
   { id: 'cash', label: 'Efectivo', icon: Banknote, desc: 'Billetes o monedas' },
   { id: 'transfer', label: 'Transferencia', icon: Landmark, desc: 'Pago bancario' },
   { id: 'mixed', label: 'Mixto', icon: Wallet, desc: 'Efectivo + transferencia' },
+  // Crédito: queda como deuda; solo se muestra a dueño y administrador (canUseCredit)
+  { id: 'credit', label: 'Crédito', icon: HandCoins, desc: 'Queda como deuda' },
 ];
 
 function currencyPaymentLabel(code: string | null, currencies: CurrencyOption[]): string {
@@ -158,6 +160,7 @@ export default function TouchPosPage() {
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<AnyRecord[]>([]);
   const [locations, setLocations] = useState<AnyRecord[]>([]);
+  const [customers, setCustomers] = useState<AnyRecord[]>([]);
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('Todo');
@@ -172,6 +175,7 @@ export default function TouchPosPage() {
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [locationId, setLocationId] = useState('');
+  const [customerId, setCustomerId] = useState('');
   const [payMethod, setPayMethod] = useState<PayMethod>('cash');
   const [cashReceived, setCashReceived] = useState(0);
   const [amountTransfer, setAmountTransfer] = useState(0);
@@ -311,11 +315,12 @@ export default function TouchPosPage() {
   useEffect(() => {
     if (!isSeller) return;
     let alive = true;
-    Promise.all([api.getProducts(), api.getLocations()])
-      .then(([p, l]) => {
+    Promise.all([api.getProducts(), api.getLocations(), api.getCustomers()])
+      .then(([p, l, c]) => {
         if (!alive) return;
         setProducts(p);
         setLocations(l);
+        setCustomers(c);
         setLocationId(prev => prev || (l.length > 0 ? String(l[0].id) : ''));
       })
       .catch(() => toast.error('Error al cargar datos'));
@@ -574,8 +579,14 @@ export default function TouchPosPage() {
   // Billetes rápidos según la moneda activa (equivalentes redondos en base)
   const cashDenoms = isForeignSale && activeCurrency ? denomsForRate(activeCurrency.rate) : CASH_DENOMS;
 
-  // Cambia la moneda del pedido y recuerda la preferencia del vendedor
+  // Cambia la moneda del pedido y recuerda la preferencia del vendedor.
+  // El crédito solo se registra en la moneda base: el saldo del cliente se
+  // acumula sin conversión de moneda.
   function changeSaleCurrency(code: string) {
+    if (payMethod === 'credit' && code) {
+      toast.error('El crédito solo puede registrarse en la moneda base');
+      return;
+    }
     setSaleCurrency(code);
     if (user) savePreferredCurrency(user.id, code);
   }
@@ -766,6 +777,7 @@ export default function TouchPosPage() {
     setAmountTransfer(0);
     setTransferPhone('');
     setTransferRef('');
+    setCustomerId('');
     setSaleDate('');
   }
 
@@ -823,6 +835,12 @@ export default function TouchPosPage() {
         return;
       }
     }
+    // Crédito: exige cliente. La venta queda pendiente y suma el saldo
+    // en la cuenta del cliente.
+    if (payMethod === 'credit' && !customerId) {
+      toast.error('Las ventas a crédito requieren seleccionar un cliente');
+      return;
+    }
     // ID de pago opcional: solo letras y números, hasta 13 caracteres
     if ((payMethod === 'transfer' || payMethod === 'mixed') && transferRef.trim() && !/^[A-Za-z0-9]{1,13}$/.test(transferRef.trim())) {
       toast.error('El ID de pago solo puede contener letras y números (máximo 13)');
@@ -870,7 +888,7 @@ export default function TouchPosPage() {
           // La referencia (ID de pago + teléfono) se guarda en el pago
           notes: (payMethod === 'transfer' || payMethod === 'mixed') ? transferDetails() : null,
         },
-        customer_id: null,
+        customer_id: customerId || null,
         location_id: locationId || null,
         pos_id: workMode === 'shifts' ? posId || null : null,
         notes: null,
@@ -1056,6 +1074,13 @@ export default function TouchPosPage() {
   // Solo usuarios con el permiso 'sales.change_date' pueden modificar la fecha.
   const canChangeDate = user?.role === 'owner' || user?.role === 'admin' ||
     Boolean(user?.permissions?.some(p => p.module === 'sales' && p.actions.includes('update')));
+
+  // Venta a crédito: permitida solo para el dueño y el administrador
+  const canUseCredit = user?.role === 'owner' || user?.role === 'admin';
+
+  // Fecha de hoy (local) en formato YYYY-MM-DD: valor por defecto del
+  // selector de fecha de venta.
+  const todayLocal = new Date().toLocaleDateString('en-CA');
 
   return (
     <div className="flex h-screen flex-col overflow-hidden select-none" style={{ backgroundColor: 'var(--bg-primary)' }}>
@@ -1621,12 +1646,12 @@ export default function TouchPosPage() {
               <input
                 type="date"
                 className="input"
-                value={saleDate}
-                onChange={e => setSaleDate(e.target.value)}
-                max={new Date().toISOString().slice(0, 10)}
+                value={saleDate || todayLocal}
+                onChange={e => setSaleDate(e.target.value === todayLocal ? '' : e.target.value)}
+                max={todayLocal}
               />
               <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                {saleDate ? `Venta registrada el ${saleDate}` : 'Fecha actual (por defecto)'}
+                {saleDate ? `Venta registrada el ${saleDate}` : `Hoy, ${todayLocal} (por defecto)`}
               </p>
             </div>
           )}
@@ -1635,10 +1660,10 @@ export default function TouchPosPage() {
           <div>
             <label className="label">Método de pago</label>
             <div className="grid grid-cols-2 xl:grid-cols-3 gap-2.5">
-              {PAY_METHODS.map(m => (
+              {PAY_METHODS.filter(m => m.id !== 'credit' || canUseCredit).map(m => (
                 <button
                   key={m.id}
-                  onClick={() => { setPayMethod(m.id); setCashReceived(0); setAmountTransfer(0); setTransferPhone(''); setTransferRef(''); }}
+                  onClick={() => { setPayMethod(m.id); setCashReceived(0); setAmountTransfer(0); setTransferPhone(''); setTransferRef(''); if (m.id === 'credit') setSaleCurrency(''); }}
                   className={cn(
                     'rounded-xl border p-3.5 text-left transition-all active:scale-[0.97]',
                     payMethod === m.id ? 'text-white shadow-lg' : 'hover:brightness-105'
@@ -1655,7 +1680,30 @@ export default function TouchPosPage() {
                 </button>
               ))}
             </div>
-          </div>              {/* Efectivo recibido + cambio */}
+          </div>
+
+          {/* Cliente (obligatorio para la venta a crédito, solo dueño/admin) */}
+          {canUseCredit && payMethod === 'credit' && (
+            <div>
+              <label className="label">Cliente *</label>
+              <SearchableSelect
+                options={customers.map(c => ({
+                  value: String(c.id),
+                  label: String(c.name),
+                  sublabel: Number(c.balance) > 0 ? `Debe ${formatCurrency(Number(c.balance))}` : undefined,
+                }))}
+                value={customerId}
+                onChange={v => setCustomerId(v)}
+                placeholder="Selecciona el cliente…"
+                noResultsMessage="Sin clientes"
+              />
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                La venta queda como deuda y suma al saldo del cliente.
+              </p>
+            </div>
+          )}
+
+          {/* Efectivo recibido + cambio */}
               {(payMethod === 'cash' || payMethod === 'mixed') && (
                 <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
                   <div className="flex items-center justify-between">
