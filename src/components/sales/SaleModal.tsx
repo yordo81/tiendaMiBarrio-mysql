@@ -12,6 +12,7 @@ import { useSettingsStore } from '@/lib/stores/settings-store';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
 import { Search, X, Barcode } from 'lucide-react';
+import { normalizePhone } from '@/lib/validate';
 
 type AnyRecord = Record<string, unknown>;
 type PayMethod = 'cash' | 'transfer' | 'mixed' | 'credit';
@@ -38,6 +39,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
   const [payMethod, setPayMethod] = useState<PayMethod>('cash');
   const [amountCash, setAmountCash] = useState(0);
   const [amountTransfer, setAmountTransfer] = useState(0);
+  const [transferPhone, setTransferPhone] = useState('');
   const [saleNotes, setSaleNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
@@ -110,9 +112,15 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
     setPayMethod('cash');
     setAmountCash(0);
     setAmountTransfer(0);
+    setTransferPhone('');
     setSaleNotes('');
     resetPos();
   }
+
+  // Teléfono celular cubano: +53 opcional + 5 + 7 dígitos (8 en total).
+  // Es opcional: solo se valida el formato cuando el usuario ingresa uno.
+  const transferPhoneNormalized = transferPhone.trim() ? normalizePhone(transferPhone) : '';
+  const transferPhoneValid = !!transferPhoneNormalized && /^(\+?53)?5\d{7}$/.test(transferPhoneNormalized);
 
   // Fetch location-specific stock when location changes
   useEffect(() => {
@@ -147,6 +155,12 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
       toast.error('Las ventas a crédito requieren cliente');
       return;
     }
+    // Teléfono celular cubano opcional para los pagos con transferencia
+    const hasTransfer = payMethod === 'transfer' || payMethod === 'mixed';
+    if (hasTransfer && transferPhone.trim() && !transferPhoneValid) {
+      toast.error('Ingresa un teléfono celular cubano válido para la transferencia (Ej: +53 55280263)');
+      return;
+    }
     const stockErrors = cart.filter(i => i.quantity > getAvailableStock(i.product));
     if (stockErrors.length > 0) {
       const names = stockErrors.map(i => `${String(i.product.name)} (disponible: ${formatNumber(getAvailableStock(i.product), 1)}, solicitado: ${formatNumber(i.quantity, 1)})`).join(', ');
@@ -167,6 +181,8 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
           method: payMethod,
           amount_cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? amountCash : 0,
           amount_transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
+          // El teléfono (opcional) se guarda junto al pago, igual que en la ventana touch
+          notes: hasTransfer && transferPhone.trim() ? `Tel: ${transferPhone.trim()}` : null,
         },
         customer_id: customerId || null,
         location_id: locationId || null,
@@ -207,7 +223,11 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
           payMethod,
           cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? amountCash : 0,
           transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
-          notes: saleNotes || null,
+          // El teléfono de transferencia (opcional) aparece en el ticket, igual que en la ventana touch
+          notes: [
+            saleNotes.trim(),
+            (payMethod === 'transfer' || payMethod === 'mixed') && transferPhone.trim() ? `Tel: ${transferPhone.trim()}` : '',
+          ].filter(Boolean).join(' · ') || null,
         }),
         { method, width: settings?.receipt_printer_width ?? '80', printer }
       );
@@ -439,6 +459,25 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
               {(amountCash + amountTransfer) !== cartTotal && cartTotal > 0 ? (
                 <p className="col-span-2 text-xs text-yellow-400">⚠ La suma no coincide con el total</p>
               ) : null}
+            </div>
+          )}
+          {(payMethod === 'transfer' || payMethod === 'mixed') && (
+            <div>
+              <label className="label">Teléfono celular del cliente (opcional)</label>
+              <input
+                type="tel"
+                inputMode="tel"
+                className={`input ${transferPhone.trim() ? (transferPhoneValid ? 'border-green-500/50 focus:border-green-500' : 'border-amber-500/50 focus:border-amber-500') : ''}`}
+                placeholder="Ej: +53 55280263"
+                value={transferPhone}
+                maxLength={20}
+                onChange={e => setTransferPhone(e.target.value)}
+              />
+              {transferPhone.trim() && (
+                <p className={`text-xs mt-1 ${transferPhoneValid ? 'text-green-400' : 'text-amber-400'}`}>
+                  {transferPhoneValid ? 'Teléfono válido' : 'Formato inválido. Ejemplo: +53 55280263'}
+                </p>
+              )}
             </div>
           )}
           {payMethod === 'credit' && (

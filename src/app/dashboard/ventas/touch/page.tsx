@@ -851,9 +851,10 @@ export default function TouchPosPage() {
       toast.error('No hay un turno de ventas abierto en esta caja. Abre un turno para poder cobrar.');
       return;
     }
-    // Teléfono celular cubano obligatorio para los pagos con transferencia
+    // Teléfono celular cubano opcional para los pagos con transferencia:
+    // solo se valida el formato cuando el usuario ingresa uno.
     const hasTransfer = payMethod === 'transfer' || (payMethod === 'mixed' && amountTransfer > 0);
-    if (hasTransfer) {
+    if (hasTransfer && transferPhone.trim()) {
       const phone = normalizePhone(transferPhone);
       if (!phone || !/^(\+?53)?5\d{7}$/.test(phone)) {
         toast.error('Ingresa un teléfono celular cubano válido para la transferencia (Ej: +53 55280263)');
@@ -1774,7 +1775,7 @@ export default function TouchPosPage() {
 
           {payMethod === 'transfer' && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Se cobrará el total ({fmtMoney(cartTotal)}) por transferencia bancaria. El teléfono celular del cliente es obligatorio.
+              Se cobrará el total ({fmtMoney(cartTotal)}) por transferencia bancaria. El teléfono celular del cliente es opcional.
             </div>
           )}          {/* Datos de la transferencia */}
           {(payMethod === 'transfer' || payMethod === 'mixed') && (
@@ -1782,7 +1783,7 @@ export default function TouchPosPage() {
               <p className="label mb-3">Datos de la transferencia</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Teléfono celular del cliente *</label>
+                  <label className="label">Teléfono celular del cliente (opcional)</label>
                 <div className="relative">
                     {transferPhone.trim() ? (
                       transferPhoneValid ? (
