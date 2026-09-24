@@ -53,13 +53,30 @@ async function getBaseCurrency(): Promise<string> {
 }
 
 // ── Helper: obtener tasa de cambio ──
+// Las tasas se guardan SIEMPRE contra el dólar (1 USD = X moneda) y de
+// ahí se deriva la tasa entre dos monedas:
+//   1 from = (USD de to) / (USD de from) to
+async function getUsdRate(code: string): Promise<number | null> {
+  if (code === 'USD') return 1;
+  const row = await queryOne<{ rate: number }>(
+    "SELECT rate FROM currency_rates WHERE from_currency = 'USD' AND to_currency = ?",
+    [code]
+  );
+  const rate = row ? Number(row.rate) : 0;
+  return rate > 0 ? rate : null;
+}
+
 async function getExchangeRate(from: string, to: string): Promise<number> {
   if (from === to) return 1;
-  const rate = await queryOne<{ rate: number }>(
+  const [fromUsd, toUsd] = await Promise.all([getUsdRate(from), getUsdRate(to)]);
+  if (fromUsd && toUsd) return toUsd / fromUsd;
+  // Sin referencia USD utilizable: par directo guardado a mano (si existe)
+  const direct = await queryOne<{ rate: number }>(
     'SELECT rate FROM currency_rates WHERE from_currency = ? AND to_currency = ?',
     [from, to]
   );
-  return rate?.rate ?? 1;
+  const rate = direct ? Number(direct.rate) : 0;
+  return rate > 0 ? rate : 1;
 }
 
 // ── POST: Registrar nueva compra ──

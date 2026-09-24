@@ -10,7 +10,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import {
   Store, Settings, Upload, X, CalendarDays, Clock3, Save, Loader2, ShieldAlert,
   Printer, Usb, CheckCircle2, Ruler, Zap, Plus, Star, Pencil, Trash2, Info,
-  CalendarCheck, TabletSmartphone, Coins, ArrowRight, RefreshCw,
+  CalendarCheck, TabletSmartphone, Coins, RefreshCw,
 } from 'lucide-react';
 import { pickUsbPrinter, printUsbTest, isWebUsbSupported, type UsbPrinterInfo } from '@/lib/receipt';
 
@@ -59,7 +59,7 @@ export default function ConfiguracionPage() {
   const [usbSupported] = useState(() => isWebUsbSupported());
 
   // ── Monedas y tasas de cambio ──
-  type CurrencyDto = { code: string; name: string; symbol: string; is_base: boolean; active: boolean; rates: Record<string, number> };
+  type CurrencyDto = { code: string; name: string; symbol: string; is_base: boolean; active: boolean; rates: Record<string, number>; usd_rate?: number | null };
   const [currencies, setCurrencies] = useState<CurrencyDto[]>([]);
   const [currenciesLoading, setCurrenciesLoading] = useState(true);
   const [showNewCurrency, setShowNewCurrency] = useState(false);
@@ -816,7 +816,7 @@ export default function ConfiguracionPage() {
           <div className="card p-5">
             <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Moneda base del negocio</h2>
             <p className="text-xs text-[var(--text-tertiary)] mb-5">
-              La moneda base es la unidad en la que se almacenan todos los precios y costos del sistema. Las compras y ventas en otras monedas se convierten automáticamente usando las tasas de cambio configuradas.
+              La moneda base es la unidad en la que se almacenan todos los precios y costos del sistema. Las compras y ventas en otras monedas se convierten automáticamente usando las tasas de cambio configuradas. Al cambiar la moneda base solo se actualiza cuál es la base: las tasas de las demás monedas no se recalculan ni se convierten.
             </p>
             {currenciesLoading ? (
               <div className="flex justify-center py-6"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
@@ -851,7 +851,7 @@ export default function ConfiguracionPage() {
               <div>
                 <h2 className="text-sm font-semibold text-[var(--text-primary)]">Tasas de cambio</h2>
                 <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
-                  Define cuánto vale 1 unidad de cada moneda en la moneda base. La tasa inversa se calcula automáticamente.
+                  Toda tasa se expresa contra el dólar: define cuánto vale 1 USD en cada moneda (1 USD = X). Cada tasa se guarda tal cual la escribes; no se genera ninguna tasa inversa ni se recalcula nada al cambiar la moneda base.
                 </p>
               </div>
               <button
@@ -869,10 +869,8 @@ export default function ConfiguracionPage() {
             ) : (
               <div className="space-y-3">
                 {currencies.filter(c => c.active).map(c => {
-                  const base = currencies.find(b => b.is_base);
-                  if (!base || c.is_base) return null;
-                  const rateToBase = c.rates?.[base.code] ?? null;
-                  const rateFromBase = base.rates?.[c.code] ?? null;
+                  const usdRate = c.usd_rate ?? null;
+                  const isDollar = c.code === 'USD';
                   return (
                     <div key={c.code} className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] px-4 py-3">
                       <div className="flex items-center gap-2 min-w-0">
@@ -880,15 +878,18 @@ export default function ConfiguracionPage() {
                         <div>
                           <span className="text-sm font-semibold text-[var(--text-primary)]">{c.code}</span>
                           <span className="text-xs text-[var(--text-tertiary)] ml-1.5">{c.name}</span>
+                          {c.is_base && (
+                            <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">Base</span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 ml-auto">
-                        <ArrowRight className="w-4 h-4 text-[var(--text-tertiary)]" />
-                        <span className="text-sm font-semibold text-brand-400">{base.symbol} {base.code}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-[var(--text-tertiary)]">1 {c.code} =</span>
-                        {rateEdit?.from === c.code && rateEdit?.to === base.code ? (
+                        <span className="text-xs text-[var(--text-tertiary)]">1 USD =</span>
+                        {isDollar ? (
+                          <span className="text-sm font-semibold text-[var(--text-primary)]" title="El dólar es la referencia: su tasa es 1 por definición">
+                            1 USD
+                          </span>
+                        ) : rateEdit?.to === c.code ? (
                           <div className="flex items-center gap-1">
                             <input
                               type="number"
@@ -909,13 +910,14 @@ export default function ConfiguracionPage() {
                           </div>
                         ) : (
                           <button
-                            onClick={() => setRateEdit({ from: c.code, to: base.code, rate: rateToBase != null ? String(rateToBase) : '' })}
+                            onClick={() => setRateEdit({ from: 'USD', to: c.code, rate: usdRate != null ? String(usdRate) : '' })}
                             className="text-sm font-semibold text-[var(--text-primary)] hover:text-brand-400 transition-colors cursor-pointer"
-                            title="Clic para editar la tasa"
+                            title="Clic para editar la tasa (1 USD = X)"
                           >
-                            {rateToBase != null ? `${Number(rateToBase).toFixed(6)}` : '—'}
+                            {usdRate != null ? `${Number(usdRate).toFixed(6)}` : '—'}
                           </button>
                         )}
+                        {!isDollar && <span className="text-sm font-semibold text-brand-400">{c.code}</span>}
                       </div>
                       <button
                         onClick={() => handleToggleCurrency(c.code, false)}

@@ -149,6 +149,7 @@ mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
 mysql -u root -p < mysql/migration-022-users-pos.sql
 mysql -u root -p < mysql/migration-020-reservations-toggle.sql
 mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
+mysql -u root -p < mysql/migration-029-usd-reference-rates.sql
 ```
 
 > 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` a `node scripts/apply-migration-020.js` aplican las migraciones 012-020 de forma idempotente leyendo las credenciales de `.env` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
@@ -177,6 +178,7 @@ mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
 | `migration-019-printers.sql` | Crea la tabla `printers` para registrar varias impresoras térmicas (vendor/product/serial, clave única `device_key`) y marcar cuál imprime los tickets de venta (`is_default`). |
 | `migration-020-reservations-toggle.sql` | Agrega a `settings` la columna `show_reservations`: permite mostrar u ocultar el módulo de Reservaciones (catálogo público en la página de entrada + menú del dashboard) desde Configuración → Operación. |
 | `migration-021-pos-touch-toggle.sql` | Agrega a `settings` la columna `enable_touch_pos`: permite activar o desactivar el punto de venta táctil para vendedores (al desactivarlo, los vendedores vuelven a la página de Ventas con la ventana modal) desde Configuración → Operación. |
+| `migration-029-usd-reference-rates.sql` | Pasa las tasas de cambio a referencia USD (`currency_rates` solo guarda `1 USD = X moneda`, derivando las existentes y borrando los pares antiguos sin crear inversas) y agrega `sales.usd_rate` (tasa contra el dólar congelada por venta, rellenada en las ventas antiguas). |
 
 > **Nota:** Si usaste `node scripts/setup-db.js` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo ejecútalas manualmente si actualizas una BD existente.
 
