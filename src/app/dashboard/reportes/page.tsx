@@ -54,6 +54,9 @@ export default function ReportesPage() {
   const [transfers, setTransfers] = useState<R[]>([]);
   const [locations, setLocations] = useState<R[]>([]);
   const [locationFilter, setLocationFilter] = useState('');
+  // Filtro por moneda del reporte de transferencias ('' = todas)
+  const [currencies, setCurrencies] = useState<R[]>([]);
+  const [currencyFilter, setCurrencyFilter] = useState('');
 
   const days = range==='7d'?7:range==='30d'?30:range==='90d'?90:30;
   const isCustomRange = range === 'custom';
@@ -194,15 +197,20 @@ export default function ReportesPage() {
       const fromDate = dateFrom ?? new Date(Date.now()-days*864e5).toISOString().slice(0,10);
       const toDate = dateTo ?? new Date().toISOString().slice(0,10);
       const dateQ = dateFrom ? `&from=${fromDate}&to=${toDate}` : '';
-      const d = await apiFetch<R[]>(`/api/reports?type=transfers&days=${days}${locQ}${dateQ}`);
+      const curQ = currencyFilter ? `&currency=${encodeURIComponent(currencyFilter)}` : '';
+      const d = await apiFetch<R[]>(`/api/reports?type=transfers&days=${days}${locQ}${dateQ}${curQ}`);
       setTransfers(Array.isArray(d) ? d : []);
     } catch(e) { console.error('[loadTransfers]', e); toast.error('Error al cargar transferencias'); }
     finally { setLoading(false); }
-  }, [days, locationFilter, dateFrom, dateTo]);
+  }, [days, locationFilter, dateFrom, dateTo, currencyFilter]);
 
-  // Cargar ubicaciones al montar
+  // Cargar ubicaciones y monedas al montar
   useEffect(() => {
     api.getLocations().then(setLocations).catch(() => {});
+    fetch('/api/currencies')
+      .then(r => r.json())
+      .then(d => setCurrencies(Array.isArray(d?.currencies) ? d.currencies as R[] : []))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -213,7 +221,7 @@ export default function ReportesPage() {
     else if (tab==='reabastecimiento') loadForecasts();
     else if (tab==='vencimientos') loadExpirations();
     else if (tab==='cuentas') loadDebts();
-  }, [tab, range, locationFilter, customFrom, customTo]);
+  }, [tab, range, locationFilter, customFrom, customTo, currencyFilter]);
 
   const urgencyBadge = (u: string) => u==='critical'?<span className="badge-danger">Crítico</span>:u==='soon'?<span className="badge-warning">Pronto</span>:<span className="badge-success">OK</span>;
 
@@ -247,7 +255,7 @@ export default function ReportesPage() {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(80);
-    doc.text(`Período: ${rangeLabel}${locName ? ` · Almacén: ${locName}` : ''}`, 14, 23);
+    doc.text(`Período: ${rangeLabel}${locName ? ` · Almacén: ${locName}` : ''}${currencyFilter ? ` · Moneda: ${currencyFilter}` : ''}`, 14, 23);
     doc.text(`Generado: ${new Date().toLocaleString('es')}`, 14, 28);
 
     // Resumen
@@ -273,13 +281,14 @@ export default function ReportesPage() {
     doc.setFont('helvetica', 'normal');
     autoTable(doc, {
       startY: y + 2,
-      head: [['Fecha', 'Producto', 'Precio venta', 'Cant.', 'Subtotal', 'Teléfono', 'Ref. bancaria']],
+      head: [['Fecha', 'Producto', 'Precio venta', 'Cant.', 'Subtotal', 'Moneda', 'Teléfono', 'Ref. bancaria']],
       body: transfers.map(t => [
         String(t.date ?? '').slice(0, 16).replace('T', ' '),
         String(t.product_name ?? '—'),
         formatCurrency(Number(t.unit_price ?? 0)),
         formatNumber(Number(t.quantity ?? 0), 2),
         formatCurrency(Number(t.subtotal ?? 0)),
+        String(t.currency_code ?? '—'),
         String(t.phone ?? '—'),
         String(t.bank_ref ?? '—'),
       ]),
@@ -341,6 +350,25 @@ export default function ReportesPage() {
               <div className="flex items-center gap-2">
                 <label className="text-xs text-[var(--text-tertiary)]">Hasta:</label>
                 <input type="date" className="input py-1.5 text-xs" value={customTo} onChange={e=>setCustomTo(e.target.value)} />
+              </div>
+            </div>
+          )}
+          {tab==='transferencias'&&currencies.length>0&&(
+            <div className="flex items-center gap-2 sm:ml-auto">
+              <Landmark size={14} className="text-[var(--text-tertiary)] shrink-0" />
+              <div className="max-w-[190px] w-full">
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Todas las monedas' },
+                    ...currencies
+                      .filter(c => Number(c.active) !== 0)
+                      .map(c => ({ value: String(c.code), label: `${String(c.symbol ?? '')} ${String(c.code)}`.trim() })),
+                  ]}
+                  value={currencyFilter}
+                  onChange={v => setCurrencyFilter(v)}
+                  placeholder="Todas las monedas"
+                  noResultsMessage="Sin monedas"
+                />
               </div>
             </div>
           )}
@@ -589,7 +617,7 @@ export default function ReportesPage() {
             {transfers.length===0?<p className="text-center text-[var(--text-tertiary)] py-8 text-sm">Sin pagos por transferencia en este período</p>:(
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Producto','Precio venta','Cant.','Subtotal','Teléfono','Ref. bancaria'].map(h=><th key={h} className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
+                  <thead><tr className="border-b border-[var(--border-primary)]">{['Fecha','Producto','Precio venta','Cant.','Subtotal','Moneda','Teléfono','Ref. bancaria'].map(h=><th key={h} className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{h}</th>)}</tr></thead>
                   <tbody>{transfers.map((t,i)=>(
                     <tr key={`${String(t.payment_id)}-${i}`} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
                       <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs whitespace-nowrap">{String(t.date ?? '').slice(0,16).replace('T',' ')}</td>
@@ -597,6 +625,7 @@ export default function ReportesPage() {
                       <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{formatCurrency(Number(t.unit_price))}</td>
                       <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{formatNumber(Number(t.quantity),2)}</td>
                       <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{formatCurrency(Number(t.subtotal))}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap"><span className="text-xs font-medium px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">{String(t.currency_code ?? '—')}</span></td>
                       <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{String(t.phone ?? '—')}</td>
                       <td className="px-3 py-2.5 font-mono text-xs text-[var(--text-secondary)]">{String(t.bank_ref ?? '—')}</td>
                     </tr>

@@ -318,7 +318,15 @@ export const GET = handle(async (req: Request) => {
   }
 
   if (type === 'transfers') {
+    // Filtro opcional por moneda de la transferencia ('' = todas)
+    const currency = (searchParams.get('currency') ?? '').trim().toUpperCase();
     const data = await cachedReport('transfers', user.id, locationId, days, async () => {
+      // Moneda base (NULL en la BD = base): sirve para mostrar la moneda de
+      // cada transferencia y para filtrar por la moneda base.
+      const baseRows = await query<{ code: string }>(
+        "SELECT code FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1"
+      );
+      const baseCode = baseRows[0]?.code ?? '';
       // Reporte de pagos por transferencia: cada fila es una línea de producto
       // de una venta pagada (total o parcialmente) por transferencia. El
       // teléfono del cliente y la referencia bancaria se extraen de las notas
@@ -342,9 +350,18 @@ export const GET = handle(async (req: Request) => {
         tp.push(locationId);
       }
       sql += ` WHERE p.method IN ('transfer','mixed') AND p.amount_transfer > 0
-              AND s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL ? DAY)
-              ORDER BY p.date DESC, p.id DESC`;
+              AND s.status != 'cancelled' AND p.date >= DATE_SUB(NOW(), INTERVAL ? DAY)`;
       tp.push(days);
+      // Filtro por moneda: en la BD la moneda base se guarda como NULL/''
+      if (currency) {
+        if (baseCode && currency === baseCode) {
+          sql += ` AND (p.currency_code IS NULL OR p.currency_code = '')`;
+        } else {
+          sql += ` AND p.currency_code = ?`;
+          tp.push(currency);
+        }
+      }
+      sql += ` ORDER BY p.date DESC, p.id DESC`;
       const rows = await query<Record<string, unknown>>(sql, tp);
       return rows.map(r => {
         const notes = String(r.payment_notes ?? '');
@@ -362,14 +379,15 @@ export const GET = handle(async (req: Request) => {
           amount_transfer: Number(r.amount_transfer ?? 0),
           // Monto convertido a la moneda base con la tasa congelada del pago
           amount_transfer_base: Number(r.amount_transfer_base ?? 0),
-          currency_code: r.currency_code ?? null,
+          // Moneda en la que se hizo la transferencia (null en la BD = moneda base)
+          currency_code: r.currency_code ? String(r.currency_code) : (baseCode || null),
           method: r.method,
           customer_name: r.customer_name ?? null,
           phone: phone || null,
           bank_ref: refFromNotes,
         };
       });
-    });
+    }, currency || '');
     return ok(data);
   }
 

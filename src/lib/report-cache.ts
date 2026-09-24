@@ -42,9 +42,13 @@ function buildCacheKey(
   userId: string,
   locationId: string | null,
   days: number,
+  variant = '',
 ): string {
   const loc = locationId ?? 'all';
-  return `report:${type}:${userId}:${loc}:${days}:${todayKey()}`;
+  // `variant` distingue filtros extra del mismo reporte (p. ej. la moneda del
+  // reporte de transferencias) para no devolver una respuesta cacheada con
+  // otro filtro distinto.
+  return `report:${type}:${userId}:${loc}:${days}:${variant || 'all'}:${todayKey()}`;
 }
 
 /**
@@ -57,11 +61,13 @@ export async function cachedReport<T>(
   locationId: string | null,
   days: number,
   loader: () => Promise<T>,
+  /** Filtros extra que distinguen la clave de caché (p. ej. la moneda) */
+  variant = '',
 ): Promise<T> {
   // Si Valkey no está disponible, ejecutar directo
   if (!valkey) return loader();
 
-  const key = buildCacheKey(type, userId, locationId, days);
+  const key = buildCacheKey(type, userId, locationId, days, variant);
 
   try {
     // Intentar obtener de caché
