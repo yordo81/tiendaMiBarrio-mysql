@@ -163,6 +163,10 @@ export const DELETE = handle(async (_: Request, ctx) => {
   await execute('DELETE FROM product_suppliers WHERE product_id = ?', [id]);
   await execute('DELETE FROM purchase_prices WHERE product_id = ?', [id]);
   await execute('DELETE FROM location_stock WHERE product_id = ?', [id]);
+  // `location_movements.product_id` es NOT NULL y su FK a products NO tiene
+  // ON DELETE (RESTRICT): si el producto tiene movimientos de almacén, hay que
+  // borrarlos o la baja falla con ER_ROW_IS_REFERENCED_2.
+  await execute('DELETE FROM location_movements WHERE product_id = ?', [id]);
   await execute('DELETE FROM products WHERE id=?', [id]);
 
   if (product) {
