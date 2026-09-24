@@ -4,6 +4,7 @@ import { query, queryOne, execute } from '@/lib/db/mysql';
 import { handle, ok, err, forbidden, notFound } from '@/lib/api-helpers';
 import { utcToLocal, utcToDb, nowLocal, nowUtc } from '@/lib/shift-time';
 import { logAudit } from '@/lib/db/audit';
+import { computeExpectedCash } from '@/lib/shift-summary';
 
 // ── Cierre de turno con arqueo ─────────────────────────────────────
 // Calcula el efectivo esperado del turno (fondo inicial + ingresos en
@@ -65,55 +66,15 @@ export const POST = handle(async (req: Request, ctx) => {
   const localNow = nowLocal();
   const utcNow = nowUtc();
 
-  // Moneda base del negocio (para el total esperado y el desglose)
-  const baseRows = await query<{ code: string }>("SELECT code FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1");
-  const baseCurrency = baseRows[0]?.code ?? '';
-
-  // Ingresos en efectivo: pagos de ventas del turno (fechas locales), SOLO de la
-  // caja del turno, agrupados por moneda (con su tasa congelada promedio)
-  const salesCash = await query<{ currency_code: string | null; total: number; avg_rate: number | null }>(
-    `SELECT p.currency_code,
-            COALESCE(SUM(p.amount_cash), 0) AS total,
-            AVG(p.exchange_rate) AS avg_rate
-     FROM payments p JOIN sales s ON s.id = p.sale_id
-     WHERE s.status != 'cancelled' AND p.date BETWEEN ? AND ? AND s.pos_id = ?
-     GROUP BY p.currency_code`,
-    [fromLocal, localNow, shift.pos_id]
-  );
-
-  // Ingresos en efectivo: abonos de clientes (fechas UTC, mixtos 50/50), por moneda.
-  // Los abonos vinculados a una venta se atribuyen a la caja de esa venta;
-  // los abonos sueltos (sin venta) no se pueden atribuir y cuentan en todos.
-  const custCash = await query<{ currency_code: string | null; total: number; avg_rate: number | null }>(
-    `SELECT cp.currency_code,
-            COALESCE(SUM(CASE WHEN cp.method='cash' THEN cp.amount WHEN cp.method='mixed' THEN cp.amount / 2 ELSE 0 END), 0) AS total,
-            AVG(cp.exchange_rate) AS avg_rate
-     FROM customer_payments cp
-     LEFT JOIN sales s ON s.id = cp.sale_id
-     WHERE cp.date BETWEEN ? AND ? AND (cp.sale_id IS NULL OR s.pos_id = ?)
-     GROUP BY cp.currency_code`,
-    [from, utcNow, shift.pos_id]
-  );
-
-  // Egresos en efectivo: gastos del turno (fechas UTC, mixtos 50/50), SOLO de la caja del turno.
-  // Los gastos no registran moneda: se asumen en la moneda base.
-  const expCash = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount WHEN payment_method='mixed' THEN amount / 2 ELSE 0 END), 0) AS total
-     FROM expenses WHERE date BETWEEN ? AND ? AND pos_id = ?`,
-    [from, utcNow, shift.pos_id]
-  );
-
-  // Movimientos de caja: aportes/ajustes/saldo inicial (+), compras (−).
-  // Se atribuyen al turno cuando tienen shift_id (y a ninguno si son de otra caja).
-  const registerCash = await query<{ total: number }>(
-    `SELECT COALESCE(SUM(cr.cash_amount), 0) AS total
-     FROM cash_register cr
-     WHERE cr.date BETWEEN ? AND ? AND (cr.shift_id IS NULL OR cr.shift_id = ?)`,
-    [from, utcNow, shift.id]
-  );
+  // El efectivo esperado (por moneda y total en base) se calcula con la
+  // implementación compartida de `@/lib/shift-summary` más abajo.
 
   // Desglose de ventas del turno por método de pago (para el registro de
   // auditoría): tickets, total vendido y partes en efectivo/transferencia.
+  // Una venta puede tener VARIAS filas de pago (cobro parcial en varias
+  // monedas), por eso primero se agrupa por venta: así el total de cada
+  // venta se cuenta UNA sola vez y no se duplica por cada pago. El método de
+  // la venta es el único cuando hay uno, o 'mixed' si combina métodos.
   const payBreakdown = await query<{
     method: string;
     count: number;
@@ -121,15 +82,22 @@ export const POST = handle(async (req: Request, ctx) => {
     amount_cash: number;
     amount_transfer: number;
   }>(
-    `SELECT p.method,
-       COUNT(DISTINCT s.id) AS count,
-       COALESCE(SUM(s.total), 0) AS total,
-       COALESCE(SUM(p.amount_cash), 0) AS amount_cash,
-       COALESCE(SUM(p.amount_transfer), 0) AS amount_transfer
-     FROM payments p
-     JOIN sales s ON s.id = p.sale_id
-     WHERE s.status != 'cancelled' AND p.date BETWEEN ? AND ? AND s.pos_id = ?
-     GROUP BY p.method`,
+    `SELECT method,
+       COUNT(*) AS count,
+       COALESCE(SUM(total), 0) AS total,
+       COALESCE(SUM(amount_cash), 0) AS amount_cash,
+       COALESCE(SUM(amount_transfer), 0) AS amount_transfer
+     FROM (
+       SELECT s.total AS total,
+              CASE WHEN COUNT(DISTINCT p.method) = 1 THEN MAX(p.method) ELSE 'mixed' END AS method,
+              SUM(p.amount_cash) AS amount_cash,
+              SUM(p.amount_transfer) AS amount_transfer
+       FROM payments p
+       JOIN sales s ON s.id = p.sale_id
+       WHERE s.status != 'cancelled' AND p.date BETWEEN ? AND ? AND s.pos_id = ?
+       GROUP BY s.id, s.total
+     ) t
+     GROUP BY method`,
     [fromLocal, localNow, shift.pos_id]
   );
   const paymentBreakdown = Object.fromEntries(
@@ -142,53 +110,21 @@ export const POST = handle(async (req: Request, ctx) => {
   );
 
   // ── Arqueo por moneda ────────────────────────────────────────
-  // Acumular el efectivo esperado por moneda y su tasa de conversión.
-  const cashAmounts: Record<string, number> = {};
-  const cashRates: Record<string, number> = {};
-  const addCash = (code: string | null, amount: number) => {
-    const key = code ?? '';
-    cashAmounts[key] = r2((cashAmounts[key] ?? 0) + amount);
-  };
-  // Fondo inicial y movimientos de caja: en la moneda base
-  addCash(null, Number(shift.opening_cash) + Number(registerCash[0]?.total ?? 0));
-  // Efectivo de las ventas, agrupado por su moneda
-  for (const row of salesCash) {
-    addCash(row.currency_code, Number(row.total ?? 0));
-    if (row.currency_code) {
-      cashRates[row.currency_code] = row.avg_rate != null && Number(row.avg_rate) > 0 ? Number(row.avg_rate) : 1;
-    }
-  }
-  // Abonos en efectivo, por su moneda
-  for (const row of custCash) {
-    addCash(row.currency_code, Number(row.total ?? 0));
-    if (row.currency_code && cashRates[row.currency_code] === undefined) {
-      cashRates[row.currency_code] = row.avg_rate != null && Number(row.avg_rate) > 0 ? Number(row.avg_rate) : 1;
-    }
-  }
-  // Egresos en efectivo (gastos): restan de la moneda base
-  addCash(null, -Number(expCash[0]?.total ?? 0));
-
-  // Desglose (base primero) y total esperado en moneda base
-  const expectedByCurrency = Object.entries(cashAmounts)
-    .filter(([, amount]) => amount !== 0)
-    .map(([code, amount]) => ({
-      code: code || baseCurrency || 'BASE',
-      amount,
-      rate: code ? (cashRates[code] ?? 1) : 1,
-    }))
-    .sort((a, b) => {
-      const aIsBase = a.code === baseCurrency;
-      const bIsBase = b.code === baseCurrency;
-      if (aIsBase !== bIsBase) return aIsBase ? -1 : 1;
-      return Math.abs(b.amount) - Math.abs(a.amount);
-    })
-    .map(({ code, amount }) => ({ code, amount: r2(amount) }));
-  const expected = r2(
-    expectedByCurrency.reduce((acc, c) => {
-      const rate = cashRates[c.code === baseCurrency || c.code === 'BASE' ? '' : c.code] ?? 1;
-      return acc + c.amount * (rate || 1);
-    }, 0)
-  );
+  // Efectivo esperado por moneda + total en base. Es el MISMO cálculo que
+  // usa el resumen en vivo y el reporte del turno (una sola implementación).
+  const {
+    base_currency: baseCurrency,
+    total_base: expected,
+    by_currency: expectedByCurrency,
+  } = await computeExpectedCash({
+    posId: shift.pos_id,
+    shiftId: shift.id,
+    openingCash: Number(shift.opening_cash),
+    fromLocal,
+    toLocal: localNow,
+    fromUtc: from,
+    toUtc: utcNow,
+  });
   const difference = r2(closingCash - expected);
 
   const notes = body.notes ? String(body.notes).trim().slice(0, 500) : shift.notes ?? null;

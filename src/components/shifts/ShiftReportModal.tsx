@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Modal from '@/components/ui/Modal';
-import { formatCurrency, formatDateTime, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDateTime, formatDate, formatMoney } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
 import {
@@ -95,6 +95,28 @@ export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReport
       bodyStyles: { fontSize: 9 },
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+
+    // Efectivo esperado por moneda (cuando el turno cobra en varias monedas)
+    const expByCur = (report.expected_cash_by_currency ?? []) as R[];
+    if (expByCur.length > 1) {
+      const baseCode = String(report.base_currency ?? '');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('Efectivo esperado por moneda', 14, y);
+      doc.setFont('helvetica', 'normal');
+      autoTable(doc, {
+        startY: y + 2,
+        head: [['Moneda', 'Efectivo esperado']],
+        body: [
+          ...expByCur.map(c => [String(c.code ?? '—'), formatMoney(Number(c.amount ?? 0), undefined, String(c.code ?? ''))]),
+          [`Total en ${baseCode || 'moneda base'}`, formatMoney(Number(report.expected_cash_base ?? 0), undefined, baseCode)],
+        ],
+        theme: 'grid',
+        headStyles: { fillColor: [37, 99, 235], fontSize: 9 },
+        bodyStyles: { fontSize: 9 },
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    }
 
     // Desglose de ventas por método de pago
     const payBreakdown = (report.payment_breakdown ?? {}) as R;
@@ -354,7 +376,9 @@ export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReport
               <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-3">
                 <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wide">Esperado</p>
                 <p className="text-base font-semibold text-[var(--text-primary)] mt-1">
-                  {shift.expected_cash != null ? formatCurrency(Number(shift.expected_cash)) : '—'}
+                  {shift.expected_cash != null
+                    ? formatCurrency(Number(shift.expected_cash))
+                    : (report.expected_cash_base != null ? formatCurrency(Number(report.expected_cash_base)) : '—')}
                 </p>
               </div>
               <div className="bg-yellow-500/5 border border-yellow-500/10 rounded-xl p-3">
@@ -364,6 +388,31 @@ export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReport
                 </p>
               </div>
             </div>
+
+            {/* Efectivo esperado por moneda (solo cuando el turno tiene varias) */}
+            {(() => {
+              const byCur = (report.expected_cash_by_currency ?? []) as { code: string; amount: number }[];
+              if (byCur.length <= 1) return null;
+              const baseCode = String(report.base_currency ?? '');
+              return (
+                <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-4">
+                  <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide flex items-center gap-1.5 mb-3">
+                    <Wallet className="w-4 h-4 text-blue-400" /> Efectivo esperado por moneda
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {byCur.map(c => (
+                      <span key={c.code} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-muted)] px-3 py-1.5 text-sm">
+                        <span className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">{c.code}</span>
+                        <span className="font-semibold text-[var(--text-primary)]">{formatMoney(c.amount, undefined, c.code)}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-2">
+                    Total en {baseCode || 'moneda base'}: {formatMoney(Number(report.expected_cash_base ?? 0), undefined, baseCode)}
+                  </p>
+                </div>
+              );
+            })()}
 
             {/* Ventas por método de pago */}
             {(() => {

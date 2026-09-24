@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne } from '@/lib/db/mysql';
 import { handle, ok, notFound, forbidden } from '@/lib/api-helpers';
 import { utcToLocal, utcToDb, nowLocal, nowUtc } from '@/lib/shift-time';
+import { computeExpectedCash } from '@/lib/shift-summary';
 
 // ── Reporte del turno de caja ───────────────────────────────────────
 // Genera un reporte detallado de un turno (abierto o cerrado) con:
@@ -76,15 +77,23 @@ export const GET = handle(async (_req: Request, ctx) => {
 
   // ── Ingresos: ventas con sus pagos (no canceladas), SOLO de la caja del turno.
   // Se incluye la moneda de la venta para identificar en qué moneda se cobró.
+  // IMPORTANTE: una venta puede tener VARIAS filas de pago (cobro parcial en
+  // varias monedas), así que se agrupa por venta para no duplicar el total.
+  // El `method` es el único método cuando hay uno; si la venta mezcla métodos
+  // (p.ej. efectivo + transferencia) se reporta como 'mixed'.
   const sales = await query<Record<string, unknown>>(
     `SELECT s.id, s.date, s.total, s.status, s.currency_code, s.exchange_rate,
             cur.symbol AS currency_symbol,
-            p.method, p.amount_cash, p.amount_transfer, c.name AS customer_name
+            c.name AS customer_name,
+            CASE WHEN COUNT(DISTINCT p.method) = 1 THEN MAX(p.method) ELSE 'mixed' END AS method,
+            SUM(p.amount_cash) AS amount_cash,
+            SUM(p.amount_transfer) AS amount_transfer
      FROM sales s
      JOIN payments p ON p.sale_id = s.id
      LEFT JOIN customers c ON c.id = s.customer_id
      LEFT JOIN currencies cur ON cur.code = s.currency_code
-     WHERE s.status != 'cancelled' AND s.date BETWEEN ? AND ? AND s.pos_id = ?`,
+     WHERE s.status != 'cancelled' AND s.date BETWEEN ? AND ? AND s.pos_id = ?
+     GROUP BY s.id, s.date, s.total, s.status, s.currency_code, s.exchange_rate, cur.symbol, c.name`,
     [fromLocal, toLocal, shift.pos_id]
   );
 
@@ -199,6 +208,19 @@ export const GET = handle(async (_req: Request, ctx) => {
   const totalIncome = r2(totalSales + totalCustomerPayments + (registerNet > 0 ? registerNet : 0));
   const totalOutcome = r2(totalExpenses + totalPurchases);
 
+  // ── Efectivo esperado por moneda y total en base ──
+  // Mismo cálculo que el resumen en vivo y el cierre del turno: así el
+  // reporte muestra cuánto se espera de CADA moneda, no solo el total en base.
+  const expectedCash = await computeExpectedCash({
+    posId: shift.pos_id,
+    shiftId: shift.id,
+    openingCash: Number(shift.opening_cash),
+    fromLocal,
+    toLocal,
+    fromUtc,
+    toUtc,
+  });
+
   return ok({
     shift: {
       id: shift.id,
@@ -240,5 +262,8 @@ export const GET = handle(async (_req: Request, ctx) => {
     // Moneda base y desglose de ventas completadas por moneda
     base_currency: baseCurrency || null,
     sales_by_currency: salesByCurrency,
+    // Efectivo esperado por moneda (base primero) y su total en moneda base
+    expected_cash_by_currency: expectedCash.by_currency,
+    expected_cash_base: expectedCash.total_base,
   });
 });

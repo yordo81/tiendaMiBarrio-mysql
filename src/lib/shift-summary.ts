@@ -94,25 +94,38 @@ function summarizeCashByCurrency(
   };
 }
 
-export async function getOpenShiftLiveSummary(shift: Record<string, unknown>): Promise<ShiftLiveSummary> {
-  const shiftId = String(shift.id ?? '');
-  const posId = shift.pos_id ? String(shift.pos_id) : null;
-  const openingCash = Number(shift.opening_cash ?? 0);
-  const openedAtRaw = String(shift.opened_at_raw ?? '');
+export interface ExpectedCashBreakdown {
+  /** Código de la moneda base del negocio */
+  base_currency: string;
+  /** Efectivo esperado total, expresado en moneda base */
+  total_base: number;
+  /** Efectivo esperado por moneda (la base primero) */
+  by_currency: { code: string; amount: number }[];
+}
 
-  const fromLocal = utcToLocal(openedAtRaw);
-  const fromUtc = utcToDb(openedAtRaw);
-  const localNow = nowLocal();
-  const utcNow = nowUtc();
+/**
+ * Calcula el efectivo esperado en caja por moneda y su total en moneda base
+ * para una ventana de tiempo concreta.
+ *
+ * Es la ÚNICA implementación del arqueo de efectivo: la usan el resumen en
+ * vivo del turno, el cierre y el reporte, de forma que los tres muestran
+ * exactamente el mismo número por moneda.
+ */
+export async function computeExpectedCash(opts: {
+  posId: string | null;
+  shiftId: string;
+  openingCash: number;
+  /** Inicio/fin de la ventana en HORA LOCAL (sales/payments) */
+  fromLocal: string;
+  toLocal: string;
+  /** Inicio/fin de la ventana en UTC (customer_payments/expenses/cash_register) */
+  fromUtc: string;
+  toUtc: string;
+}): Promise<ExpectedCashBreakdown> {
+  const { posId, shiftId, openingCash, fromLocal, toLocal, fromUtc, toUtc } = opts;
 
-  const [baseCode, sales, salesCash, custCash, expCash, registerCash] = await Promise.all([
+  const [baseCode, salesCash, custCash, expCash, registerCash] = await Promise.all([
     getBaseCurrencyCode(),
-    // Ventas completadas del turno (solo las que ya son ingreso)
-    query<{ total: number; count: number }>(
-      `SELECT COALESCE(SUM(s.total),0) AS total, COUNT(*) AS count FROM sales s
-       WHERE s.status='completed' AND s.date BETWEEN ? AND ? AND s.pos_id=?`,
-      [fromLocal, localNow, posId]
-    ),
     // Efectivo recibido en las ventas (pagos en efectivo / mixto), por moneda.
     // La tasa congelada del pago permite convertir su efectivo a moneda base.
     query<{ currency_code: string | null; total: number; avg_rate: number | null }>(
@@ -123,7 +136,7 @@ export async function getOpenShiftLiveSummary(shift: Record<string, unknown>): P
        JOIN sales s ON s.id=p.sale_id
        WHERE s.status!='cancelled' AND p.date BETWEEN ? AND ? AND s.pos_id=?
        GROUP BY p.currency_code`,
-      [fromLocal, localNow, posId]
+      [fromLocal, toLocal, posId]
     ),
     // Abonos de clientes en efectivo (mixtos 50/50), por moneda
     query<{ currency_code: string | null; total: number; avg_rate: number | null }>(
@@ -133,21 +146,21 @@ export async function getOpenShiftLiveSummary(shift: Record<string, unknown>): P
        FROM customer_payments cp LEFT JOIN sales s ON s.id=cp.sale_id
        WHERE cp.date BETWEEN ? AND ? AND (cp.sale_id IS NULL OR s.pos_id=?)
        GROUP BY cp.currency_code`,
-      [fromUtc, utcNow, posId]
+      [fromUtc, toUtc, posId]
     ),
     // Egresos en efectivo (gastos, mixtos 50/50). Los gastos no registran
     // moneda: se asumen en la moneda base (como siempre se hicieron).
     query<{ total: number }>(
       `SELECT COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount WHEN payment_method='mixed' THEN amount/2 ELSE 0 END),0) AS total
        FROM expenses WHERE date BETWEEN ? AND ? AND pos_id=?`,
-      [fromUtc, utcNow, posId]
+      [fromUtc, toUtc, posId]
     ),
     // Movimientos de caja en efectivo (aportes/ajustes +). Tampoco registran
     // moneda: se asumen en la moneda base.
     query<{ total: number }>(
       `SELECT COALESCE(SUM(cr.cash_amount),0) AS total FROM cash_register cr
        WHERE cr.date BETWEEN ? AND ? AND (cr.shift_id IS NULL OR cr.shift_id=?)`,
-      [fromUtc, utcNow, shiftId]
+      [fromUtc, toUtc, shiftId]
     ),
   ]);
 
@@ -172,15 +185,39 @@ export async function getOpenShiftLiveSummary(shift: Record<string, unknown>): P
   addToCurrencyMap(amounts, null, -Number(expCash[0]?.total ?? 0));
 
   const { byCurrency, totalBase } = summarizeCashByCurrency(amounts, rates, baseCode);
+  return { base_currency: baseCode, total_base: totalBase, by_currency: byCurrency };
+}
+
+export async function getOpenShiftLiveSummary(shift: Record<string, unknown>): Promise<ShiftLiveSummary> {
+  const shiftId = String(shift.id ?? '');
+  const posId = shift.pos_id ? String(shift.pos_id) : null;
+  const openingCash = Number(shift.opening_cash ?? 0);
+  const openedAtRaw = String(shift.opened_at_raw ?? '');
+
+  const fromLocal = utcToLocal(openedAtRaw);
+  const fromUtc = utcToDb(openedAtRaw);
+  const localNow = nowLocal();
+  const utcNow = nowUtc();
+
+  const [sales, expected] = await Promise.all([
+    // Ventas completadas del turno (solo las que ya son ingreso)
+    query<{ total: number; count: number }>(
+      `SELECT COALESCE(SUM(s.total),0) AS total, COUNT(*) AS count FROM sales s
+       WHERE s.status='completed' AND s.date BETWEEN ? AND ? AND s.pos_id=?`,
+      [fromLocal, localNow, posId]
+    ),
+    // Efectivo esperado por moneda + total en base (implementación compartida)
+    computeExpectedCash({ posId, shiftId, openingCash, fromLocal, toLocal: localNow, fromUtc, toUtc: utcNow }),
+  ]);
 
   return {
     total_sales: r2(Number(sales[0]?.total ?? 0)),
     sales_count: Number(sales[0]?.count ?? 0),
     // Total esperado en moneda base + desglose por moneda
-    total_cash: totalBase,
-    expected_cash: totalBase,
-    cash_by_currency: byCurrency,
-    expected_cash_by_currency: byCurrency,
-    base_currency: baseCode,
+    total_cash: expected.total_base,
+    expected_cash: expected.total_base,
+    cash_by_currency: expected.by_currency,
+    expected_cash_by_currency: expected.by_currency,
+    base_currency: expected.base_currency,
   };
 }
