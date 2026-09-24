@@ -1,21 +1,26 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
-import { formatCurrency, formatNumber, cn, findProductByBarcode } from '@/lib/utils';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { formatCurrency, formatMoney, formatNumber, cn, findProductByBarcode } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
+import Toggle from '@/components/ui/Toggle';
 import { toast } from '@/components/ui/toaster';
 import { playScanBeep } from '@/lib/scan-beep';
 import { usePosSelector } from '@/hooks/use-pos';
 import { useSettingsStore } from '@/lib/stores/settings-store';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
-import { Search, X, Barcode } from 'lucide-react';
+import { convertAmount, roundToNickel } from '@/lib/currency';
+import { Search, X, Barcode, Banknote, Landmark, Plus } from 'lucide-react';
 import { normalizePhone } from '@/lib/validate';
 
 type AnyRecord = Record<string, unknown>;
 type PayMethod = 'cash' | 'transfer' | 'mixed' | 'credit';
+type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; /** Referencia al dólar: 1 USD = X moneda */ usdRate?: number | null };
+// Parte del cobro mixto: efectivo y transferencia de UNA moneda ('' = base)
+interface PaymentPart { cash: number; transfer: number; currency: string; }
 
 interface SaleModalProps {
   open: boolean;
@@ -40,15 +45,30 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
   const [amountCash, setAmountCash] = useState(0);
   const [amountTransfer, setAmountTransfer] = useState(0);
   const [transferPhone, setTransferPhone] = useState('');
+  const [splitCurrency, setSplitCurrency] = useState(''); // moneda de la venta ('' = base)
   const [saleNotes, setSaleNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
+  // Cobro dividido: partes [{ método, monto, moneda }] ('' = moneda base)
+  const [splitPay, setSplitPay] = useState(false);
+  const [payParts, setPayParts] = useState<PaymentPart[]>([]);
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(open);
 
   // Enfocar el campo de código de barras al abrir el modal para escanear de inmediato
   useEffect(() => {
     if (open) barcodeInputRef.current?.focus();
   }, [open]);
+
+  // El almacén de salida por defecto es el del PUNTO DE VENTA seleccionado:
+  // al cambiar la caja, el almacén se sincroniza automáticamente (y puede
+  // cambiarse a mano después).
+  useEffect(() => {
+    if (!open || workMode !== 'shifts' || !posId) return;
+    const pos = posOptions.find(p => String(p.id) === String(posId));
+    const posLoc = pos?.location_id ? String(pos.location_id) : '';
+    if (posLoc && locations.some(l => String(l.id) === posLoc)) setLocationId(posLoc);
+  }, [open, workMode, posId, posOptions, locations]);
 
   useEffect(() => {
     if (!open) return;
@@ -60,9 +80,53 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
         if (l.length > 0 && !locationId) setLocationId(String(l[0].id));
       })
       .catch(() => toast.error('Error al cargar datos'));
+    // Monedas y tasas (para convertir precios y cobrar dividido)
+    fetch('/api/currencies').then(r => r.json()).then(d => {
+      const raw = (d.currencies ?? []) as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number>; usd_rate?: number | null }[];
+      const baseCode = raw.find(c => c.is_base)?.code ?? '';
+      setCurrencies(raw.map(c => ({
+        code: c.code, name: c.name, symbol: c.symbol, is_base: c.is_base,
+        rate: c.is_base ? 1 : (c.rates?.[baseCode] ?? 0),
+        // Referencia al dólar: 1 USD = X moneda (lo que muestra la UI)
+        usdRate: c.usd_rate ?? null,
+      })));
+    }).catch(() => {});
   }, [open, locationId]);
 
   const cartTotal = cart.reduce((a, i) => a + i.quantity * i.unit_price, 0);
+  const activeCurrencies = useMemo(() => currencies.filter(c => c.is_base || Number(c.rate) > 0), [currencies]);
+  const baseCurrency = currencies.find(c => c.is_base) ?? null;
+  const saleCurrency = currencies.find(c => c.code === splitCurrency) ?? null;
+  const isForeignSale = !!saleCurrency && !saleCurrency.is_base;
+  // Precio del producto convertido a la moneda de la venta y redondeado hacia
+  // arriba al múltiplo de 0.05 (no existen monedas de 1 centavo): así el POS
+  // muestra exactamente el precio que el servidor registrará.
+  function convertedUnitPrice(product: AnyRecord): number {
+    const nativeCode = product.sale_currency ? String(product.sale_currency).toUpperCase() : (baseCurrency?.code ?? null);
+    return roundToNickel(convertAmount(Number(product.sale_price), nativeCode, splitCurrency || null, currencies));
+  }
+  // Recalcular los precios del carrito al cambiar la moneda de venta (igual
+  // que en el POS táctil): precio convertido + redondeo a 0.05. Solo se dispara
+  // con la moneda para no pisar los precios editados a mano por el dueño/admin
+  // cuando la lista de monedas se refresca.
+  useEffect(() => {
+    if (cart.length === 0 || currencies.length === 0) return;
+    setCart(prev => prev.map(i => ({ ...i, unit_price: convertedUnitPrice(i.product) })));
+  }, [splitCurrency]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Total equivalente en moneda base (validación del cobro dividido)
+  const cartTotalBase = isForeignSale && saleCurrency && saleCurrency.rate > 0
+    ? Math.round(cartTotal * saleCurrency.rate * 100) / 100
+    : cartTotal;
+  // Partes activas del cobro dividido
+  const activeParts = payParts.filter(p => p.cash + p.transfer > 0);
+  // Remanente por cobrar (en la moneda indicada) tras descontar las partes
+  const remainFor = (toCur: CurrencyOption | null): number => {
+    if (activeParts.length === 0) return cartTotal;
+    const covered = activeParts.reduce((a, p) => a + convertAmount(p.cash + p.transfer, p.currency || null, toCur?.code ?? null, currencies), 0);
+    return Math.round((cartTotal - covered) * 100) / 100;
+  };
+  // Datos de la transferencia compartidos por las partes (teléfono opcional)
+  const transferNotes = (payMethod === 'transfer' || payMethod === 'mixed') && transferPhone.trim() ? `Tel: ${transferPhone.trim()}` : null;
 
   function getAvailableStock(product: AnyRecord): number {
     if (locationId && locationStock[String(product.id)] !== undefined) {
@@ -80,7 +144,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
       const ex = prev.find(i => i.product.id === p.id);
       return ex
         ? prev.map(i => i.product.id === p.id ? { ...i, quantity: i.quantity + 1 } : i)
-        : [...prev, { product: p, quantity: 1, unit_price: Number(p.sale_price) }];
+        : [...prev, { product: p, quantity: 1, unit_price: convertedUnitPrice(p) }];
     });
     setProductSearch('');
     setBarcodeSearch('');
@@ -114,6 +178,9 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
     setAmountTransfer(0);
     setTransferPhone('');
     setSaleNotes('');
+    setSplitCurrency('');
+    setSplitPay(false);
+    setPayParts([]);
     resetPos();
   }
 
@@ -167,6 +234,14 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
       toast.error(`Stock insuficiente: ${names}`);
       return;
     }
+    // Cobro mixto multi-moneda: validar que las partes cubran el total (en base)
+    if (activeParts.length > 0) {
+      const covered = activeParts.reduce((a, p) => a + (p.cash + p.transfer) / (p.currency ? (currencies.find(c => c.code === p.currency)?.rate || 1) : 1), 0);
+      if (covered + 0.01 < cartTotalBase) {
+        toast.error('Las partes no cubren el total de la venta');
+        return;
+      }
+    }
     setSaving(true);
     try {
       const total = cartTotal;
@@ -177,12 +252,20 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
           unit_price: i.unit_price,
           cost: Number(i.product.cost ?? 0),
         })),
+        // Moneda de la venta ('' = moneda base): la tasa se congela en el servidor
+        currency_code: splitCurrency || null,
         payment: {
           method: payMethod,
-          amount_cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? amountCash : 0,
-          amount_transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
-          // El teléfono (opcional) se guarda junto al pago, igual que en la ventana touch
-          notes: hasTransfer && transferPhone.trim() ? `Tel: ${transferPhone.trim()}` : null,
+          // Cobro mixto multi-moneda: una parte por moneda (el servidor crea
+          // una fila de pago por cada una, con su tasa congelada)
+          ...(activeParts.length > 0
+            ? { parts: activeParts.map(p => ({ currency_code: p.currency || null, amount_cash: p.cash, amount_transfer: p.transfer, notes: p.transfer > 0 ? transferNotes : null })) }
+            : {
+                amount_cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? amountCash : 0,
+                amount_transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
+                // El teléfono (opcional) se guarda junto al pago, igual que en la ventana touch
+                notes: hasTransfer && transferPhone.trim() ? `Tel: ${transferPhone.trim()}` : null,
+              }),
         },
         customer_id: customerId || null,
         location_id: locationId || null,
@@ -221,8 +304,22 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
           businessName: settings?.business_name ?? 'TiendaMiBarrio',
           logoUrl: settings?.logo_url ?? null,
           payMethod,
-          cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? amountCash : 0,
-          transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
+          cash: activeParts.length > 0
+            ? Number((((res as AnyRecord).payments ?? []) as AnyRecord[]).reduce((a, p) => a + Number(p.amount_cash ?? 0), 0))
+            : payMethod === 'cash' ? total : payMethod === 'mixed' ? amountCash : 0,
+          transfer: activeParts.length > 0
+            ? Number((((res as AnyRecord).payments ?? []) as AnyRecord[]).reduce((a, p) => a + Number(p.amount_transfer ?? 0), 0))
+            : payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
+          // Cobro dividido: desglose de pagos por moneda en el ticket
+          payments: activeParts.length > 0
+            ? (((res as AnyRecord).payments ?? []) as AnyRecord[]).map(p => ({
+                method: String(p.method ?? 'cash'),
+                amount: Number(p.amount_cash ?? 0) + Number(p.amount_transfer ?? 0),
+                // NULL = moneda base → se resuelve al código base para el ticket
+                currency_code: p.currency_code ? String(p.currency_code) : (baseCurrency?.code ?? null),
+                currency_symbol: currencies.find(c => c.code === String(p.currency_code ?? ''))?.symbol ?? null,
+              }))
+            : undefined,
           // El teléfono de transferencia (opcional) aparece en el ticket, igual que en la ventana touch
           notes: [
             saleNotes.trim(),
@@ -306,8 +403,21 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                         return <p className={`text-xs ${cls}`}>{out ? 'Sin stock — Producto agotado' : `Stock: ${formatNumber(avail, 1)}`}</p>;
                       })()}
                     </div>
-                    <span className={cn('font-semibold text-sm', getAvailableStock(p) <= 0 ? 'text-[var(--text-tertiary)] line-through' : 'text-brand-400')}>
-                      {formatCurrency(Number(p.sale_price))}
+                    <span className="flex flex-col items-end">
+                      {/* Precio nativo del producto (su moneda de venta; NULL = base) */}
+                      <span className={cn('font-semibold text-sm', getAvailableStock(p) <= 0 ? 'text-[var(--text-tertiary)] line-through' : 'text-brand-400')}>
+                        {(() => {
+                          const native = currencies.find(c => c.code === (p.sale_currency ? String(p.sale_currency).toUpperCase() : baseCurrency?.code));
+                          return formatMoney(Number(p.sale_price), native?.symbol ?? undefined, native?.code ?? (p.sale_currency ? String(p.sale_currency) : undefined));
+                        })()}
+                      </span>
+                      {(() => {
+                        // Equivalente en la moneda de la venta cuando difiere
+                        const nativeCode = p.sale_currency ? String(p.sale_currency).toUpperCase() : baseCurrency?.code ?? null;
+                        const conv = convertedUnitPrice(p);
+                        if (!splitCurrency || nativeCode === splitCurrency) return null;
+                        return <span className="text-[10px] text-[var(--text-tertiary)]">≈ {formatMoney(conv, saleCurrency?.symbol, saleCurrency?.code)}</span>;
+                      })()}
                     </span>
                   </button>
                 ))
@@ -350,16 +460,25 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                     >
                       +
                     </button>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={item.unit_price}
-                      onChange={canEditPrice ? e => setCart(prev => prev.map(i => i.product.id === item.product.id ? { ...i, unit_price: parseFloat(e.target.value) || 0 } : i)) : undefined}
-                      readOnly={!canEditPrice}
-                      className={`w-full sm:w-20 input text-right text-xs py-1.5 sm:py-1 ${!canEditPrice ? 'opacity-60 cursor-not-allowed' : ''}`}
-                      title={!canEditPrice ? 'Solo el dueño o admin pueden modificar el precio' : undefined}
-                    />
+                    <div className="flex flex-col items-end">
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={item.unit_price}
+                        onChange={canEditPrice ? e => setCart(prev => prev.map(i => i.product.id === item.product.id ? { ...i, unit_price: parseFloat(e.target.value) || 0 } : i)) : undefined}
+                        readOnly={!canEditPrice}
+                        className={`w-full sm:w-20 input text-right text-xs py-1.5 sm:py-1 ${!canEditPrice ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        title={!canEditPrice ? 'Solo el dueño o admin pueden modificar el precio' : undefined}
+                      />
+                      {(() => {
+                        // Precio nativo del producto (referencia cuando difiere)
+                        const nativeCode = item.product.sale_currency ? String(item.product.sale_currency).toUpperCase() : baseCurrency?.code ?? null;
+                        if (!nativeCode || nativeCode === (saleCurrency?.code ?? null)) return null;
+                        const native = currencies.find(c => c.code === nativeCode);
+                        return <span className="text-[10px] text-[var(--text-tertiary)]">Lista: {formatMoney(Number(item.product.sale_price), native?.symbol, nativeCode)}</span>;
+                      })()}
+                    </div>
                     <button
                       onClick={() => setCart(prev => prev.filter(i => i.product.id !== item.product.id))}
                       className="text-[var(--text-tertiary)] hover:text-red-400 p-1"
@@ -370,7 +489,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                 </div>
               ))}
               <div className="flex justify-end pt-1">
-                <span className="text-lg font-semibold text-[var(--text-primary)]">Total: {formatCurrency(cartTotal)}</span>
+                <span className="text-lg font-semibold text-[var(--text-primary)]">Total: {formatMoney(cartTotal, saleCurrency?.symbol ?? baseCurrency?.symbol, saleCurrency?.code ?? baseCurrency?.code)}</span>
               </div>
             </div>
           )}
@@ -432,7 +551,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                 return (
                   <button
                     key={m}
-                    onClick={() => setPayMethod(m)}
+                    onClick={() => { setPayMethod(m); if (m === 'credit') setSplitCurrency(''); }}
                     className={cn(
                       'px-3 py-2 rounded-lg text-sm border transition-colors',
                       payMethod === m
@@ -446,7 +565,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
               })}
             </div>
           </div>
-          {payMethod === 'mixed' && (
+          {payMethod === 'mixed' && activeParts.length === 0 && (
             <div className="grid grid-cols-2 gap-3 p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)]">
               <div>
                 <label className="label">Efectivo</label>
@@ -485,6 +604,124 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
               ⚠ Se registrará como deuda. Debes seleccionar un cliente.
             </div>
           )}
+          {/* Moneda de venta (solo si hay más de una activa; crédito = base) */}
+          {payMethod !== 'credit' && activeCurrencies.length > 1 && (
+            <div>
+              <label className="label">Moneda de venta</label>
+              <SearchableSelect
+                options={activeCurrencies.map(c => ({
+                  value: c.is_base ? '' : c.code,
+                  label: `${c.symbol} ${c.code}`, sublabel: c.is_base ? 'Moneda base' : (c.rate > 0 ? (c.code === 'USD' ? 'Referencia (dólar)' : `1 USD = ${c.usdRate ?? '—'} ${c.code}`) : undefined),
+                }))}
+                value={splitCurrency}
+                onChange={v => setSplitCurrency(v)}
+                placeholder="Seleccionar moneda"
+                noResultsMessage="Sin monedas"
+              />
+            </div>
+          )}
+          {/* Cobro mixto en varias monedas: cada parte agrupa el efectivo y la
+              transferencia de UNA moneda. Los importes se convierten con la tasa
+              de cada moneda y se registran como pagos separados. */}
+          {payMethod !== 'credit' && activeCurrencies.length > 1 && (
+            <div className="rounded-xl border p-3 space-y-2.5" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+              <Toggle
+                checked={splitPay}
+                onChange={checked => { setSplitPay(checked); setPayParts(checked ? [{ cash: 0, transfer: 0, currency: splitCurrency }] : []); }}
+                label="Cobrar en varias monedas (mixto)"
+              />
+              {splitPay && (
+                <div className="space-y-2">
+                  {payParts.map((part, idx) => {
+                    const partCur = currencies.find(c => c.code === part.currency) ?? null;
+                    const coveredBase = payParts.reduce((a, p) => a + (p.cash + p.transfer > 0 ? (p.cash + p.transfer) / (p.currency ? (currencies.find(c => c.code === p.currency)?.rate || 1) : 1) : 0), 0);
+                    const coveredDiff = Math.round((coveredBase - cartTotalBase) * 100) / 100;
+                    const partTotal = part.cash + part.transfer;
+                    const partRemain = Math.max(0, Math.round((remainFor(partCur) - part.transfer / (partCur?.rate || 1)) * 100) / 100);
+                    return (
+                      <div key={idx} className="rounded-lg border p-2.5 space-y-2" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">Parte {idx + 1}{partCur ? ` · ${partCur.code}` : ''}</span>
+                          {payParts.length > 1 && (
+                            <button onClick={() => setPayParts(prev => prev.filter((_, i) => i !== idx))} className="ml-auto p-1 rounded-md hover:text-red-400 text-[var(--text-tertiary)]" aria-label="Quitar parte">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div>
+                          <label className="label">Moneda</label>
+                          <SearchableSelect
+                            options={activeCurrencies.map(c => ({ value: c.code, label: `${c.symbol} ${c.code}`, sublabel: c.is_base ? 'Moneda base' : (c.rate > 0 ? (c.code === 'USD' ? 'Referencia (dólar)' : `1 USD = ${c.usdRate ?? '—'} ${c.code}`) : undefined) }))}
+                            value={part.currency}
+                            onChange={v => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, currency: v } : p))}
+                            placeholder="Seleccionar moneda"
+                            noResultsMessage="Sin monedas"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <div>
+                            <label className="label flex items-center gap-1"><Banknote className="w-3.5 h-3.5" /> Efectivo</label>
+                            <div className="flex gap-1.5">
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                className="input text-xs font-semibold"
+                                placeholder="0.00"
+                                value={part.cash || ''}
+                                onChange={e => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, cash: parseFloat(e.target.value) || 0 } : p))}
+                              />
+                              {partRemain > 0 && (
+                                <button
+                                  onClick={() => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, cash: partRemain } : p))}
+                                  className="text-[11px] font-medium px-2.5 rounded-lg text-white transition-transform active:scale-95 whitespace-nowrap"
+                                  style={{ backgroundColor: 'var(--brand-600)' }}
+                                >
+                                  Resto
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="label flex items-center gap-1"><Landmark className="w-3.5 h-3.5" /> Transferencia</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              className="input text-xs font-semibold"
+                              placeholder="0.00"
+                              value={part.transfer || ''}
+                              onChange={e => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, transfer: parseFloat(e.target.value) || 0 } : p))}
+                            />
+                          </div>
+                        </div>
+                        {(partTotal > 0 || (partCur && !partCur.is_base && partCur.rate > 0)) && (
+                          <p className="text-[10px] text-[var(--text-tertiary)]">
+                            {partTotal > 0 && <>Equivale a ≈ {formatMoney(partTotal * (partCur?.rate || 1), baseCurrency?.symbol, baseCurrency?.code)}{partCur && !partCur.is_base && partCur.usdRate != null && partCur.usdRate !== 1 ? ` · Tasa: 1 USD = ${partCur.usdRate} ${partCur.code}` : ''}</>}
+                            {partTotal <= 0 && partCur && !partCur.is_base && partCur.usdRate != null && partCur.usdRate !== 1 && <>Tasa: 1 USD = {partCur.usdRate} {partCur.code}</>}
+                          </p>
+                        )}
+                        {idx === payParts.length - 1 && coveredBase > 0 && (
+                          <p className={cn('text-[11px] font-medium', coveredDiff >= -0.01 ? 'text-green-400' : 'text-yellow-400')}>
+                            {coveredDiff >= -0.01 ? '✓ Cubre el total' : <>Falta cubrir ≈ {formatMoney(-coveredDiff, baseCurrency?.symbol, baseCurrency?.code)}</>}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {payParts.length < 4 && (
+                    <button
+                      onClick={() => setPayParts(prev => [...prev, { cash: 0, transfer: 0, currency: '' }])}
+                      className="w-full rounded-lg border border-dashed py-2 text-xs font-medium transition-colors hover:brightness-105 flex items-center justify-center gap-1.5"
+                      style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Agregar otra moneda
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <label className="label">Notas</label>
             <input className="input" placeholder="Notas opcionales..." value={saleNotes} onChange={e => setSaleNotes(e.target.value)} />
@@ -497,7 +734,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
             disabled={saving || cart.length === 0 || hasStockIssues()}
             className="btn-primary w-full py-3 text-base disabled:opacity-50"
           >
-            {saving ? 'Registrando...' : `Confirmar — ${formatCurrency(cartTotal)}`}
+            {saving ? 'Registrando...' : `Confirmar — ${formatMoney(cartTotal, saleCurrency?.symbol ?? baseCurrency?.symbol, saleCurrency?.code ?? baseCurrency?.code)}`}
           </button>
         </div>
       </div>

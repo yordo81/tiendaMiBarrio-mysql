@@ -48,7 +48,7 @@ export default function VentasPage() {
   const [paySaleSaving, setPaySaleSaving] = useState(false);
   const [search, setSearch] = useState('');
   // ── Monedas para mostrar tasa en el detalle ──
-  type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; rateUpdatedAt?: string | null };
+  type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; /** Referencia al dólar: 1 USD = X moneda */ usdRate?: number | null; rateUpdatedAt?: string | null };
   const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
   const { workMode } = usePosSelector(false);
   const { user } = useAuthStore();
@@ -151,13 +151,15 @@ export default function VentasPage() {
         const curRes = await fetch('/api/currencies');
         if (curRes.ok) {
           const curData = await curRes.json();
-          const rawCurrencies = curData.currencies as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number> }[];
+          const rawCurrencies = curData.currencies as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number>; usd_rate?: number | null }[];
           const baseCode = rawCurrencies?.find(c => c.is_base)?.code ?? '';
           const ratesUpdatedAt = (curData.rates_updated_at ?? {}) as Record<string, string>;
           setCurrencies((rawCurrencies ?? []).map(c => ({
             code: c.code, name: c.name, symbol: c.symbol, is_base: c.is_base,
             rate: c.rates?.[baseCode] ?? 1,
-            rateUpdatedAt: c.is_base ? null : (ratesUpdatedAt[`${c.code}->${baseCode}`] ?? null),
+            // Referencia al dólar: 1 USD = X moneda (toda tasa se guarda como fila USD → moneda)
+            usdRate: c.usd_rate ?? null,
+            rateUpdatedAt: c.is_base ? null : (ratesUpdatedAt[`USD->${c.code}`] ?? null),
           })));
         }
       } catch { /* monedas opcionales */ }
@@ -202,7 +204,7 @@ export default function VentasPage() {
   }
 
   // Imprime el comprobante del cliente con los datos de una venta ya registrada
-  async function printTicketFor(opts: { sale: AnyRecord; items: AnyRecord[]; payMethod: string; cash: number; transfer: number; notes?: string | null; currencyCode?: string | null; currencySymbol?: string | null; exchangeRate?: number | null; baseCurrencyCode?: string | null; baseCurrencySymbol?: string | null }) {
+  async function printTicketFor(opts: { sale: AnyRecord; items: AnyRecord[]; payMethod: string; cash: number; transfer: number; notes?: string | null; currencyCode?: string | null; currencySymbol?: string | null; exchangeRate?: number | null; baseCurrencyCode?: string | null; baseCurrencySymbol?: string | null; payments?: { method: string; amount: unknown; currency_code?: string | null; currency_symbol?: string | null }[] }) {
     await useSettingsStore.getState().load();
     const s = useSettingsStore.getState().settings;
     try {
@@ -225,6 +227,7 @@ export default function VentasPage() {
           exchangeRate: opts.exchangeRate ?? (opts.sale.exchange_rate != null ? Number(opts.sale.exchange_rate) : null),
           baseCurrencyCode: opts.baseCurrencyCode ?? null,
           baseCurrencySymbol: opts.baseCurrencySymbol ?? null,
+          payments: opts.payments,
         }),
         { method, width: s?.receipt_printer_width ?? '80', printer }
       );
@@ -350,8 +353,16 @@ export default function VentasPage() {
                   sale: selectedSale,
                   items: ((selectedSale.items as AnyRecord[] | undefined) ?? []) as AnyRecord[],
                   payMethod: String(pay?.method ?? 'cash'),
-                  cash: Number(pay?.amount_cash ?? selectedSale.total ?? 0),
-                  transfer: Number(pay?.amount_transfer ?? 0),
+                  cash: pays.length > 1 ? 0 : Number(pay?.amount_cash ?? selectedSale.total ?? 0),
+                  transfer: pays.length > 1 ? 0 : Number(pay?.amount_transfer ?? 0),
+                  // Cobro dividido: una fila de pago por moneda → desglose en el ticket
+                  payments: pays.map(p => ({
+                    method: String(p.method ?? 'cash'),
+                    amount: Number(p.amount_cash ?? 0) > 0 ? Number(p.amount_cash) : Number(p.amount_transfer ?? 0),
+                    // NULL = moneda base → se resuelve al código base para el ticket
+                    currency_code: p.currency_code ? String(p.currency_code) : (base?.code ?? null),
+                    currency_symbol: currencies.find(c => c.code === String(p.currency_code ?? ''))?.symbol ?? null,
+                  })),
                   notes: selectedSale.notes ? String(selectedSale.notes) : null,
                   baseCurrencyCode: base?.code ?? null,
                   baseCurrencySymbol: base?.symbol ?? null,
@@ -369,15 +380,17 @@ export default function VentasPage() {
               <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Total</p>
                 <p className="text-[var(--text-primary)] font-semibold">{formatMoney(Number(selectedSale.total), selectedSale.currency_symbol ? String(selectedSale.currency_symbol) : null, selectedSale.currency_code ? String(selectedSale.currency_code) : null)}</p>
                 {(() => {
-                  // Venta en moneda distinta de la base: tasa y equivalente
+                  // Venta en moneda distinta de la base: tasa (siempre contra
+                  // el dólar: 1 USD = X moneda) y equivalente en la base
                   const code = String(selectedSale.currency_code ?? '');
-                  const rate = Number(selectedSale.exchange_rate ?? 0);
+                  const usdRate = Number(selectedSale.usd_rate ?? 0);
                   const inBase = saleTotalInBase(selectedSale);
                   if (!code || !inBase) return null;
                   const base = currencies.find(c => c.is_base);
+                  const tasa = usdRate > 0 && usdRate !== 1 ? `Tasa: 1 USD = ${usdRate} ${code} · ` : '';
                   return (
                     <p className="text-[11px] text-[var(--text-tertiary)] mt-1">
-                      Tasa: 1 {code} = {rate} {base?.code ?? ''} · ≈ {formatMoney(inBase, base?.symbol, base?.code)} en {base?.code ?? 'moneda base'}
+                      {tasa}≈ {formatMoney(inBase, base?.symbol, base?.code)} en {base?.code ?? 'moneda base'}
                     </p>
                   );
                 })()}
@@ -418,12 +431,13 @@ export default function VentasPage() {
             )}
             {/* Payment method info */}
             {(selectedSale.payments as AnyRecord[]|undefined)?.map(pay=>{
-              const payMethodLabel = (pay.method === 'cash' || !pay.currency_code)
-                ? 'Efectivo'
-                : `${pay.currency_symbol ? String(pay.currency_symbol) : ''}${pay.currency_code ? String(pay.currency_code) : ''} — ${pay.currency_name ? String(pay.currency_name) : pay.currency_code ? String(pay.currency_code) : 'Efectivo'}`;
+              const methodName = pay.method === 'transfer' ? 'Transferencia' : pay.method === 'mixed' ? 'Mixto' : pay.method === 'credit' ? 'Crédito' : 'Efectivo';
+              // Moneda del pago: NULL en la BD = moneda base. Se muestra UNA sola
+              // vez (como código) en la etiqueta, sin repetir símbolo y código.
+              const payCode = String(pay.currency_code ?? '').trim() || (currencies.find(c => c.is_base)?.code ?? '');
               return (
                 <div key={String(pay.id)} className="flex justify-between items-center text-sm p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)]">
-                  <span className="text-[var(--text-secondary)] capitalize">{payMethodLabel}</span>
+                  <span className="text-[var(--text-secondary)]">{methodName}{payCode ? ` · ${payCode}` : ''}</span>
                   <span className="text-[var(--text-primary)] font-medium">{pay.method==='mixed'?`Ef: ${formatCurrency(Number(pay.amount_cash))} / Tr: ${formatCurrency(Number(pay.amount_transfer))}`:formatCurrency(Number(pay.amount_cash)+Number(pay.amount_transfer))}</span>
                 </div>
               );

@@ -1,12 +1,14 @@
 'use client';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Search, ScanBarcode, Minus, Plus, Trash2, ShoppingCart, X, CheckCircle,
+  Search, ScanBarcode, Minus, Plus, Trash2, ShoppingCart, X, CheckCircle, Check,
   Banknote, Landmark, Wallet, HandCoins, Package, History,
   Receipt, AlertTriangle, Loader2, Store, User, Keyboard, Delete,
   TabletSmartphone, Phone, PhoneOff, ChevronDown, KeyRound, LogOut, Play, Square, Clock3,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import EmptyState from '@/components/ui/EmptyState';
 import { formatCurrency, formatMoney, formatNumber, cn, findProductByBarcode, formatDateTime } from '@/lib/utils';
@@ -19,8 +21,10 @@ import { toast } from '@/components/ui/toaster';
 import { playScanBeep } from '@/lib/scan-beep';
 import { notifyShiftChanged, notifyShiftSummaryChanged, SHIFT_CHANGED_EVENT, SHIFT_SUMMARY_CHANGED_EVENT } from '@/lib/shift-events';
 import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
+import { convertAmount, roundToNickel, r2 } from '@/lib/currency';
 import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
+import Toggle from '@/components/ui/Toggle';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import OpenShiftModal from '@/components/shifts/OpenShiftModal';
 import ChangePasswordModal from '@/components/users/ChangePasswordModal';
@@ -34,31 +38,28 @@ import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 type AnyRecord = Record<string, unknown>;
 type PayMethod = 'cash' | 'transfer' | 'mixed' | 'credit';
 interface CartLine { product: AnyRecord; quantity: number; unit_price: number; }
-type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; rateUpdatedAt?: string | null };
+type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; /** Referencia al dólar: 1 USD = X moneda */ usdRate?: number | null; rateUpdatedAt?: string | null };
 
-const PAY_METHODS: { id: PayMethod; label: string; icon: typeof Banknote; desc: string }[] = [
-  { id: 'cash', label: 'Efectivo', icon: Banknote, desc: 'Billetes o monedas' },
-  { id: 'transfer', label: 'Transferencia', icon: Landmark, desc: 'Pago bancario' },
-  { id: 'mixed', label: 'Mixto', icon: Wallet, desc: 'Efectivo + transferencia' },
+// El número de paso (1, 2, 3, 4) se muestra en la tarjeta del método.
+const PAY_METHODS: { id: PayMethod; label: string; icon: typeof Banknote; desc: string; step: number }[] = [
+  { id: 'cash', label: 'Efectivo', icon: Banknote, desc: 'Billetes o monedas', step: 1 },
+  { id: 'transfer', label: 'Transferencia', icon: Landmark, desc: 'Pago bancario', step: 2 },
+  { id: 'mixed', label: 'Mixto', icon: Wallet, desc: 'Efectivo + transferencia', step: 3 },
   // Crédito: queda como deuda; solo se muestra a dueño y administrador (canUseCredit)
-  { id: 'credit', label: 'Crédito', icon: HandCoins, desc: 'Queda como deuda' },
+  { id: 'credit', label: 'Crédito', icon: HandCoins, desc: 'Queda como deuda', step: 4 },
 ];
+
+// Descripciones alternativas del paso 2 cuando se cobra en moneda extranjera
+const PAY_METHOD_DESC_FOREIGN: Partial<Record<PayMethod, string>> = {
+  cash: 'Recibes la plata en esa moneda',
+  transfer: 'El cliente paga desde su banco',
+  mixed: 'Efectivo + transferencia',
+};
 
 function currencyPaymentLabel(code: string | null, currencies: CurrencyOption[]): string {
   if (!code) return 'Efectivo';
   const c = currencies.find(cur => cur.code === code);
   return c ? `${c.symbol} ${c.code} — ${c.name}` : code;
-}
-
-// Billetes rápidos para el cálculo de cambio en efectivo (moneda base)
-const CASH_DENOMS = [100, 200, 500, 1000, 2000];
-
-// Billetes rápidos para monedas extranjeras según su tasa (1 moneda = X base):
-// se proponen denominaciones que equivalen a montos redondos en la base.
-function denomsForRate(rate: number): number[] {
-  if (!rate || rate <= 0) return CASH_DENOMS;
-  const list = [1, 5, 10, 20, 50, 100].map(v => Math.max(1, Math.round((v / rate) * 100) / 100));
-  return [...new Set(list)].sort((a, b) => a - b).slice(0, 6);
 }
 
 // ── Borrador del pedido (localStorage, por usuario) ─────────────
@@ -76,20 +77,10 @@ interface PosDraft {
 
 function draftKey(userId: string) { return `${DRAFT_PREFIX}:${userId}`; }
 
-// ── Preferencia de moneda (localStorage, por usuario) ───────────
-// Recuerda la última moneda con la que el vendedor cobró, para que la
-// siguiente sesión arranque ya con esa moneda seleccionada.
-const CUR_PREFIX = 'tmb-pos-currency';
-
-function curKey(userId: string) { return `${CUR_PREFIX}:${userId}`; }
-
-function loadPreferredCurrency(userId: string): string | null {
-  try { return localStorage.getItem(curKey(userId)); } catch { return null; }
-}
-
-function savePreferredCurrency(userId: string, code: string) {
-  try { localStorage.setItem(curKey(userId), code); } catch { /* sin almacenamiento */ }
-}
+// ── Moneda de cobro por defecto ─────────────────────────────
+// Siempre arranca en la MONEDA BASE: si el cliente paga en otra moneda,
+// el vendedor la selecciona explícitamente en el modal de cobro y esa
+// elección vale solo para la venta en curso.
 
 function loadDraft(userId: string): PosDraft | null {
   try {
@@ -185,10 +176,20 @@ export default function TouchPosPage() {
   const [showPay, setShowPay] = useState(false);
   const [cartOpen, setCartOpen] = useState(false); // carrito en móvil
   const [keypadOpen, setKeypadOpen] = useState(false); // teclado numérico en pantalla
-  const [lastSale, setLastSale] = useState<{ id: string; total: number; change: number; method: PayMethod; currency?: { code: string; symbol: string; rate: number } | null } | null>(null);
+  // Modal de cobro paso a paso: 1 = método de pago, 2 = moneda y montos,
+  // 3 = resumen y confirmación.
+  const [payStep, setPayStep] = useState(1);
+  interface LastSalePayment { method: string; amount: number; currency: string | null; symbol: string | null; }
+  const [lastSale, setLastSale] = useState<{ id: string; total: number; change: number; method: PayMethod; partial?: boolean; currency?: { code: string; symbol: string; rate: number; usdRate?: number | null } | null; payments?: LastSalePayment[] } | null>(null);
 
   const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
   const [saleCurrency, setSaleCurrency] = useState('');
+
+  // ── Cobro parcial: reparte el total entre varias monedas y emite un
+  // comprobante por moneda, marcado como COBRO PARCIAL.
+  interface PartialPart { currency: string; method: 'cash' | 'transfer'; amount: number; }
+  const [partialPay, setPartialPay] = useState(false);
+  const [payParts, setPayParts] = useState<PartialPart[]>([]);
 
   // Solo monedas con tasa de pago mayor que cero
   const activeCurrencies = useMemo(() => currencies.filter(c => c.is_base || Number(c.rate) > 0), [currencies]);
@@ -233,13 +234,41 @@ export default function TouchPosPage() {
   const myShiftSummary = (myOpenShift?.summary ?? null) as { total_sales: number; sales_count?: number; total_cash: number; expected_cash: number } | null;
   const openPosIds = new Set(openShifts.map(s => String(s.pos_id)));
 
-  // Abre el modal de cobro. En modo turnos refresca el estado de las cajas
-  // para que el bloqueo por turno cerrado esté siempre al día.
+  // Abre el modal de cobro (siempre en el paso 1). En modo turnos refresca el
+  // estado de las cajas para que el bloqueo por turno cerrado esté al día.
   const openPayModal = useCallback(() => {
     if (workMode === 'shifts') refreshPos();
+    setPayStep(1);
     setShowPay(true);
     setCartOpen(false);
   }, [workMode, refreshPos]);
+
+  // Cierra el modal de cobro (mantiene los datos si el vendedor retoma la venta)
+  function closePayModal() {
+    setShowPay(false);
+    setPayStep(1);
+  }
+
+  // Avanza de paso validando lo imprescindible de cada uno
+  function requestStep(next: number) {
+    if (next > 1 && !payMethod) return;
+    if (next > 2 && partialPay && !partialCovers) {
+      toast.error(`El cobro parcial no cubre el total. Falta ≈ ${formatMoney(Math.max(0, -partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`);
+      return;
+    }
+    if (next > 2 && payStep2Invalid()) return;
+    setPayStep(next);
+  }
+
+  // Bloqueos del paso 2 (moneda y montos): nada crítico aquí, el botón
+  // Confirmar del paso 3 revalida todo antes de registrar.
+  function payStep2Invalid(): boolean {
+    // Crédito: exige cliente
+    if (payMethod === 'credit' && !customerId) return true;
+    // Transferencia: teléfono opcional, pero si se escribió debe ser válido
+    if (payMethod === 'transfer' && transferPhone.trim() && !transferPhoneValid) return true;
+    return false;
+  }
 
   // Mantener el turno y su resumen al día: al abrir/cerrar turno desde el
   // menú de usuario o al registrar ventas, se refrescan cajas y turnos.
@@ -328,23 +357,21 @@ export default function TouchPosPage() {
     // aviso de tasa desactualizada) y restaurar la preferencia del vendedor
     fetch('/api/currencies').then(r => r.json()).then(d => {
       if (!alive) return;
-      const raw = d.currencies as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number> }[];
+      const raw = d.currencies as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number>; usd_rate?: number | null }[];
       const baseCode = raw?.find(c => c.is_base)?.code ?? '';
       const ratesUpdatedAt = (d.rates_updated_at ?? {}) as Record<string, string>;
       const list: CurrencyOption[] = (raw ?? []).map(c => ({
         code: c.code, name: c.name, symbol: c.symbol, is_base: c.is_base,
-        rate: c.rates?.[baseCode] ?? 1,
-        rateUpdatedAt: c.is_base ? null : (ratesUpdatedAt[`${c.code}->${baseCode}`] ?? null),
+        // Tasa hacia la base: 1 unidad = rate unidades base. La base = 1.
+        // Una extranjera sin tasa registrada queda a 0 (no se puede cobrar).
+        rate: c.is_base ? 1 : (c.rates?.[baseCode] ?? 0),
+        // Referencia al dólar: 1 USD = X moneda (lo que muestra la UI)
+        usdRate: c.usd_rate ?? null,
+        // Toda tasa se guarda como fila USD → moneda
+        rateUpdatedAt: c.is_base ? null : (ratesUpdatedAt[`USD->${c.code}`] ?? null),
       }));
       setCurrencies(list);
-      // Moneda activa: la última usada por este vendedor (si sigue activa);
-      // si no, la moneda base. Con una sola moneda no se cambia nada.
-      const active = list.filter(c => c.is_base || Number(c.rate) > 0);
-      if (active.length > 1 && user) {
-        const remembered = loadPreferredCurrency(user.id);
-        const found = remembered ? list.find(c => c.code === remembered && (c.is_base || Number(c.rate) > 0)) : null;
-        setSaleCurrency(found && !found.is_base ? found.code : '');
-      }
+      // La moneda activa siempre es la BASE al cargar (saleCurrency = '').
     }).catch(() => {});
     return () => { alive = false; };
   }, [isSeller]);
@@ -357,6 +384,16 @@ export default function TouchPosPage() {
     const assigned = posOptions.find(p => String(p.id) === assignedPosId);
     if (assigned?.location_id) setLocationId(String(assigned.location_id));
   }, [posLocked, assignedPosId, posOptions, setPosId]);
+
+  // El almacén de salida por defecto es el del PUNTO DE VENTA seleccionado:
+  // al cambiar la caja en el modal de cobro, el almacén se sincroniza
+  // automáticamente (el vendedor puede cambiarlo a mano después).
+  useEffect(() => {
+    if (workMode !== 'shifts' || !posId || posLocked) return;
+    const pos = posOptions.find(p => String(p.id) === String(posId));
+    const loc = pos?.location_id ? String(pos.location_id) : '';
+    if (loc && locations.some(l => String(l.id) === loc)) setLocationId(loc);
+  }, [workMode, posId, posOptions, locations, posLocked]);
 
   // Enfocar la búsqueda al entrar para escanear de inmediato
   useEffect(() => {
@@ -468,14 +505,16 @@ export default function TouchPosPage() {
       .catch(() => setLocationStock({}));
   }, [locationId]);
 
-  // Recalcular precios del carrito cuando cambia la moneda de pago
+  // Recalcular precios del carrito al cambiar la moneda de cobro o las tasas
+  // de la BD (el total se convierte al vuelo: precio en CUP ÷ tasa cuando se
+  // cobra en USD)
   useEffect(() => {
     if (cart.length === 0 || currencies.length === 0) return;
     setCart(prev => prev.map(item => ({
       ...item,
       unit_price: getConvertedPrice(Number(item.product.sale_price), String(item.product.sale_currency ?? '')),
     })));
-  }, [saleCurrency]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [saleCurrency, currencies]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Restaurar el pedido guardado tras recargar la página ─────
   useEffect(() => {
@@ -491,7 +530,8 @@ export default function TouchPosPage() {
       if (!p) return;
       const qty = Math.max(0.01, Number(quantity) || 1);
       // Tope por stock global para no restaurar cantidades imposibles; el
-      // stock por almacén se valida al cobrar (hasStockIssues).
+      // stock por almacén se valida al cobrar (hasStockIssues). El precio
+      // unitario se recalcula con la tasa vigente hacia la moneda de cobro.
       const globalStock = Number(p.stock ?? 0);
       lines.push({ product: p, quantity: globalStock > 0 ? Math.min(qty, globalStock) : qty, unit_price: getConvertedPrice(Number(p.sale_price), String(p.sale_currency ?? '')) });
     });
@@ -557,6 +597,18 @@ export default function TouchPosPage() {
   const cartTotal = cart.reduce((a, i) => a + i.quantity * i.unit_price, 0);
   const cartCount = cart.reduce((a, i) => a + i.quantity, 0);
 
+  // Equivalente del total en cada moneda activa: base → tal cual;
+  // extranjeras → dividir por su tasa.
+  const totalByCurrency = useMemo(() => {
+    const map: Record<string, number> = {};
+    activeCurrencies.forEach(c => {
+      map[c.code] = c.is_base
+        ? Math.round(cartTotal * 100) / 100
+        : (c.rate > 0 ? Math.round((cartTotal / c.rate) * 100) / 100 : 0);
+    });
+    return map;
+  }, [activeCurrencies, cartTotal]);
+
   // ── Moneda activa del pedido ──────────────────────────────
   const activeCurrency = currencies.find(c => c.code === saleCurrency) ?? null;
   const baseCurrency = currencies.find(c => c.is_base) ?? null;
@@ -566,7 +618,10 @@ export default function TouchPosPage() {
   // Aviso de tasa desactualizada: sin fecha de actualización o con más de 24 h
   const RATE_STALE_HOURS = 24;
   const rateAgeHours = (() => {
-    if (!isForeignSale || !activeCurrency?.rateUpdatedAt) return null;
+    if (!isForeignSale) return null;
+    // El dólar es la referencia: su tasa nunca está desactualizada
+    if (activeCurrency?.code === 'USD') return 0;
+    if (!activeCurrency?.rateUpdatedAt) return null;
     const t = new Date(String(activeCurrency.rateUpdatedAt).replace(' ', 'T') + 'Z').getTime();
     if (isNaN(t)) return null;
     return Math.floor((Date.now() - t) / 3_600_000);
@@ -576,42 +631,87 @@ export default function TouchPosPage() {
   const activeSymbol = isForeignSale ? activeCurrency?.symbol : (baseCurrency?.symbol ?? null);
   const activeCode = isForeignSale ? activeCurrency?.code : (baseCurrency?.code ?? null);
   const fmtMoney = (n: number) => formatMoney(n, activeSymbol, activeCode);
-  // Billetes rápidos según la moneda activa (equivalentes redondos en base)
-  const cashDenoms = isForeignSale && activeCurrency ? denomsForRate(activeCurrency.rate) : CASH_DENOMS;
 
-  // Cambia la moneda del pedido y recuerda la preferencia del vendedor.
-  // El crédito solo se registra en la moneda base: el saldo del cliente se
-  // acumula sin conversión de moneda.
+  // ── Cobro parcial: conversión y cobertura por moneda ────────────
+  // Monto de una parte expresado en la moneda base.
+  const partBaseAmount = (p: PartialPart): number =>
+    convertAmount(p.amount, p.currency || (baseCurrency?.code ?? null), baseCurrency?.code ?? null, currencies);
+  // Total cubierto por todas las partes (en moneda base) y lo que falta.
+  const partialCoveredBase = r2(payParts.reduce((a, p) => a + partBaseAmount(p), 0));
+  const partialRemainBase = r2(cartTotalBase - partialCoveredBase);
+  // El cobro parcial es válido cuando las partes cubren el total (± 0.01).
+  const partialCovers = partialCoveredBase + 0.01 >= cartTotalBase;
+  // Resto a cubrir por una parte concreta, expresado en SU moneda (múltiplo de 0.05).
+  function partialPartRemain(idx: number): number {
+    const others = r2(payParts.reduce((a, p, i) => a + (i === idx ? 0 : partBaseAmount(p)), 0));
+    const code = payParts[idx]?.currency || (baseCurrency?.code ?? null);
+    return Math.max(0, roundToNickel(convertAmount(r2(cartTotalBase - others), baseCurrency?.code ?? null, code, currencies)));
+  }
+  // Activa/desactiva el cobro parcial. Al activarlo arranca con dos partes:
+  // la moneda de la venta y una segunda moneda distinta, ambas en efectivo.
+  function togglePartialPay(on: boolean) {
+    setPartialPay(on);
+    setCashReceived(0);
+    setAmountTransfer(0);
+    if (!on) { setPayParts([]); return; }
+    // '' = moneda base (igual que en el selector de moneda de pago)
+    const primary = saleCurrency || '';
+    const others = activeCurrencies.map(c => (c.is_base ? '' : c.code)).filter(c => c !== primary);
+    setPayParts([
+      { currency: primary, method: 'cash', amount: 0 },
+      { currency: others[0] ?? primary, method: 'cash', amount: 0 },
+    ]);
+  }
+
+  // Cambia la moneda del pedido (elección puntual para esta venta; cada
+  // nuevo cobro vuelve a arrancar en la moneda base). El crédito se registra
+  // siempre en la moneda base.
   function changeSaleCurrency(code: string) {
-    if (payMethod === 'credit' && code) {
-      toast.error('El crédito solo puede registrarse en la moneda base');
-      return;
-    }
     setSaleCurrency(code);
-    if (user) savePreferredCurrency(user.id, code);
   }
 
   function hasStockIssues(): boolean {
     return cart.some(i => i.quantity > getAvailableStock(i.product));
   }
 
-  // Precio convertido a la moneda de pago seleccionada.
-  // Si el producto tiene sale_currency distinta a la moneda de la venta,
-  // se convierte usando las tasas de cambio.
+  // Precio convertido a la moneda de cobro seleccionada.
+  // La moneda del producto (sale_currency; NULL = moneda base) se convierte
+  // con las tasas vigentes: base → extranjera DIVIDE por la tasa; extranjera
+  // → base MULTIPLICA; entre extranjeras pasa por la base.
   function getConvertedPrice(productSalePrice: number, productSaleCurrency?: string | null): number {
-    const fromCode = productSaleCurrency || null; // moneda en que está fijado el precio del producto
-    const toCode = saleCurrency || null;           // moneda en que se cobra la venta
-    // Sin conversión: misma moneda o ambas en base
-    if (!fromCode || !toCode || fromCode === toCode) return productSalePrice;
-    const fromCur = currencies.find(c => c.code === fromCode);
-    const toCur = currencies.find(c => c.code === toCode);
-    if (!fromCur || !toCur) return productSalePrice;
-    // Ambas son moneda base → sin conversión
-    if (fromCur.is_base && toCur.is_base) return productSalePrice;
-    // from → base → to
-    const inBase = fromCur.is_base ? productSalePrice : Math.round((productSalePrice * fromCur.rate) * 100) / 100;
-    if (toCur.is_base) return inBase;
-    return Math.round((inBase / toCur.rate) * 100) / 100;
+    const converted = convertAmount(productSalePrice, productSaleCurrency, saleCurrency || null, currencies);
+    // Sin monedas de 1 centavo: TODO precio convertido se redondea hacia
+    // arriba al múltiplo de 0.05 (5 centavos) para cobrar con dinero real.
+    return roundToNickel(converted);
+  }
+
+  // Moneda nativa del precio de un producto (NULL = moneda base)
+  function productNativeCurrency(p: AnyRecord): CurrencyOption {
+    const code = p.sale_currency ? String(p.sale_currency).toUpperCase() : (baseCurrency?.code ?? '');
+    return currencies.find(c => c.code === code) ?? { code, name: code, symbol: '', is_base: !p.sale_currency, rate: 1 };
+  }
+
+  // Precio del producto en su MONEDA NATIVA (con equivalente convertido a la
+  // moneda de cobro cuando difiere): la tarjeta muestra siempre el precio
+  // real fijado en el inventario.
+  function productPriceHtml(p: AnyRecord) {
+    const native = productNativeCurrency(p);
+    const nativePrice = Number(p.sale_price ?? 0);
+    const converted = getConvertedPrice(nativePrice, p.sale_currency ? String(p.sale_currency) : null);
+    const differs = native.code !== activeCode;
+    return (
+      <>
+        <p className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+          {formatMoney(nativePrice, native.symbol || undefined, native.code || undefined)}
+          {p.unit ? <span className="text-[10px] font-normal uppercase ml-1" style={{ color: 'var(--text-tertiary)' }}>{String(p.unit)}</span> : null}
+        </p>
+        {differs && (
+          <p className="mt-0.5 text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+            ≈ {fmtMoney(converted)} al cobrar
+          </p>
+        )}
+      </>
+    );
   }
 
   // Agrega un producto al carrito. Con qty>1 (venta rápida por teclado)
@@ -775,6 +875,9 @@ export default function TouchPosPage() {
     setPayMethod('cash');
     setCashReceived(0);
     setAmountTransfer(0);
+    setPartialPay(false);
+    setPayParts([]);
+    setSaleCurrency(''); // el próximo cobro arranca en la moneda base
     setTransferPhone('');
     setTransferRef('');
     setCustomerId('');
@@ -801,27 +904,73 @@ export default function TouchPosPage() {
     await loadSettings();
     const s = useSettingsStore.getState().settings;
     if (s?.receipt_auto_print === false) return;
+    const method = s?.receipt_print_method ?? 'browser';
+    const width = s?.receipt_printer_width ?? '80';
     try {
       const r = res as AnyRecord;
-      const method = s?.receipt_print_method ?? 'browser';
       const printer = method === 'usb' ? await fetchDefaultTicketPrinter() : null;
-      await printReceipt(
-        buildReceiptFromSale({
-          sale: r,
-          items: (r.items ?? []) as AnyRecord[],
-          businessName: s?.business_name ?? 'TiendaMiBarrio',
-          logoUrl: s?.logo_url ?? null,
-          payMethod,
-          cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? cartTotal - amountTransfer : 0,
-          transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
-          notes: transferDetails() || null,
-          // Moneda de la venta para el ticket (símbolo real + tasa y
-          // equivalente en base cuando se cobró en moneda extranjera)
-          baseCurrencyCode: baseCurrency?.code ?? null,
-          baseCurrencySymbol: baseCurrency?.symbol ?? null,
-        }),
-        { method, width: s?.receipt_printer_width ?? '80', printer }
-      );
+      const common = {
+        sale: r,
+        items: (r.items ?? []) as AnyRecord[],
+        businessName: s?.business_name ?? 'TiendaMiBarrio',
+        logoUrl: s?.logo_url ?? null,
+        // Moneda de la venta para el ticket (símbolo real + tasa y
+        // equivalente en base cuando se cobró en moneda extranjera)
+        baseCurrencyCode: baseCurrency?.code ?? null,
+        baseCurrencySymbol: baseCurrency?.symbol ?? null,
+      };
+      const activePartialParts = partialPay ? payParts.filter(p => p.amount > 0) : [];
+      if (activePartialParts.length > 0) {
+        // Desglose COMPLETO del cobro (todas las monedas) para CADA comprobante:
+        // así el cliente ve en un solo ticket en qué monedas pagó.
+        const allPayments = activePartialParts.map(part => {
+          const cur = currencies.find(c => c.code === part.currency) ?? baseCurrency ?? null;
+          return {
+            method: part.method,
+            amount: part.amount,
+            // En el ticket se muestra el código de la moneda (incluso la base)
+            currency_code: part.currency || (baseCurrency?.code ?? null),
+            currency_symbol: cur?.symbol ?? null,
+          };
+        });
+        // Un comprobante por moneda: todos llevan los productos y cantidades,
+        // el desglose por moneda y el rótulo COBRO PARCIAL; cada uno indica a
+        // qué parte (moneda y monto) corresponde.
+        for (const part of activePartialParts) {
+          const cur = currencies.find(c => c.code === part.currency) ?? baseCurrency ?? null;
+          await printReceipt(
+            buildReceiptFromSale({
+              ...common,
+              payMethod: part.method,
+              partial: true,
+              cash: part.method === 'cash' ? part.amount : 0,
+              transfer: part.method === 'transfer' ? part.amount : 0,
+              notes: part.method === 'transfer' ? (transferDetails() || null) : null,
+              payments: allPayments,
+              partialPart: {
+                method: part.method,
+                amount: part.amount,
+                currency_code: part.currency || (baseCurrency?.code ?? null),
+                currency_symbol: cur?.symbol ?? null,
+              },
+            }),
+            { method, width, printer }
+          );
+          // Pausa breve entre comprobantes para no solapar los trabajos de impresión
+          await new Promise(resolve => setTimeout(resolve, 400));
+        }
+      } else {
+        await printReceipt(
+          buildReceiptFromSale({
+            ...common,
+            payMethod,
+            cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? cartTotal - amountTransfer : 0,
+            transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
+            notes: transferDetails() || null,
+          }),
+          { method, width, printer }
+        );
+      }
     } catch (e) {
       toast.error(`Venta registrada, pero no se pudo imprimir el ticket: ${e instanceof Error ? e.message : 'error desconocido'}`);
     }
@@ -829,7 +978,24 @@ export default function TouchPosPage() {
 
   async function handleConfirm() {
     if (cart.length === 0) return;
-    if (payMethod === 'mixed') {
+    // Cobro parcial: partes con monto, y deben cubrir el total
+    const partialParts = partialPay ? payParts.filter(p => p.amount > 0) : [];
+    // Hay transferencia si el método la usa o si alguna parte del cobro parcial la usa
+    const hasTransfer = partialPay
+      ? partialParts.some(p => p.method === 'transfer')
+      : (payMethod === 'transfer' || (payMethod === 'mixed' && amountTransfer > 0));
+    if (partialPay) {
+      if (partialParts.length === 0) {
+        toast.error('Agrega al menos un monto al cobro parcial');
+        return;
+      }
+      if (!partialCovers) {
+        toast.error(`El cobro parcial no cubre el total. Falta ≈ ${formatMoney(Math.max(0, -partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`);
+        return;
+      }
+    }
+    // Mixto: exige un monto de transferencia parcial (menor que el total)
+    if (!partialPay && payMethod === 'mixed') {
       if (amountTransfer <= 0 || amountTransfer >= cartTotal) {
         toast.error('Indica un monto de transferencia menor que el total');
         return;
@@ -842,7 +1008,7 @@ export default function TouchPosPage() {
       return;
     }
     // ID de pago opcional: solo letras y números, hasta 13 caracteres
-    if ((payMethod === 'transfer' || payMethod === 'mixed') && transferRef.trim() && !/^[A-Za-z0-9]{1,13}$/.test(transferRef.trim())) {
+    if (hasTransfer && transferRef.trim() && !/^[A-Za-z0-9]{1,13}$/.test(transferRef.trim())) {
       toast.error('El ID de pago solo puede contener letras y números (máximo 13)');
       return;
     }
@@ -853,7 +1019,6 @@ export default function TouchPosPage() {
     }
     // Teléfono celular cubano opcional para los pagos con transferencia:
     // solo se valida el formato cuando el usuario ingresa uno.
-    const hasTransfer = payMethod === 'transfer' || (payMethod === 'mixed' && amountTransfer > 0);
     if (hasTransfer && transferPhone.trim()) {
       const phone = normalizePhone(transferPhone);
       if (!phone || !/^(\+?53)?5\d{7}$/.test(phone)) {
@@ -877,18 +1042,29 @@ export default function TouchPosPage() {
           unit_price: i.unit_price,
           cost: Number(i.product.cost ?? 0),
         })),
-        // Moneda de la venta + tasa congelada (el servidor la valida);
-        // '' = moneda base. La venta queda identificada con su moneda
-        // en el historial, el ticket y el arqueo por moneda del turno.
+        // Moneda de la venta: '' = moneda base. La tasa se congela en el
+        // servidor con el valor vigente de la BD.
         currency_code: saleCurrency || null,
-        exchange_rate: isForeignSale && activeCurrency ? activeCurrency.rate : null,
-        payment: {
-          method: payMethod,
-          amount_cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? cartTotal - amountTransfer : 0,
-          amount_transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
-          // La referencia (ID de pago + teléfono) se guarda en el pago
-          notes: (payMethod === 'transfer' || payMethod === 'mixed') ? transferDetails() : null,
-        },
+        payment: partialPay
+          ? {
+              // Cobro parcial: el servidor crea una fila de pago por cada parte;
+              // el método real (efectivo/transferencia) va en cada una.
+              method: 'cash',
+              parts: partialParts.map(p => ({
+                currency_code: p.currency || null,
+                amount_cash: p.method === 'cash' ? p.amount : 0,
+                amount_transfer: p.method === 'transfer' ? p.amount : 0,
+                notes: p.method === 'transfer' ? transferDetails() : null,
+              })),
+            }
+          : {
+              method: payMethod,
+              // Un solo pago en la moneda de la venta (el servidor congela la tasa)
+              amount_cash: payMethod === 'cash' ? total : payMethod === 'mixed' ? cartTotal - amountTransfer : 0,
+              amount_transfer: payMethod === 'transfer' ? total : payMethod === 'mixed' ? amountTransfer : 0,
+              // La referencia (ID de pago + teléfono) se guarda en el pago
+              notes: (payMethod === 'transfer' || payMethod === 'mixed') ? transferDetails() : null,
+            },
         customer_id: customerId || null,
         location_id: locationId || null,
         pos_id: workMode === 'shifts' ? posId || null : null,
@@ -912,12 +1088,24 @@ export default function TouchPosPage() {
       const changeAmt = cashReceived > cashDue ? cashReceived - cashDue : 0;
       // La venta quedó registrada: ya no debe restaurarse este pedido
       if (user) clearDraft(user.id);
+      // Desglose de los pagos registrados para la pantalla de éxito
+      const salePayments: LastSalePayment[] = (((res as AnyRecord).payments ?? []) as AnyRecord[]).map(p => {
+        const cur = currencies.find(c => c.code === String(p.currency_code ?? ''));
+        return {
+          method: String(p.method ?? 'cash'),
+          amount: Number(p.amount_cash ?? 0) + Number(p.amount_transfer ?? 0),
+          currency: p.currency_code ? String(p.currency_code) : null,
+          symbol: cur?.symbol ?? null,
+        };
+      });
       setLastSale({
         id: String((res as AnyRecord).id ?? ''),
         total,
         change: changeAmt,
         method: payMethod,
-        currency: isForeignSale && activeCurrency ? { code: activeCurrency.code, symbol: activeCurrency.symbol, rate: activeCurrency.rate } : null,
+        partial: partialPay,
+        currency: isForeignSale && activeCurrency ? { code: activeCurrency.code, symbol: activeCurrency.symbol, rate: activeCurrency.rate, usdRate: activeCurrency.usdRate ?? null } : null,
+        payments: salePayments,
       });
       setShowPay(false);
       setCartOpen(false);
@@ -1367,10 +1555,7 @@ export default function TouchPosPage() {
                       <div className="flex flex-1 flex-col justify-between gap-1">
                         <p className="text-sm font-medium leading-snug line-clamp-2" style={{ color: 'var(--text-primary)' }}>{String(p.name)}</p>
                         <div>
-                          <p className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                            {fmtMoney(getConvertedPrice(Number(p.sale_price), String(p.sale_currency ?? '')))}
-                            {p.unit ? <span className="text-[10px] font-normal uppercase ml-1" style={{ color: 'var(--text-tertiary)' }}>{String(p.unit)}</span> : null}
-                          </p>
+                          {productPriceHtml(p)}
                           <p className="mt-0.5 text-[10px] uppercase tracking-widest truncate" style={{ color: 'var(--text-tertiary)' }}>
                             {String(p.barcode ?? '')}
                           </p>
@@ -1448,6 +1633,22 @@ export default function TouchPosPage() {
               </button>
             </div>
           </div>
+          {/* Almacén de salida en móvil: se elige ANTES de cobrar (el catálogo
+              se filtra por él); ya no vive en el modal de cobro */}
+          {!posLocked && locations.length > 1 && (
+            <div className="px-4 py-2 border-b flex items-center gap-2 flex-shrink-0" style={{ borderColor: 'var(--border-primary)' }}>
+              <Store className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} aria-hidden="true" />
+              <div className="flex-1">
+                <SearchableSelect
+                  options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
+                  value={locationId}
+                  onChange={v => setLocationId(v)}
+                  placeholder="Almacén…"
+                  noResultsMessage="Sin almacenes"
+                />
+              </div>
+            </div>
+          )}
           {renderCart()}
         </div>
       )}
@@ -1509,72 +1710,83 @@ export default function TouchPosPage() {
       {/* ── Modal de cobro ── */}
       <Modal open={showPay} onClose={() => setShowPay(false)} title="Cobrar pedido" size="xl">
         <div className="space-y-5">
-          {/* Resumen */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2 rounded-xl border p-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+          {/* Encabezado del paso a paso */}
+          <div className="flex items-center gap-1.5">
+            {[
+              { n: 1, label: 'Método' },
+              { n: 2, label: 'Moneda' },
+              { n: 3, label: 'Resumen' },
+            ].map((s, i) => (
+              <Fragment key={s.n}>
+                {i > 0 && <span className="h-px flex-1 min-w-3" style={{ backgroundColor: payStep > s.n - 1 ? 'var(--brand-600)' : 'var(--border-primary)' }} />}
+                <button
+                  type="button"
+                  onClick={() => (payStep > s.n ? setPayStep(s.n) : requestStep(s.n))}
+                  className="flex items-center gap-1.5"
+                >
+                  <span
+                    className={cn(
+                      'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors',
+                      payStep === s.n && 'text-white',
+                      payStep > s.n && 'text-white'
+                    )}
+                    style={
+                      payStep >= s.n
+                        ? { backgroundColor: 'var(--brand-600)' }
+                        : { backgroundColor: 'var(--bg-muted)', color: 'var(--text-tertiary)' }
+                    }
+                  >
+                    {payStep > s.n ? <Check className="w-3.5 h-3.5" /> : s.n}
+                  </span>
+                  <span
+                    className={cn('text-[11px] font-semibold uppercase tracking-wide', payStep === s.n ? '' : payStep > s.n ? 'opacity-80' : 'opacity-60')}
+                    style={{ color: payStep >= s.n ? 'var(--brand-600)' : 'var(--text-tertiary)' }}
+                  >
+                    {s.label}
+                  </span>
+                </button>
+              </Fragment>
+            ))}
+          </div>
+
+          {/* Total a cobrar: solo desde el paso 2 en adelante, donde se
+              introducen los montos. En el paso 1 (método) repetía un importe
+              que aún no se necesita. */}
+          {payStep >= 2 && (
+            <div className="rounded-xl border p-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
               <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Total a cobrar</p>
               <p className="text-2xl font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cartTotal)}</p>
               {isForeignSale && (
                 <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
-                  Tasa: 1 {activeCurrency?.code} = {activeCurrency?.rate} {baseCurrency?.code ?? ''} · ≈ {formatMoney(cartTotalBase, baseCurrency?.symbol, baseCurrency?.code)}
+                  {activeCurrency?.usdRate != null && activeCurrency.usdRate !== 1 && `Tasa: 1 USD = ${activeCurrency.usdRate} ${activeCurrency.code} · `}
+                  ≈ {formatMoney(cartTotalBase, baseCurrency?.symbol, baseCurrency?.code)} en {baseCurrency?.code ?? ''}
+                </p>
+              )}
+              {/* Equivalencia del total en cada moneda activa */}
+              {currencies.filter(c => c.is_base || c.rate > 0).length > 1 && (
+                <p className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                  {activeCurrencies.map(c => `${c.code}: ${formatMoney(totalByCurrency[c.code] ?? 0, c.symbol, c.code)}`).join(' · ')}
                 </p>
               )}
             </div>
-            <div className="rounded-xl border p-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
-              <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Artículos</p>
-              <p className="text-2xl font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{formatNumber(cartCount, 0)}</p>
-            </div>
-          </div>
+          )}
 
-          {/* Moneda de pago: selector rápido + aviso de tasa desactualizada */}
-          {currencies.filter(c => c.is_base || c.rate > 0).length > 1 && (
+          {/* Moneda de pago: lista desplegable + aviso de tasa desactualizada.
+              Con crédito se cobra en la moneda base: el selector se oculta. */}
+          {payStep === 2 && payMethod !== 'credit' && currencies.filter(c => c.is_base || c.rate > 0).length > 1 && (
             <div>
               <label className="label">Moneda de pago</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => changeSaleCurrency('')}
-                  className={cn(
-                    'rounded-xl border p-3 text-left transition-all active:scale-[0.97]',
-                    !isForeignSale ? 'text-white shadow-lg' : 'hover:brightness-105'
-                  )}
-                  style={
-                    !isForeignSale
-                      ? { backgroundColor: 'var(--brand-600)', borderColor: 'var(--brand-600)' }
-                      : { backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }
-                  }
-                >
-                  <p className={cn('font-semibold text-sm', isForeignSale && 'text-[var(--text-primary)]')}>
-                    {baseCurrency?.symbol ?? '$'} {baseCurrency?.code ?? 'Base'}
-                  </p>
-                  <p className={cn('text-[10px] mt-0.5', !isForeignSale ? 'text-white/70' : 'text-[var(--text-tertiary)]')}>
-                    {baseCurrency?.name ?? 'Moneda base'} (base)
-                  </p>
-                </button>
-                {currencies.filter(c => !c.is_base).map(c => (
-                  <button
-                    key={c.code}
-                    type="button"
-                    onClick={() => changeSaleCurrency(c.code)}
-                    className={cn(
-                      'rounded-xl border p-3 text-left transition-all active:scale-[0.97]',
-                      saleCurrency === c.code ? 'text-white shadow-lg' : 'hover:brightness-105'
-                    )}
-                    style={
-                      saleCurrency === c.code
-                        ? { backgroundColor: 'var(--brand-600)', borderColor: 'var(--brand-600)' }
-                        : { backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }
-                    }
-                  >
-                    <p className={cn('font-semibold text-sm', saleCurrency !== c.code && 'text-[var(--text-primary)]')}>
-                      {c.symbol} {c.code}
-                    </p>
-                    <p className={cn('text-[10px] mt-0.5', saleCurrency === c.code ? 'text-white/70' : 'text-[var(--text-tertiary)]')}>
-                      Tasa: {c.rate} {baseCurrency?.code ?? ''}
-                    </p>
-                  </button>
-                ))}
-              </div>
+              <SearchableSelect
+                options={activeCurrencies.map(c => ({
+                  value: c.is_base ? '' : c.code,
+                  label: `${c.symbol} ${c.code}`,
+                  sublabel: c.is_base ? 'Moneda base' : (c.rate > 0 ? (c.code === 'USD' ? 'Referencia (dólar)' : `1 USD = ${c.usdRate ?? '—'} ${c.code}`) : undefined),
+                }))}
+                value={saleCurrency}
+                onChange={v => changeSaleCurrency(v)}
+                placeholder="Seleccionar moneda"
+                noResultsMessage="Sin monedas"
+              />
               {isForeignSale && rateIsStale && (
                 <p className="text-[10px] text-yellow-400 mt-1.5">
                   ⚠ Tasa de {activeCurrency?.code} sin actualizar {rateAgeHours != null ? `desde hace ${rateAgeHours} h` : 'recientemente'}. Pídele al dueño que la revise si cambió.
@@ -1582,8 +1794,119 @@ export default function TouchPosPage() {
               )}
             </div>
           )}
+          {/* Cobro parcial: reparte el total en varias monedas y emite un
+              comprobante por moneda. Disponible con más de una moneda activa
+              y sin crédito (el crédito se registra en moneda base). */}
+          {payStep === 2 && payMethod !== 'credit' && activeCurrencies.length > 1 && (
+            <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+              <Toggle
+                checked={partialPay}
+                onChange={togglePartialPay}
+                label="Cobro parcial (varias monedas y comprobantes)"
+              />
+              {!partialPay && (
+                <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                  Reparte el total entre varias monedas. Se emite un comprobante por moneda, marcado como COBRO PARCIAL.
+                </p>
+              )}
+              {partialPay && (
+                <div className="space-y-2">
+                  {payParts.map((part, idx) => {
+                    const remainCur = partialPartRemain(idx);
+                    return (
+                      <div key={idx} className="rounded-lg border p-2.5 space-y-2" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Parte {idx + 1}</span>
+                          {payParts.length > 1 && (
+                            <button type="button" onClick={() => setPayParts(prev => prev.filter((_, i) => i !== idx))} className="ml-auto p-1 rounded-md" style={{ color: 'var(--text-tertiary)' }} aria-label="Quitar parte">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="label">Moneda</label>
+                            <SearchableSelect
+                              options={activeCurrencies.map(c => ({ value: c.is_base ? '' : c.code, label: `${c.symbol} ${c.code}` }))}
+                              value={part.currency}
+                              onChange={v => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, currency: v } : p))}
+                              placeholder="Moneda"
+                              noResultsMessage="Sin monedas"
+                            />
+                          </div>
+                          <div>
+                            <label className="label">Método</label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {(['cash', 'transfer'] as const).map(m => (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, method: m } : p))}
+                                  className={cn('px-2 py-2 rounded-lg text-xs border transition-colors', part.method === m ? 'bg-brand-600 border-brand-600 text-white' : '')}
+                                  style={part.method !== m ? { borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' } : undefined}
+                                >
+                                  {m === 'cash' ? 'Efectivo' : 'Transf.'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="label">Monto</label>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.05"
+                              className="input text-lg font-semibold"
+                              placeholder="0.00"
+                              value={part.amount || ''}
+                              onChange={e => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, amount: parseFloat(e.target.value) || 0 } : p))}
+                            />
+                            {remainCur > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, amount: remainCur } : p))}
+                                className="text-[11px] font-medium px-3 rounded-lg text-white whitespace-nowrap"
+                                style={{ backgroundColor: 'var(--brand-600)' }}
+                              >
+                                Resto
+                              </button>
+                            )}
+                          </div>
+                          {part.amount > 0 && (
+                            <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                              ≈ {formatMoney(partBaseAmount(part), baseCurrency?.symbol, baseCurrency?.code)} en {baseCurrency?.code ?? 'base'}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {payParts.length < Math.max(2, Math.min(activeCurrencies.length, 6)) && (
+                    <button
+                      type="button"
+                      onClick={() => setPayParts(prev => [...prev, { currency: '', method: 'cash', amount: 0 }])}
+                      className="w-full rounded-lg border border-dashed py-2 text-xs font-medium flex items-center justify-center gap-1.5"
+                      style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Agregar otra moneda
+                    </button>
+                  )}
+                  <p className={cn('text-[11px] font-medium', partialCovers ? 'text-green-400' : 'text-yellow-400')}>
+                    {partialCovers
+                      ? `✓ Cubre el total (${formatMoney(partialCoveredBase, baseCurrency?.symbol, baseCurrency?.code)})`
+                      : `Falta cubrir ≈ ${formatMoney(Math.max(0, -partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
-          {/* Caja (modo turnos) */}
+          {payMethod === 'credit' && (
+            <p className="text-[10px] text-[var(--text-tertiary)]">El crédito se registra en la moneda base ({baseCurrency?.code ?? '—'}) y queda como deuda del cliente.</p>
+          )}
+
           {workMode === 'shifts' && (
             <div>
               <label className="label">Caja (punto de venta)</label>
@@ -1617,54 +1940,20 @@ export default function TouchPosPage() {
             </div>
           )}
 
-          {/* Almacén de salida */}
-          <div>
-            <label className="label">Almacén de salida{posLocked ? '' : ' *'}</label>
-            {posLocked ? (
-              <div
-                className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium truncate"
-                style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
-                title={assignedLocationName}
-              >
-                <Store className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} aria-hidden="true" />
-                <span className="truncate">{assignedLocationName}</span>
-              </div>
-            ) : (
-              <SearchableSelect
-                options={locations.map(l => ({ value: String(l.id), label: String(l.name) }))}
-                value={locationId}
-                onChange={v => setLocationId(v)}
-                placeholder={locations.length === 0 ? 'Cargando ubicaciones...' : 'Seleccionar almacén'}
-                noResultsMessage="Sin almacenes"
-              />
-            )}
-          </div>
-
-          {/* Fecha de venta (solo usuarios autorizados) */}
-          {canChangeDate && (
-            <div>
-              <label className="label">Fecha de venta</label>
-              <input
-                type="date"
-                className="input"
-                value={saleDate || todayLocal}
-                onChange={e => setSaleDate(e.target.value === todayLocal ? '' : e.target.value)}
-                max={todayLocal}
-              />
-              <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                {saleDate ? `Venta registrada el ${saleDate}` : `Hoy, ${todayLocal} (por defecto)`}
-              </p>
-            </div>
-          )}
-
-          {/* Método de pago */}
+          {/* ── PASO 1: método de pago ── */}
+          {payStep === 1 && (
           <div>
             <label className="label">Método de pago</label>
             <div className="grid grid-cols-2 xl:grid-cols-3 gap-2.5">
               {PAY_METHODS.filter(m => m.id !== 'credit' || canUseCredit).map(m => (
                 <button
                   key={m.id}
-                  onClick={() => { setPayMethod(m.id); setCashReceived(0); setAmountTransfer(0); setTransferPhone(''); setTransferRef(''); if (m.id === 'credit') setSaleCurrency(''); }}
+                  onClick={() => {
+                    setPayMethod(m.id);
+                    setCashReceived(0); setAmountTransfer(0); setTransferPhone(''); setTransferRef('');
+                    // El crédito se registra siempre en la moneda base y no admite cobro parcial
+                    if (m.id === 'credit') { setSaleCurrency(''); setPartialPay(false); setPayParts([]); }
+                  }}
                   className={cn(
                     'rounded-xl border p-3.5 text-left transition-all active:scale-[0.97]',
                     payMethod === m.id ? 'text-white shadow-lg' : 'hover:brightness-105'
@@ -1677,14 +1966,28 @@ export default function TouchPosPage() {
                 >
                   <m.icon className={cn('w-6 h-6 mb-2', payMethod === m.id ? 'text-white' : 'text-brand-400')} />
                   <p className={cn('font-semibold text-sm', payMethod !== m.id && 'text-[var(--text-primary)]')}>{m.label}</p>
-                  <p className={cn('text-[10px] mt-0.5', payMethod === m.id ? 'text-white/70' : 'text-[var(--text-tertiary)]')}>{m.desc}</p>
+                  <p className={cn('text-[10px] mt-0.5', payMethod === m.id ? 'text-white/70' : 'text-[var(--text-tertiary)]')}>
+                    {isForeignSale && PAY_METHOD_DESC_FOREIGN[m.id] ? PAY_METHOD_DESC_FOREIGN[m.id] : m.desc}
+                  </p>
+                  {/* Número del paso al que lleva este método */}
+                  <span
+                    className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold"
+                    style={
+                      payMethod === m.id
+                        ? { backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff' }
+                        : { backgroundColor: 'var(--bg-muted)', color: 'var(--text-tertiary)' }
+                    }
+                  >
+                    {m.step}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
+          )}
 
           {/* Cliente (obligatorio para la venta a crédito, solo dueño/admin) */}
-          {canUseCredit && payMethod === 'credit' && (
+          {payStep === 2 && canUseCredit && payMethod === 'credit' && (
             <div>
               <label className="label">Cliente *</label>
               <SearchableSelect
@@ -1705,7 +2008,7 @@ export default function TouchPosPage() {
           )}
 
           {/* Efectivo recibido + cambio */}
-              {(payMethod === 'cash' || payMethod === 'mixed') && (
+              {payStep === 2 && !partialPay && (payMethod === 'cash' || payMethod === 'mixed') && (
                 <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
                   <div className="flex items-center justify-between">
                     <label className="label mb-0">{currencyPaymentLabel(payMethod === 'cash' ? saleCurrency : null, currencies)} recibido</label>
@@ -1726,20 +2029,25 @@ export default function TouchPosPage() {
                 value={cashReceived || ''}
                 onChange={e => setCashReceived(parseFloat(e.target.value) || 0)}
               />
-              {/* Billetes rápidos según la moneda activa: en moneda base son los
-                  billetes locales; en moneda extranjera, montos equivalentes a
-                  cantidades redondas de la moneda base */}
+              {/* Atajos de monto recibido: en base, billetes locales; en moneda
+                  extranjera, montos equivalentes a cantidades redondas de base */}
               <div className="flex flex-wrap gap-2">
-                {cashDenoms.map(d => (
-                  <button
-                    key={d}
-                    onClick={() => setCashReceived(v => Math.round(((v || 0) + d) * 100) / 100)}
-                    className="px-3.5 py-2 rounded-lg text-sm font-semibold transition-transform active:scale-95"
-                    style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }}
-                  >
-                    +{fmtMoney(d)}
-                  </button>
-                ))}
+                {(() => {
+                  const rate = isForeignSale && activeCurrency ? activeCurrency.rate : 0;
+                  const denoms: number[] = !rate
+                    ? [100, 200, 500, 1000, 2000]
+                    : [1, 5, 10, 20, 50, 100].map(v => Math.max(1, Math.round((v / rate) * 100) / 100)).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).slice(0, 6);
+                  return denoms.map(d => (
+                    <button
+                      key={d}
+                      onClick={() => setCashReceived(v => Math.round(((v || 0) + d) * 100) / 100)}
+                      className="px-3.5 py-2 rounded-lg text-sm font-semibold transition-transform active:scale-95"
+                      style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }}
+                    >
+                      +{fmtMoney(d)}
+                    </button>
+                  ));
+                })()}
               </div>
               {cashReceived > 0 && (
                 <p className={cn('text-sm font-semibold flex items-center gap-1.5', change >= 0 ? 'text-green-400' : 'text-red-400')}>
@@ -1749,36 +2057,40 @@ export default function TouchPosPage() {
             </div>
           )}
 
-          {/* Mixto: monto por transferencia */}
-          {payMethod === 'mixed' && (
-            <div>
-              <label className="label">Monto por transferencia</label>
+          {/* Mixto: monto por transferencia. Misma tarjeta que "Efectivo
+              recibido": contenedor redondeado con borde, etiqueta en la
+              cabecera y monto grande centrado. */}
+          {payStep === 2 && !partialPay && payMethod === 'mixed' && (
+            <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+              <div className="flex items-center justify-between">
+                <label className="label mb-0">Monto por transferencia</label>
+              </div>
               <input
                 type="number"
                 min="0"
                 step="1"
-                className="input text-lg font-semibold"
+                className="input text-2xl font-bold text-center"
                 placeholder="0.00"
                 value={amountTransfer || ''}
                 onChange={e => setAmountTransfer(parseFloat(e.target.value) || 0)}
               />
               {amountTransfer > 0 && amountTransfer < cartTotal && (
-                <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--text-tertiary)' }}>
                   El resto ({fmtMoney(cartTotal - amountTransfer)}) se cobra en efectivo.
                 </p>
               )}
               {amountTransfer >= cartTotal && (
-                <p className="text-[10px] text-yellow-400 mt-1">⚠ La transferencia no puede cubrir más del total.</p>
+                <p className="text-sm font-semibold text-yellow-400">⚠ La transferencia no puede cubrir más del total.</p>
               )}
             </div>
           )}
 
-          {payMethod === 'transfer' && (
+          {payStep === 2 && !partialPay && payMethod === 'transfer' && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
               Se cobrará el total ({fmtMoney(cartTotal)}) por transferencia bancaria. El teléfono celular del cliente es opcional.
             </div>
           )}          {/* Datos de la transferencia */}
-          {(payMethod === 'transfer' || payMethod === 'mixed') && (
+          {payStep === 2 && ((payMethod === 'transfer' || payMethod === 'mixed') || (partialPay && payParts.some(p => p.method === 'transfer' && p.amount > 0))) && (
             <div className="rounded-xl border p-4" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
               <p className="label mb-3">Datos de la transferencia</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1827,15 +2139,117 @@ export default function TouchPosPage() {
             </div>
           )}
 
+          {/* ── PASO 3: resumen ── */}
+          {payStep === 3 && (
+            <div className="rounded-xl border p-4 space-y-2.5" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+              <p className="label mb-0">Resumen del cobro</p>
+              <div className="flex items-center justify-between text-sm">
+                <span style={{ color: 'var(--text-tertiary)' }}>Método de pago</span>
+                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                  {partialPay ? 'Cobro parcial' : (PAY_METHODS.find(m => m.id === payMethod)?.label ?? '—')}
+                  {!partialPay && isForeignSale && payMethod !== 'credit' ? ` · ${activeCurrency?.code}` : ''}
+                </span>
+              </div>
+              {partialPay && (
+                <div className="space-y-1.5 pt-0.5">
+                  {payParts.filter(p => p.amount > 0).map((p, i) => {
+                    const cur = currencies.find(c => c.code === p.currency) ?? baseCurrency ?? null;
+                    return (
+                      <div key={i} className="flex items-center justify-between text-sm">
+                        <span style={{ color: 'var(--text-tertiary)' }}>
+                          Parte {i + 1} · {cur?.code ?? baseCurrency?.code ?? '—'} · {p.method === 'cash' ? 'Efectivo' : 'Transferencia'}
+                        </span>
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                          {formatMoney(p.amount, cur?.symbol, cur?.code)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>Se imprimirá un comprobante por moneda (COBRO PARCIAL).</p>
+                </div>
+              )}
+              {isForeignSale && payMethod !== 'credit' && activeCurrency?.usdRate != null && activeCurrency.usdRate !== 1 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span style={{ color: 'var(--text-tertiary)' }}>Tasa aplicada</span>
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>1 USD = {activeCurrency?.usdRate} {activeCurrency?.code}</span>
+                </div>
+              )}
+              {payMethod === 'cash' && cashReceived > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span style={{ color: 'var(--text-tertiary)' }}>Efectivo recibido</span>
+                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cashReceived)}</span>
+                </div>
+              )}
+              {payMethod === 'mixed' && amountTransfer > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span style={{ color: 'var(--text-tertiary)' }}>Por transferencia</span>
+                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{fmtMoney(amountTransfer)}</span>
+                </div>
+              )}
+              {canUseCredit && payMethod === 'credit' && customerId && (
+                <div className="flex items-center justify-between text-sm">
+                  <span style={{ color: 'var(--text-tertiary)' }}>Cliente</span>
+                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {String(customers.find(c => String(c.id) === customerId)?.name ?? '—')}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-sm pt-1.5 border-t" style={{ borderColor: 'var(--border-primary)' }}>
+                <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>Total</span>
+                <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cartTotal)}</span>
+              </div>
+              {payMethod === 'cash' && cashReceived > 0 && (
+                <p className={cn('text-sm font-semibold', change >= 0 ? 'text-green-400' : 'text-red-400')}>
+                  {change >= 0 ? `Cambio: ${fmtMoney(change)}` : `Faltan: ${fmtMoney(-change)}`}
+                </p>
+              )}
+              {canCharge && !hasStockIssues() && (
+                <p className="text-[11px] text-green-400">✓ Todo listo para registrar la venta</p>
+              )}
+            </div>
+          )}
+
+          {/* Fecha de venta (solo usuarios autorizados, en el paso final) */}
+          {payStep === 3 && canChangeDate && (
+            <div>
+              <label className="label">Fecha de venta</label>
+              <input
+                type="date"
+                className="input"
+                value={saleDate || todayLocal}
+                onChange={e => setSaleDate(e.target.value === todayLocal ? '' : e.target.value)}
+                max={todayLocal}
+              />
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                {saleDate ? `Venta registrada el ${saleDate}` : `Hoy, ${todayLocal} (por defecto)`}
+              </p>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-1">
-            <button onClick={() => setShowPay(false)} className="btn-secondary flex-1 py-3.5 text-base">Volver</button>
-            <button
-              onClick={handleConfirm}
-              disabled={saving || cart.length === 0 || hasStockIssues() || !canCharge}
-              className="btn-primary flex-1 py-3.5 text-base disabled:opacity-50"
-            >
-              {saving ? 'Registrando...' : `Confirmar — ${fmtMoney(cartTotal)}`}
-            </button>
+            {payStep > 1 ? (
+              <button onClick={() => setPayStep(payStep - 1)} className="btn-secondary flex-1 py-3.5 text-base flex items-center justify-center gap-1">
+                <ChevronLeft className="w-5 h-5" /> Atrás
+              </button>
+            ) : (
+              <button onClick={closePayModal} className="btn-secondary flex-1 py-3.5 text-base">Volver</button>
+            )}
+            {payStep < 3 ? (
+              <button
+                onClick={() => requestStep(payStep + 1)}
+                className="btn-primary flex-1 py-3.5 text-base flex items-center justify-center gap-1"
+              >
+                Continuar <ChevronRight className="w-5 h-5" />
+              </button>
+            ) : (
+              <button
+                onClick={handleConfirm}
+                disabled={saving || cart.length === 0 || hasStockIssues() || !canCharge}
+                className="btn-primary flex-1 py-3.5 text-base disabled:opacity-50"
+              >
+                {saving ? 'Registrando...' : `Confirmar — ${fmtMoney(cartTotal)}`}
+              </button>
+            )}
           </div>
         </div>
       </Modal>
@@ -1928,9 +2342,22 @@ export default function TouchPosPage() {
             </div>
             <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>¡Venta registrada!</h2>
             <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>
-              Ticket {lastSale.id ? `#${lastSale.id.slice(0, 8).toUpperCase()}` : ''} · {PAY_METHODS.find(m => m.id === lastSale.method)?.label}
+              Ticket {lastSale.id ? `#${lastSale.id.slice(0, 8).toUpperCase()}` : ''} · {lastSale.partial ? 'Cobro parcial' : (PAY_METHODS.find(m => m.id === lastSale.method)?.label)}
             </p>
             <div className="my-6 space-y-2">
+              {/* Desglose de los pagos registrados */}
+              {(lastSale.payments?.length ?? 0) > 0 && lastSale.payments!.map((p, i) => {
+                const cur = currencies.find(c => c.code === p.currency);
+                const lbl = p.method === 'transfer' ? 'Transferencia' : p.method === 'credit' ? 'Crédito' : p.method === 'mixed' ? 'Mixto' : 'Efectivo';
+                return (
+                  <div key={i} className="flex justify-between text-sm">
+                    <span style={{ color: 'var(--text-tertiary)' }}>{lbl} · {cur?.code ?? p.currency ?? baseCurrency?.code ?? '—'}</span>
+                    <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {formatMoney(p.amount, cur?.symbol ?? p.symbol, cur?.code ?? p.currency)}
+                    </span>
+                  </div>
+                );
+              })}
               <div className="flex justify-between text-sm" style={{ color: 'var(--text-secondary)' }}>
                 <span>Total</span>
                 <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -1938,10 +2365,10 @@ export default function TouchPosPage() {
                   {lastSale.currency && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">{lastSale.currency.code}</span>}
                 </span>
               </div>
-              {lastSale.currency && lastSale.currency.rate > 0 && (
+              {lastSale.currency && lastSale.currency.usdRate != null && lastSale.currency.usdRate > 0 && lastSale.currency.usdRate !== 1 && (
                 <div className="flex justify-between text-sm">
                   <span style={{ color: 'var(--text-tertiary)' }}>Tasa</span>
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>1 {lastSale.currency.code} = {lastSale.currency.rate} {baseCurrency?.code ?? ''}</span>
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>1 USD = {lastSale.currency.usdRate} {lastSale.currency.code}</span>
                 </div>
               )}
               {lastSale.change > 0 && (

@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 import { requireAuth } from '@/lib/auth/session';
 import { query, queryOne, transaction } from '@/lib/db/mysql';
-import { validatePaymentMethodOrDefault, requirePositiveNumber } from '@/lib/validate';
+import { validatePaymentMethodOrDefault, requirePositiveNumber, requireNonNegativeNumber } from '@/lib/validate';
+import { convertAmount, r2, roundToNickel, type CurrencyLike } from '@/lib/currency';
 import { handle, ok, err } from '@/lib/api-helpers';
 import { getBusinessSettings } from '@/lib/settings-server';
 import { invalidateAllReportCaches } from '@/lib/report-cache';
@@ -41,11 +42,62 @@ export const GET = handle(async (req: Request) => {
 // ── POST: Crear nueva venta ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { items, payment, customer_id, location_id, notes, date, pos_id, currency_code, exchange_rate } = await req.json();
+  const { items, payment, customer_id, location_id, notes, date, pos_id, currency_code } = await req.json();
   if (!items?.length) return err('La venta debe tener al menos un producto');
   // Nota: las ventas a crédito pueden registrarse sin cliente (el POS táctil
   // de los vendedores no pide cliente; la deuda queda pendiente en el historial).
 
+  // ── Monedas y tasas vigentes (el servidor congela la tasa) ──
+  // El cliente ya no envía la tasa: se toma de la BD al momento de la venta.
+  // Convención: las tasas se guardan SIEMPRE contra el dólar (currency_rates
+  // solo tiene filas USD → moneda: 1 USD = X moneda). De ahí se deriva la
+  // tasa hacia la moneda base que usa el sistema para convertir.
+  const currencyRows = await query<{ code: string; is_base: number }>(
+    'SELECT code, is_base FROM currencies WHERE active = 1'
+  );
+  const usdRows = await query<{ to_currency: string; rate: number }>(
+    "SELECT to_currency, rate FROM currency_rates WHERE from_currency = 'USD'"
+  );
+  const usdMap = new Map<string, number>();
+  for (const r of usdRows) {
+    const v = Number(r.rate);
+    if (v > 0) usdMap.set(r.to_currency, v);
+  }
+  const baseCode = currencyRows.find(c => Number(c.is_base) === 1)?.code ?? '';
+  /** Tasa contra el dólar: 1 USD = X moneda (el propio USD = 1). */
+  const usdRateFor = (code: string | null): number | null => {
+    if (!code) return null;
+    return code === 'USD' ? 1 : (usdMap.get(code) ?? null);
+  };
+  /** Cuánto vale 1 USD en la moneda base (1 si la base es USD). */
+  const usdInBase = usdRateFor(baseCode);
+  /** Tasa hacia la base derivada de la referencia USD (null = sin tasa). */
+  const rateToBase = (code: string | null): number | null => {
+    if (!code || !baseCode) return null;
+    if (code === baseCode) return 1;
+    const usd = usdRateFor(code);
+    return usdInBase != null && usd ? usdInBase / usd : null;
+  };
+  const currencies: CurrencyLike[] = currencyRows.map(c => ({
+    code: c.code,
+    // Sin tasa conocida se asume 1 (no convierte), igual que antes
+    rate: rateToBase(c.code) ?? 1,
+    is_base: Boolean(c.is_base),
+  }));
+  /** Tasa congelada de una moneda hacia la base (1 = base). */
+  const rateFor = (code: string | null): number | null => rateToBase(code);
+
+  // ── Resolver moneda y tasa de cambio de la venta ──
+  // NULL = moneda base. La tasa (1 moneda de venta = X base) se congela
+  // desde la BD para que el arqueo y la contabilidad no cambien con el tiempo.
+  const saleCurrency = currency_code ? String(currency_code).trim().toUpperCase() : null;
+  if (saleCurrency && !currencies.some(c => c.code === saleCurrency)) {
+    return err(`La moneda "${saleCurrency}" no existe o está inactiva`);
+  }
+  const saleExchangeRate = rateFor(saleCurrency); // null en moneda base
+  // Tasa contra el dólar congelada junto a la venta (1 USD = X moneda):
+  // los tickets la muestran siempre referida al dólar.
+  const saleExchangeUsd = saleCurrency ? usdRateFor(saleCurrency) : null;
   // Caja (punto de venta) opcional: atribuye la venta a la caja para el arqueo del turno
   const posId = pos_id ? String(pos_id).trim() : '';
   if (posId) {
@@ -71,15 +123,22 @@ export const POST = handle(async (req: Request) => {
   for (const item of items) {
     if (!item?.product_id) return err('Cada producto de la venta requiere product_id');
     const qty = requirePositiveNumber(item.quantity, 'Cantidad');
-    const product = await queryOne<{ id: string; sale_price: number; cost: number; name: string }>(
-      'SELECT id, sale_price, cost, name FROM products WHERE id = ? AND active = 1 LIMIT 1',
+    const product = await queryOne<{ id: string; sale_price: number; sale_currency: string | null; cost: number; name: string }>(
+      'SELECT id, sale_price, sale_currency, cost, name FROM products WHERE id = ? AND active = 1 LIMIT 1',
       [item.product_id]
     );
     if (!product) return err('Producto no encontrado o inactivo');
+    // El precio del producto está fijado en su moneda nativa (sale_currency;
+    // NULL = moneda base). Se convierte a la moneda de la venta con las tasas
+    // vigentes: base → extranjera DIVIDE por la tasa; extranjera → base
+    // MULTIPLICA; entre extranjeras pasa por la base.
+    // Sin monedas de 1 centavo: el precio convertido se redondea SIEMPRE hacia
+    // arriba al múltiplo de 0.05 (5 centavos), igual que lo mostró el POS, para
+    // que el precio registrado coincida con lo cobrado.
+    const dbPrice = roundToNickel(convertAmount(Number(product.sale_price), product.sale_currency, saleCurrency, currencies));
     // El precio unitario viene del cliente: solo el dueño/admin puede
-    // enviar un precio custom; el resto siempre usa el de la BD.
+    // enviar un precio custom; el resto siempre usa el convertido de la BD.
     const clientPrice = Number(item.unit_price);
-    const dbPrice = Number(product.sale_price);
     const unitPrice = canOverridePrice && clientPrice > 0 ? clientPrice : dbPrice;
     // Registrar si el precio fue modificado (para auditoría)
     if (canOverridePrice && clientPrice > 0 && clientPrice !== dbPrice) {
@@ -122,29 +181,61 @@ export const POST = handle(async (req: Request) => {
         hour12: false,
       }).format(new Date()).replace(', ', ' ');
   const total = itemsToProcess.reduce((a: number, i: { quantity: number; unit_price: number }) => a + i.quantity * i.unit_price, 0);
+  // Total equivalente en moneda base (para validar el cobro y registrar el
+  // crédito: el saldo del cliente se acumula en la moneda base)
+  const totalBase = r2(itemsToProcess.reduce((a: number, i: { quantity: number; unit_price: number }) => a + convertAmount(i.quantity * i.unit_price, saleCurrency, baseCode || null, currencies), 0));
   const status = payment?.method === 'credit' ? 'pending' : 'completed';
 
-  // ── Resolver moneda y tasa de cambio ──
-  const saleCurrency = currency_code ? String(currency_code).trim().toUpperCase() : null;
-  let saleExchangeRate = exchange_rate ? parseFloat(exchange_rate) : null;
-  // Si se especificó moneda pero no tasa, obtenerla de la BD
-  if (saleCurrency && !saleExchangeRate) {
-    const baseCurrency = await queryOne<{ code: string }>("SELECT code FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1");
-    const base = baseCurrency?.code ?? 'CUP';
-    if (saleCurrency !== base) {
-      const rate = await queryOne<{ rate: number }>(
-        'SELECT rate FROM currency_rates WHERE from_currency = ? AND to_currency = ?',
-        [saleCurrency, base]
-      );
-      saleExchangeRate = rate?.rate ?? 1;
-    } else {
-      saleExchangeRate = 1;
+  // ── Pagos: una fila por moneda (cobro dividido) ──
+  // Formato nuevo: payment.parts = [{ method, amount, currency_code, notes }].
+  // Cada parte genera una fila en `payments` con su moneda y tasa congelada,
+  // de modo que el arqueo por moneda sepa exactamente cuánto entró de cada una.
+  // Formato legacy: payment.amount_cash / amount_transfer en la moneda de la venta.
+  const paymentRows: { method: string; amount_cash: number; amount_transfer: number; currency_code: string | null; exchange_rate: number | null; notes: string | null }[] = [];
+  if (payment?.method === 'credit') {
+    // El crédito solo se registra en la moneda base: queda como deuda
+    // (el saldo del cliente se acumula sin conversión de moneda).
+    paymentRows.push({ method: 'credit', amount_cash: 0, amount_transfer: 0, currency_code: baseCode || null, exchange_rate: null, notes: payment?.notes ?? null });
+  } else if (Array.isArray(payment?.parts) && payment.parts.length > 0) {
+    // Cobro mixto en varias monedas: una parte por moneda con su efectivo y
+    // su transferencia. Cada parte genera UNA fila en `payments` con la moneda
+    // y la tasa congelada; el método de la fila es 'cash' (solo efectivo),
+    // 'transfer' (solo transferencia) o 'mixed' (ambos).
+    for (const part of payment.parts) {
+      const partCash = requireNonNegativeNumber(part?.amount_cash, 'Efectivo de la parte');
+      const partTransfer = requireNonNegativeNumber(part?.amount_transfer, 'Transferencia de la parte');
+      if (partCash + partTransfer <= 0) return err('Cada parte del pago debe tener un monto mayor que 0');
+      const partCurrency = part?.currency_code ? String(part.currency_code).trim().toUpperCase() : baseCode;
+      if (!partCurrency) return err('No hay moneda base configurada para registrar el pago');
+      if (!currencies.some(c => c.code === partCurrency)) return err(`La moneda "${partCurrency}" no existe o está inactiva`);
+      paymentRows.push({
+        method: partCash > 0 && partTransfer > 0 ? 'mixed' : partCash > 0 ? 'cash' : 'transfer',
+        amount_cash: partCash,
+        amount_transfer: partTransfer,
+        currency_code: partCurrency === baseCode ? null : partCurrency,
+        exchange_rate: rateFor(partCurrency),
+        notes: part?.notes ?? null,
+      });
     }
+  } else {
+    const method = validatePaymentMethodOrDefault(payment?.method);
+    const amountCash = method === 'cash' ? total : (payment?.amount_cash ?? 0);
+    const amountTransfer = method === 'transfer' ? total : (payment?.amount_transfer ?? 0);
+    paymentRows.push({
+      method,
+      amount_cash: amountCash,
+      amount_transfer: amountTransfer,
+      currency_code: saleCurrency === baseCode ? null : saleCurrency,
+      exchange_rate: saleExchangeRate,
+      notes: payment?.notes ?? null,
+    });
   }
-  // Si no se especificó moneda, usar la base
-  if (!saleCurrency) {
-    const baseCurrency = await queryOne<{ code: string }>("SELECT code FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1");
-    // saleCurrency queda null y saleExchangeRate queda null (moneda base)
+  // Validar que los pagos cubran el total (convertido a moneda base)
+  if (status === 'completed') {
+    const paidBase = r2(paymentRows.reduce((a, p) => a + convertAmount(p.amount_cash + p.amount_transfer, p.currency_code, baseCode || null, currencies), 0));
+    if (paidBase + 0.01 < totalBase) {
+      return err(`Los pagos no cubren el total de la venta (recibido ≈ ${paidBase} ${baseCode || ''}, total ≈ ${totalBase} ${baseCode || ''})`);
+    }
   }
 
   // ── Validar stock antes de iniciar la transacción (pre-check rápido) ──
@@ -173,8 +264,8 @@ export const POST = handle(async (req: Request) => {
   await transaction(async (conn) => {
     // Insertar encabezado de venta (incluye moneda)
     await conn.execute(
-      'INSERT INTO sales (id,customer_id,user_id,pos_id,currency_code,exchange_rate,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      [saleId, customer_id??null, sessionUser.id, posId || null, saleCurrency, saleExchangeRate, saleDate, total, status, notes??null, ts, ts]
+      'INSERT INTO sales (id,customer_id,user_id,pos_id,currency_code,exchange_rate,usd_rate,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [saleId, customer_id??null, sessionUser.id, posId || null, saleCurrency, saleExchangeRate, saleExchangeUsd, saleDate, total, status, notes??null, ts, ts]
     );
     for (const item of itemsToProcess) {
       // Insertar cada producto vendido (precio, costo y moneda desde la BD)
@@ -243,29 +334,30 @@ export const POST = handle(async (req: Request) => {
       }
     }
 
-    // Registrar el pago (con la moneda y tasa congeladas de la venta:
-    // el arqueo por moneda del turno necesita saber en qué moneda se cobró)
-    const method = validatePaymentMethodOrDefault(payment?.method);
-    const amountCash = method === 'cash' ? total : (payment?.amount_cash ?? 0);
-    const amountTransfer = method === 'transfer' ? total : (payment?.amount_transfer ?? 0);
-    await conn.execute(
-      'INSERT INTO payments (id,sale_id,method,amount_cash,amount_transfer,currency_code,exchange_rate,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [randomUUID(), saleId, method, amountCash, amountTransfer, saleCurrency, saleExchangeRate, saleDate, payment?.notes??null, ts]
-    );
+    // Registrar los pagos: una fila por moneda cobrada (cobro dividido),
+    // cada una con su moneda y tasa congeladas. El arqueo por moneda del
+    // turno y la contabilidad suman estas filas sin cambios.
+    for (const p of paymentRows) {
+      await conn.execute(
+        'INSERT INTO payments (id,sale_id,method,amount_cash,amount_transfer,currency_code,exchange_rate,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        [randomUUID(), saleId, p.method, p.amount_cash, p.amount_transfer, p.currency_code, p.exchange_rate, saleDate, p.notes, ts]
+      );
+    }
 
-    // Si es crédito, actualizar saldo del cliente
-    if (method === 'credit' && customer_id) {
-      await conn.execute('UPDATE customers SET balance=balance+?,updated_at=? WHERE id=?',[total, ts, customer_id]);
+    // Si es crédito, actualizar saldo del cliente (en moneda base)
+    if (payment?.method === 'credit' && customer_id) {
+      await conn.execute('UPDATE customers SET balance=balance+?,updated_at=? WHERE id=?',[totalBase, ts, customer_id]);
     }
   });
 
   // Datos completos de la venta para imprimir el ticket del cliente
   const sale = await queryOne<Record<string, unknown>>(
-    `SELECT s.*, c.name AS customer_name, u.name AS user_name, p.name AS pos_name
+    `SELECT s.*, c.name AS customer_name, u.name AS user_name, p.name AS pos_name, cur.symbol AS currency_symbol, cur.name AS currency_name
      FROM sales s
      LEFT JOIN customers c ON c.id = s.customer_id
      LEFT JOIN users u ON u.id = s.user_id
      LEFT JOIN pos p ON p.id = s.pos_id
+     LEFT JOIN currencies cur ON cur.code = s.currency_code
      WHERE s.id = ?`,
     [saleId]
   );
@@ -273,6 +365,12 @@ export const POST = handle(async (req: Request) => {
     `SELECT si.*, p.name AS product_name, p.unit FROM sale_items si
      LEFT JOIN products p ON p.id = si.product_id
      WHERE si.sale_id = ?`,
+    [saleId]
+  );
+  // Pagos registrados (una fila por moneda en el cobro dividido): el POS los
+  // usa para el desglose del ticket y de la pantalla de éxito.
+  const salePayments = await query<Record<string, unknown>>(
+    'SELECT * FROM payments WHERE sale_id = ? ORDER BY created_at ASC',
     [saleId]
   );
 
@@ -300,5 +398,5 @@ export const POST = handle(async (req: Request) => {
     }
   }
 
-  return ok({ ...(sale ?? {}), id: saleId, total, status, items: saleItems }, 201);
+  return ok({ ...(sale ?? {}), id: saleId, total, status, items: saleItems, payments: salePayments }, 201);
 });

@@ -14,6 +14,16 @@ export interface ReceiptItem {
   unit_price: number;
 }
 
+export interface ReceiptPaymentPart {
+  method: 'cash' | 'transfer';
+  /** Monto en la moneda de la parte */
+  amount: number;
+  /** Código de la moneda de la parte (null = moneda base) */
+  currencyCode: string | null;
+  /** Símbolo de la moneda de la parte */
+  currencySymbol?: string | null;
+}
+
 export interface ReceiptData {
   businessName: string;
   logoUrl?: string | null;
@@ -26,15 +36,23 @@ export interface ReceiptData {
   items: ReceiptItem[];
   total: number;
   payMethod: 'cash' | 'transfer' | 'mixed' | 'credit';
+  /** Cobro parcial: este comprobante corresponde a una parte del total (varias monedas) */
+  partial?: boolean;
+  /** Cobro parcial: la parte (moneda y monto) que documenta ESTE comprobante */
+  partialPart?: ReceiptPaymentPart | null;
   cashAmount: number;
   transferAmount: number;
   notes?: string | null;
+  /** Cobro dividido: partes de pago en distintas monedas (opcional) */
+  payments?: ReceiptPaymentPart[];
   /** Moneda de la venta (código, ej: USD). null = moneda base */
   currencyCode?: string | null;
   /** Símbolo de la moneda de la venta (ej: $, €) */
   currencySymbol?: string | null;
-  /** Tasa aplicada: 1 moneda de la venta = X moneda base */
+  /** Tasa congelada de la venta: 1 moneda de la venta = X moneda base */
   exchangeRate?: number | null;
+  /** Tasa contra el dólar congelada: 1 USD = X moneda de la venta */
+  usdRate?: number | null;
   /** Código de la moneda base del negocio (para el equivalente) */
   baseCurrencyCode?: string | null;
   /** Símbolo de la moneda base del negocio */
@@ -96,11 +114,29 @@ export function buildReceiptHtml(data: ReceiptData, width: '57' | '80'): string 
   }).join('');
   // Moneda de la venta distinta de la base: mostrar la tasa y el equivalente
   const isForeign = !!data.currencyCode && !!data.exchangeRate && data.exchangeRate !== 1;
+  // La tasa se expresa SIEMPRE contra el dólar: 1 USD = X moneda de la venta
+  const usdRate = data.usdRate != null && Number(data.usdRate) > 0 ? Number(data.usdRate) : null;
+  const tasaRow = isForeign && usdRate != null && usdRate !== 1
+    ? `  <div class="row"><span>Tasa:</span><span>1 USD = ${usdRate} ${esc(data.currencyCode!)}</span></div>\n`
+    : '';
   const foreignLine = isForeign
-    ? `  <div class="row"><span>Tasa:</span><span>1 ${esc(data.currencyCode!)} = ${data.exchangeRate} ${esc(data.baseCurrencyCode ?? '')}</span></div>
-  <div class="row"><span>Equiv.:</span><span>${moneyCur(data.total * data.exchangeRate!, data.baseCurrencySymbol, data.baseCurrencyCode)}</span></div>
+    ? `${tasaRow}  <div class="row"><span>Equiv.:</span><span>${moneyCur(data.total * data.exchangeRate!, data.baseCurrencySymbol, data.baseCurrencyCode)}</span></div>
 `
     : '';
+  // Cobro dividido: desglose de cada parte con su moneda
+  const payLines = (data.payments ?? []).filter(p => p.amount > 0);
+  const payMethodLabel: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', credit: 'Crédito' };
+  const payRows = payLines.length > 0
+    ? payLines.map(p => {
+        const label = payMethodLabel[p.method] ?? p.method;
+        // La moneda de cada parte se muestra UNA sola vez (como código) junto
+        // al monto, sin repetir símbolo y código.
+        return `  <div class="row"><span>${esc(label)}:</span><span class="right">${moneyCur(p.amount, null, p.currencyCode)}</span></div>`;
+      }).join('\n')
+    : '';
+  const payBlock = payRows ? `  <div class="sep"></div>
+${payRows}
+` : '';
 
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <title>Ticket ${esc(data.saleId)}</title>
@@ -123,6 +159,8 @@ export function buildReceiptHtml(data: ReceiptData, width: '57' | '80'): string 
 </style></head><body>
   ${logo ? `<div class="center"><img class="logo" src="${esc(logo)}" alt=""/></div>` : ''}
   <div class="center title">${esc(data.businessName)}</div>
+  ${data.partial ? '<div class="center title">COBRO PARCIAL</div>' : ''}
+  ${data.partial && data.partialPart ? `<div class="center">Corresponde a: ${esc(moneyCur(data.partialPart.amount, null, data.partialPart.currencyCode))}</div>` : ''}
   <div class="sep"></div>
   <div class="row"><span>Fecha:</span><span>${esc(dateLabel)}</span></div>
   ${data.customerName ? `<div class="row"><span>Cliente:</span><span>${esc(data.customerName)}</span></div>` : ''}
@@ -130,7 +168,7 @@ export function buildReceiptHtml(data: ReceiptData, width: '57' | '80'): string 
   ${itemRows}
   <div class="sep"></div>
   <div class="row total"><span>TOTAL</span><span>${moneyCur(data.total, data.currencySymbol, data.currencyCode)}</span></div>
-${foreignLine}  ${data.notes ? `<div class="row"><span>Nota:</span><span>${esc(data.notes)}</span></div>` : ''}
+${foreignLine}${payBlock}  ${data.notes ? `<div class="row"><span>Nota:</span><span>${esc(data.notes)}</span></div>` : ''}
   <div class="sep"></div>
   <div class="center">¡Gracias por su compra!</div>
   <div class="center">${esc(data.businessName)}</div>
@@ -196,6 +234,8 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
 
   // Encabezado
   push(center(data.businessName || 'MI NEGOCIO'), { bold: true });
+  if (data.partial) push(center('COBRO PARCIAL'), { bold: true });
+  if (data.partial && data.partialPart) push(center(`Corresponde a: ${moneyCur(data.partialPart.amount, null, data.partialPart.currencyCode)}`));
   push(sep);
   push(kv('Fecha', data.date ? formatDateTime(data.date) : '—'));
   if (data.customerName) push(kv('Cliente', data.customerName));
@@ -215,11 +255,21 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
   // impresora maneja la alineación; el padding manual desbordaría el papel).
   push('TOTAL', { bold: true });
   push(moneyCur(data.total, data.currencySymbol, data.currencyCode), { bold: true, double: true, align: 'right' });
-  // Venta en moneda distinta de la base: tasa aplicada y equivalente
+  // Venta en moneda distinta de la base: tasa aplicada (siempre contra el
+  // dólar: 1 USD = X moneda de la venta) y equivalente en la base
   const isForeign = !!data.currencyCode && !!data.exchangeRate && data.exchangeRate !== 1;
   if (isForeign) {
-    push(`Tasa: 1 ${data.currencyCode} = ${data.exchangeRate} ${data.baseCurrencyCode ?? ''}`);
+    const usdRate = data.usdRate != null && Number(data.usdRate) > 0 ? Number(data.usdRate) : null;
+    if (usdRate != null && usdRate !== 1) push(`Tasa: 1 USD = ${usdRate} ${data.currencyCode}`);
     push(`Equiv: ${moneyCur(data.total * data.exchangeRate!, data.baseCurrencySymbol, data.baseCurrencyCode)}`);
+  }
+  // Cobro dividido: una línea por parte con su moneda
+  const payMethodLabel: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', credit: 'Crédito' };
+  for (const p of (data.payments ?? []).filter(pp => pp.amount > 0)) {
+    const label = payMethodLabel[p.method] ?? p.method;
+    // La moneda de cada parte se muestra UNA sola vez (como código) junto al
+    // monto, sin repetir símbolo y código.
+    push(`${label}: ${moneyCur(p.amount, null, p.currencyCode)}`);
   }
   if (data.notes) {
     for (const ln of wrapText(`Nota: ${data.notes}`, cols)) push(ln);
@@ -421,6 +471,10 @@ export function buildReceiptFromSale(opts: {
   businessName: string;
   logoUrl?: string | null;
   payMethod: ReceiptData['payMethod'];
+  /** Cobro parcial: el ticket se marca como un comprobante de parte del total */
+  partial?: boolean;
+  /** Cobro parcial: parte (moneda y monto) que corresponde a este comprobante */
+  partialPart?: { method?: string; amount: number; currency_code?: string | null; currency_symbol?: string | null } | null;
   cash: number;
   transfer: number;
   notes?: string | null;
@@ -432,6 +486,10 @@ export function buildReceiptFromSale(opts: {
   currencyCode?: string | null;
   currencySymbol?: string | null;
   exchangeRate?: number | null;
+  /** Tasa contra el dólar: por defecto se toma de opts.sale (usd_rate) */
+  usdRate?: number | null;
+  /** Cobro dividido: pagos registrados (method, amount, currency_code, currency_symbol) */
+  payments?: { method: string; amount: unknown; currency_code?: string | null; currency_symbol?: string | null }[];
 }): ReceiptData {
   return {
     businessName: opts.businessName,
@@ -448,12 +506,29 @@ export function buildReceiptFromSale(opts: {
     })),
     total: Number(opts.sale.total ?? 0),
     payMethod: opts.payMethod,
+    partial: opts.partial ?? false,
+    partialPart: opts.partialPart
+      ? {
+          method: (opts.partialPart.method === 'transfer' ? 'transfer' : 'cash') as 'cash' | 'transfer',
+          amount: Number(opts.partialPart.amount ?? 0),
+          currencyCode: opts.partialPart.currency_code ? String(opts.partialPart.currency_code) : null,
+          currencySymbol: opts.partialPart.currency_symbol ? String(opts.partialPart.currency_symbol) : null,
+        }
+      : null,
     cashAmount: opts.cash,
     transferAmount: opts.transfer,
     notes: opts.notes ?? null,
+    // Cobro dividido: partes de pago con su moneda (una fila por moneda cobrada)
+    payments: (opts.payments ?? []).map(p => ({
+      method: p.method === 'transfer' ? 'transfer' : 'cash',
+      amount: Number(p.amount ?? 0),
+      currencyCode: p.currency_code ? String(p.currency_code) : null,
+      currencySymbol: p.currency_symbol ? String(p.currency_symbol) : null,
+    })),
     currencyCode: opts.currencyCode ?? (opts.sale.currency_code ? String(opts.sale.currency_code) : null),
     currencySymbol: opts.currencySymbol ?? (opts.sale.currency_symbol ? String(opts.sale.currency_symbol) : null),
     exchangeRate: opts.exchangeRate ?? (opts.sale.exchange_rate != null && Number(opts.sale.exchange_rate) > 0 ? Number(opts.sale.exchange_rate) : null),
+    usdRate: opts.usdRate ?? (opts.sale.usd_rate != null && Number(opts.sale.usd_rate) > 0 ? Number(opts.sale.usd_rate) : null),
     baseCurrencyCode: opts.baseCurrencyCode ?? null,
     baseCurrencySymbol: opts.baseCurrencySymbol ?? null,
   };
