@@ -213,16 +213,18 @@ export const GET = handle(async (req: Request) => {
   if (type === 'sales_detail') {
     const fromDate = searchParams.get('from');
     const toDate = searchParams.get('to');
+    // Filtro opcional por moneda: deja solo las ventas de esa moneda.
+    const currency = (searchParams.get('currency') ?? '').trim().toUpperCase();
     const data = await cachedReport('sales_detail', user.id, locationId, days, async () => {
-      // 1) Totales diarios generales (efectivo, transferencia, total)
-      let baseSql = `
-        FROM sales s
-        LEFT JOIN (
-          SELECT sale_id,
-                 SUM(CASE WHEN method='cash' THEN CASE WHEN p.currency_code IS NOT NULL AND p.currency_code!='' AND p.currency_code!=(SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1) THEN amount_cash*COALESCE(p.exchange_rate,1) ELSE amount_cash END ELSE 0 END) AS cash_amount,
-                 SUM(CASE WHEN method IN ('transfer','mixed') THEN CASE WHEN p.currency_code IS NOT NULL AND p.currency_code!='' AND p.currency_code!=(SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1) THEN amount_transfer*COALESCE(p.exchange_rate,1) ELSE amount_transfer END ELSE 0 END) AS transfer_amount
-          FROM payments p GROUP BY sale_id
-        ) pay ON pay.sale_id=s.id`;
+      // Cada venta se registra en UNA sola moneda (sales.currency_code): el
+      // resumen diario se desglosa por esa moneda mostrando el monto NATIVO de
+      // la venta, sin convertir. La moneda base se guarda como NULL/'' y se
+      // normaliza a su código para agruparla como una moneda más.
+      const baseNormalize = `COALESCE(NULLIF(s.currency_code, ''), (SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1))`;
+      const curCond = currency ? ` AND ${baseNormalize} = ?` : '';
+      const curParams: unknown[] = currency ? [currency] : [];
+
+      let baseSql = 'FROM sales s';
       const bp: unknown[] = [];
       if (locationId) {
         baseSql += ` JOIN location_movements lm ON lm.reference_id=s.id AND lm.type='venta' AND lm.location_id=?`;
@@ -233,56 +235,60 @@ export const GET = handle(async (req: Request) => {
         : ` WHERE s.date>=DATE_SUB(NOW(),INTERVAL ? DAY) AND s.status!='cancelled'`;
       const whereParams = fromDate && toDate ? [fromDate, toDate + ' 23:59:59'] : [days];
 
+      // 1) Totales diarios (conversión a moneda base solo para el gráfico)
       const rowsSql = `
         SELECT DATE(s.date) AS date,
                COUNT(*) AS count,
-               COALESCE(SUM(${baseExpr('total')}),0) AS total,
-               COALESCE(SUM(${baseExpr('total')}),0) AS total_base,
-               COALESCE(SUM(s.total),0) AS total_original,
-               COALESCE(SUM(${baseExpr('total')}),0) - COALESCE(SUM(s.total),0) AS currency_diff,
-               COALESCE(SUM(pay.cash_amount),0) AS cash_total,
-               COALESCE(SUM(pay.transfer_amount),0) AS transfer_total
-        ${baseSql}${whereBase}
+               COALESCE(SUM(${baseExpr('total')}),0) AS total
+        ${baseSql}${whereBase}${curCond}
         GROUP BY DATE(s.date) ORDER BY DATE(s.date) ASC`;
-      const rows = await query<Record<string, unknown>>(rowsSql, [...bp, ...whereParams]);
+      const rows = await query<Record<string, unknown>>(rowsSql, [...bp, ...whereParams, ...curParams]);
 
-      // 2) Totales diarios por moneda de pago (payments.currency_code)
-      let curSql = `
-        SELECT DATE(s.date) AS date,
-               COALESCE(pay.currency_code, '') AS pay_currency,
-               SUM(pay.amount_cash + pay.amount_transfer) AS currency_total
-        FROM sales s
-        JOIN (
-          SELECT sale_id, currency_code,
-                 SUM(amount_cash) AS amount_cash, SUM(amount_transfer) AS amount_transfer
-          FROM payments GROUP BY sale_id, currency_code
-        ) pay ON pay.sale_id=s.id`;
-      const cp: unknown[] = [];
-      if (locationId) {
-        curSql += ` JOIN location_movements lm ON lm.reference_id=s.id AND lm.type='venta' AND lm.location_id=?`;
-        cp.push(locationId);
-      }
-      curSql += whereBase + ` GROUP BY DATE(s.date), pay.currency_code ORDER BY DATE(s.date) ASC, pay.currency_code`;
-      const curRows = await query<{ date: string; pay_currency: string; currency_total: number }>(curSql, [...cp, ...whereParams]);
+      // 2) Total diario por moneda de la venta, en su valor nativo.
+      //    Se normaliza la moneda en una subconsulta y se agrupa en la consulta
+      //    externa: con only_full_group_by MySQL no acepta la subquery dentro
+      //    del GROUP BY.
+      const curSql = `
+        SELECT t.date, t.sale_currency, SUM(t.total) AS currency_total
+        FROM (
+          SELECT DATE(s.date) AS date,
+                 ${baseNormalize} AS sale_currency,
+                 s.total AS total
+          ${baseSql}${whereBase}${curCond}
+        ) t
+        GROUP BY t.date, t.sale_currency
+        ORDER BY t.date ASC, t.sale_currency ASC`;
+      const curRows = await query<{ date: string; sale_currency: string; currency_total: number }>(curSql, [...bp, ...whereParams, ...curParams]);
 
-      // 3) Obtener nombres de monedas
-      const curNames = await query<{ code: string; name: string; symbol: string }>('SELECT code, name, symbol FROM currencies WHERE active=1');
+      // 3) Moneda base + nombres/tipos de monedas
+      const baseRows = await query<{ code: string }>('SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1');
+      const baseCode = String(baseRows[0]?.code ?? '');
+      const curNames = await query<{ code: string; name: string; symbol: string; currency_type: string }>('SELECT code, name, symbol, currency_type FROM currencies WHERE active=1');
       const curNameMap: Record<string, { name: string; symbol: string }> = {};
-      for (const c of curNames) curNameMap[c.code] = { name: c.name, symbol: c.symbol };
+      const curTypeMap: Record<string, 'cash' | 'digital'> = {};
+      for (const c of curNames) {
+        curNameMap[c.code] = { name: c.name, symbol: c.symbol };
+        curTypeMap[c.code] = c.currency_type === 'digital' ? 'digital' : 'cash';
+      }
 
-      // 4) Enriquecir filas con montos por moneda
+      // 4) Monto del día por moneda (valor nativo, sin conversión)
       const curByDate = new Map<string, Record<string, number>>();
       for (const cr of curRows) {
         if (!curByDate.has(cr.date)) curByDate.set(cr.date, {});
-        curByDate.get(cr.date)![cr.pay_currency] = Number(cr.currency_total);
+        curByDate.get(cr.date)![cr.sale_currency] = Number(cr.currency_total ?? 0);
       }
 
       return rows.map(r => {
         const dateStr = String(r.date);
-        const curMap = curByDate.get(dateStr) ?? {};
-        return { ...r, currency_breakdown: curMap, currency_names: curNameMap };
+        return {
+          ...r,
+          currency_breakdown: curByDate.get(dateStr) ?? {},
+          currency_names: curNameMap,
+          currency_types: curTypeMap,
+          base_code: baseCode,
+        };
       });
-    });
+    }, `${currency}|${fromDate ?? ''}|${toDate ?? ''}`);
     return ok(data);
   }
 
@@ -323,10 +329,12 @@ export const GET = handle(async (req: Request) => {
     const data = await cachedReport('transfers', user.id, locationId, days, async () => {
       // Moneda base (NULL en la BD = base): sirve para mostrar la moneda de
       // cada transferencia y para filtrar por la moneda base.
-      const baseRows = await query<{ code: string }>(
-        "SELECT code FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1"
+      const baseRows = await query<{ code: string; currency_type: string }>(
+        "SELECT code, currency_type FROM currencies WHERE is_base = 1 AND active = 1 LIMIT 1"
       );
       const baseCode = baseRows[0]?.code ?? '';
+      // Las transferencias solo se hacen en monedas digitales; la base hereda su tipo.
+      const baseType = baseRows[0]?.currency_type === 'digital' ? 'digital' : 'cash';
       // Reporte de pagos por transferencia: cada fila es una línea de producto
       // de una venta pagada (total o parcialmente) por transferencia. El
       // teléfono del cliente y la referencia bancaria se extraen de las notas
@@ -336,6 +344,7 @@ export const GET = handle(async (req: Request) => {
         SELECT p.id AS payment_id, p.method, p.amount_transfer,
                CASE WHEN p.currency_code IS NOT NULL AND p.currency_code!='' AND p.currency_code!=(SELECT code FROM currencies WHERE is_base=1 AND active=1 LIMIT 1) THEN p.amount_transfer*COALESCE(p.exchange_rate,1) ELSE p.amount_transfer END AS amount_transfer_base,
                p.currency_code, p.notes AS payment_notes,
+               cur2.currency_type AS currency_type,
                p.date AS payment_date, s.id AS sale_id, s.date AS sale_date,
                pr.name AS product_name, si.quantity, si.unit_price,
                c.name AS customer_name, c.phone AS customer_phone
@@ -343,6 +352,7 @@ export const GET = handle(async (req: Request) => {
         JOIN sales s ON s.id = p.sale_id
         JOIN sale_items si ON si.sale_id = s.id
         JOIN products pr ON pr.id = si.product_id
+        LEFT JOIN currencies cur2 ON cur2.code = p.currency_code
         LEFT JOIN customers c ON c.id = s.customer_id`;
       const tp: unknown[] = [];
       if (locationId) {
@@ -381,6 +391,7 @@ export const GET = handle(async (req: Request) => {
           amount_transfer_base: Number(r.amount_transfer_base ?? 0),
           // Moneda en la que se hizo la transferencia (null en la BD = moneda base)
           currency_code: r.currency_code ? String(r.currency_code) : (baseCode || null),
+          currency_type: r.currency_type ? String(r.currency_type) : baseType,
           method: r.method,
           customer_name: r.customer_name ?? null,
           phone: phone || null,

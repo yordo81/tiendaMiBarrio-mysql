@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { formatCurrency, formatNumber, cn } from '@/lib/utils';
+import { formatCurrency, formatMoney, formatNumber, cn } from '@/lib/utils';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse, Calendar, Landmark, FileDown, Filter } from 'lucide-react';
 import SearchableSelect from '@/components/ui/SearchableSelect';
@@ -69,11 +69,12 @@ export default function ReportesPage() {
     const fromDate = dateFrom ?? new Date(Date.now()-days*864e5).toISOString().slice(0,10);
     const toDate = dateTo ?? new Date().toISOString().slice(0,10);
     const dateQ = dateFrom ? `&from=${fromDate}&to=${toDate}` : '';
+    const curQ = currencyFilter ? `&currency=${encodeURIComponent(currencyFilter)}` : '';
 
     // Fetch sales data
     let sales: R[] = [];
     try {
-      const res = await fetch(`/api/reports?type=sales_detail&days=${days}${locQ}${dateQ}`);
+      const res = await fetch(`/api/reports?type=sales_detail&days=${days}${locQ}${dateQ}${curQ}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Error al cargar ventas' }));
         toast.error(String(err?.error ?? 'Error al cargar ventas'));
@@ -102,7 +103,7 @@ export default function ReportesPage() {
     const cnt = sales.reduce((a,r)=>a+Number(r.count??0),0);
     setSalesSummary({ total:totalV, count:cnt, avg:cnt?totalV/cnt:0, gastos:totalG, utilidad:totalV-totalG });
     setLoading(false);
-  }, [days, locationFilter, dateFrom, dateTo]);
+  }, [days, locationFilter, dateFrom, dateTo, currencyFilter]);
 
   const loadMargins = useCallback(async () => {
     setLoading(true);
@@ -306,72 +307,81 @@ export default function ReportesPage() {
   const yMaxPrice = Math.ceil(maxPriceVal * 1.15 / 1000) * 1000 || 1000;
 
   return (
-    <div className="space-y-5">        <div className="flex gap-1 overflow-x-auto pb-1">
+    <div className="space-y-5">
+        <div className="flex gap-1 overflow-x-auto pb-1">
           {tabs.map(t=>(
             <button key={t.key} onClick={()=>setTab(t.key)} className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-sm whitespace-nowrap transition-colors', tab===t.key?'bg-brand-600/20 text-brand-400 font-medium':'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#161b22]')}>
               <t.icon size={15}/>{t.label}
             </button>
           ))}
-          <div className="flex-1" />
-          {(tab==='ventas'||tab==='rentabilidad'||tab==='transferencias'||tab==='reabastecimiento')&&locations.length>0&&(
-            <div className="flex items-center gap-2">
-              <Warehouse size={14} className="text-[var(--text-tertiary)] shrink-0" />
-              <div className="max-w-[180px]">
-                <SearchableSelect
-                  options={[
-                    { value: '', label: 'Todos los almacenes' },
-                    ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
-                  ]}
-                  value={locationFilter}
-                  onChange={v => setLocationFilter(v)}
-                  placeholder="Todos los almacenes"
-                  noResultsMessage="Sin almacenes"
-                />
-              </div>
-            </div>
-          )}
         </div>
 
-      {(tab==='ventas'||tab==='rentabilidad'||tab==='transferencias')&&(
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          <div className="flex gap-2">
-            {(['7d','30d','90d','custom'] as const).map(r=>(
-              <button key={r} onClick={()=>setRange(r)} className={cn('px-3 py-1.5 text-xs rounded-lg border transition-colors', range===r?'bg-brand-600 border-brand-600 text-white':'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]')}>
-                {r==='7d'?'7 días':r==='30d'?'30 días':r==='90d'?'90 días':'Personalizado'}
-              </button>
-            ))}
+      {/* Barra de filtros: rango de fechas, almacén y moneda. Los controles
+          se agrupan y envuelven para no desbordar el diseño en pantallas
+          estrechas. */}
+      {(tab==='ventas'||tab==='rentabilidad'||tab==='transferencias'||tab==='reabastecimiento')&&(
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {(tab==='ventas'||tab==='rentabilidad'||tab==='transferencias')&&(
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+              <div className="flex gap-2">
+                {(['7d','30d','90d','custom'] as const).map(r=>(
+                  <button key={r} onClick={()=>setRange(r)} className={cn('px-3 py-1.5 text-xs rounded-lg border transition-colors', range===r?'bg-brand-600 border-brand-600 text-white':'border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#6e7681]')}>
+                    {r==='7d'?'7 días':r==='30d'?'30 días':r==='90d'?'90 días':'Personalizado'}
+                  </button>
+                ))}
+              </div>
+              {range==='custom'&&(
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-[var(--text-tertiary)]">Desde:</label>
+                    <input type="date" className="input py-1.5 text-xs" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-[var(--text-tertiary)]">Hasta:</label>
+                    <input type="date" className="input py-1.5 text-xs" value={customTo} onChange={e=>setCustomTo(e.target.value)} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:ml-auto">
+            {locations.length>0&&(
+              <div className="flex items-center gap-2 min-w-0">
+                <Warehouse size={14} className="text-[var(--text-tertiary)] shrink-0" />
+                <div className="w-[180px] max-w-full">
+                  <SearchableSelect
+                    options={[
+                      { value: '', label: 'Todos los almacenes' },
+                      ...locations.map(l => ({ value: String(l.id), label: String(l.name) }))
+                    ]}
+                    value={locationFilter}
+                    onChange={v => setLocationFilter(v)}
+                    placeholder="Todos los almacenes"
+                    noResultsMessage="Sin almacenes"
+                  />
+                </div>
+              </div>
+            )}
+            {(tab==='ventas'||tab==='transferencias')&&currencies.length>0&&(
+              <div className="flex items-center gap-2 min-w-0">
+                <Landmark size={14} className="text-[var(--text-tertiary)] shrink-0" />
+                <div className="w-[190px] max-w-full">
+                  <SearchableSelect
+                    options={[
+                      { value: '', label: 'Todas las monedas' },
+                      ...currencies
+                        .filter(c => Number(c.active) !== 0)
+                        .map(c => ({ value: String(c.code), label: `${String(c.symbol ?? '')} ${String(c.code)}`.trim() })),
+                    ]}
+                    value={currencyFilter}
+                    onChange={v => setCurrencyFilter(v)}
+                    placeholder="Todas las monedas"
+                    noResultsMessage="Sin monedas"
+                  />
+                </div>
+              </div>
+            )}
           </div>
-          {range==='custom'&&(
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-tertiary)]">Desde:</label>
-                <input type="date" className="input py-1.5 text-xs" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} />
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-tertiary)]">Hasta:</label>
-                <input type="date" className="input py-1.5 text-xs" value={customTo} onChange={e=>setCustomTo(e.target.value)} />
-              </div>
-            </div>
-          )}
-          {tab==='transferencias'&&currencies.length>0&&(
-            <div className="flex items-center gap-2 sm:ml-auto">
-              <Landmark size={14} className="text-[var(--text-tertiary)] shrink-0" />
-              <div className="max-w-[190px] w-full">
-                <SearchableSelect
-                  options={[
-                    { value: '', label: 'Todas las monedas' },
-                    ...currencies
-                      .filter(c => Number(c.active) !== 0)
-                      .map(c => ({ value: String(c.code), label: `${String(c.symbol ?? '')} ${String(c.code)}`.trim() })),
-                  ]}
-                  value={currencyFilter}
-                  onChange={v => setCurrencyFilter(v)}
-                  placeholder="Todas las monedas"
-                  noResultsMessage="Sin monedas"
-                />
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -401,87 +411,213 @@ export default function ReportesPage() {
             </ResponsiveContainer>
           </div>
 
-          {/* Resumen diario de ventas: por moneda de pago */}
+          {/* Resumen diario de ventas desglosado por moneda.
+              Una columna por cada moneda (incluida la base), con el monto
+              NATIVO del día; solo aparece si hubo alguna venta en esa moneda. */}
           {salesData.length > 0 && (() => {
-            // Collect all currency codes that have any non-zero amount across all rows
-            const allCurCodes = new Set<string>();
-            const firstCurrencyNames = (salesData[0] as R)?.currency_names as Record<string, { name: string; symbol: string }> | undefined ?? {};
+            const first = salesData[0] as R;
+            const firstCurrencyNames = (first?.currency_names as Record<string, { name: string; symbol: string }> | undefined) ?? {};
+            const baseCode = String(
+              first?.base_code ?? currencies.find(c => Number(c.is_base) === 1)?.code ?? ''
+            );
+
+            // Monedas con alguna venta en el período (la base primero, luego alfabéticas)
+            const codesWithSales = new Set<string>();
             for (const row of salesData) {
               const breakdown = (row as R).currency_breakdown as Record<string, number> | undefined;
-              if (breakdown) {
-                for (const [code, val] of Object.entries(breakdown)) {
-                  if (Number(val) > 0) allCurCodes.add(code);
-                }
+              if (!breakdown) continue;
+              for (const [code, val] of Object.entries(breakdown)) {
+                if (Number(val) > 0) codesWithSales.add(code);
               }
             }
-            // Sort: base currency first, then alphabetical
-            const sortedCodes = Array.from(allCurCodes).sort((a, b) => {
-              const aBase = firstCurrencyNames[a] ? 0 : 1;
-              const bBase = firstCurrencyNames[b] ? 0 : 1;
-              return aBase - bBase || a.localeCompare(b);
+            const columns = Array.from(codesWithSales).sort((a, b) => {
+              if (a === baseCode) return -1;
+              if (b === baseCode) return 1;
+              return a.localeCompare(b);
             });
 
-            function curLabel(code: string): string {
-              if (!code) return 'Efectivo';
-              const info = firstCurrencyNames[code];
-              return info ? `${info.symbol} ${info.name}` : code;
+            // Suma nativa de una moneda a lo largo de todo el período
+            const sumBy = (code: string): number =>
+              salesData.reduce((acc, r) => {
+                const map = (r as R).currency_breakdown as Record<string, number> | undefined;
+                return acc + Number(map?.[code] ?? 0);
+              }, 0);
+
+            function curInfo(code: string): { name: string; symbol: string } {
+              return firstCurrencyNames[code] ?? { name: '', symbol: '' };
             }
-            function curColor(code: string): string {
-              const colors = ['text-blue-400', 'text-purple-400', 'text-emerald-400', 'text-amber-400', 'text-rose-400', 'text-cyan-400'];
-              const idx = sortedCodes.indexOf(code);
-              return colors[idx % colors.length];
+            function curLabel(code: string): string {
+              const info = firstCurrencyNames[code];
+              return info ? `${info.symbol} ${info.name}`.trim() : code;
+            }
+            const colors = ['text-blue-400', 'text-purple-400', 'text-emerald-400', 'text-amber-400', 'text-rose-400', 'text-cyan-400'];
+
+            // El tipo de cada moneda: física (efectivo) o digital (transferencia).
+            const currencyTypes = (first?.currency_types as Record<string, 'cash' | 'digital'> | undefined) ?? {};
+            const typeOf = (code: string): 'cash' | 'digital' => (currencyTypes[code] === 'digital' ? 'digital' : 'cash');
+
+            // Total equivalente en la moneda base: las ventas en otras monedas
+            // se convierten con la tasa congelada de cada venta.
+            const baseName = baseCode || 'moneda base';
+            const baseTotal = salesData.reduce((a, r) => a + Number((r as R).total ?? 0), 0);
+
+            // Ayudas para el encabezado de la tabla
+            const tipFecha = 'Día de la venta (agrupa todas las ventas de esa fecha).';
+            const tipCurrency = (code: string) => `Ventas del día cobradas en ${curLabel(code)} (${typeOf(code) === 'digital' ? 'moneda digital' : 'moneda física'}), en su valor nativo.`;
+            const tipTotalBase = `Total del día convertido a ${baseName} con la tasa de cambio congelada de cada venta.`;
+            const totalCount = salesData.reduce((a, r) => a + Number((r as R).count ?? 0), 0);
+            const tipCount = 'Número de ventas realizadas ese día.';
+
+            // Exportar el desglose diario (una columna por moneda, valor nativo) a PDF.
+            async function exportDailySummaryPDF() {
+              const { jsPDF } = await import('jspdf');
+              const autoTable = (await import('jspdf-autotable')).default;
+              const doc = new jsPDF();
+
+              const rangeLabel = isCustomRange
+                ? `${dateFrom ?? ''} a ${dateTo ?? ''}`
+                : days === 7 ? 'últimos 7 días' : days === 30 ? 'últimos 30 días' : `últimos ${days} días`;
+              const locName = locationFilter
+                ? String(locations.find(l => String(l.id) === locationFilter)?.name ?? '—')
+                : null;
+
+              const head = [[
+                'Fecha',
+                'Nº ventas',
+                ...columns.map(code => `${curLabel(code)} (${typeOf(code) === 'digital' ? 'Digital' : 'Efectivo'})`),
+                `Total (${baseName})`,
+              ]];
+              const body = salesData.map(row => {
+                const breakdown = (row as R).currency_breakdown as Record<string, number> | undefined;
+                return [
+                  String(row.date),
+                  String(Number((row as R).count ?? 0)),
+                  ...columns.map(code => formatNumber(Number(breakdown?.[code] ?? 0), 2)),
+                  formatCurrency(Number((row as R).total ?? 0)),
+                ];
+              });
+              const foot = [[
+                'Total',
+                String(totalCount),
+                ...columns.map(code => formatNumber(sumBy(code), 2)),
+                formatCurrency(baseTotal),
+              ]];
+
+              doc.setFontSize(14);
+              doc.setFont('helvetica', 'bold');
+              doc.text('Resumen diario de ventas', 14, 16);
+              doc.setFontSize(10);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(80);
+              doc.text(`Período: ${rangeLabel}${locName ? ` · Almacén: ${locName}` : ''}`, 14, 23);
+              doc.text(`Generado: ${new Date().toLocaleString('es')}`, 14, 28);
+              doc.setTextColor(0);
+
+              autoTable(doc, {
+                startY: 34,
+                head,
+                body,
+                foot,
+                showFoot: 'lastPage',
+                theme: 'grid',
+                styles: { fontSize: 8, halign: 'right' },
+                headStyles: { fillColor: [38, 101, 245], fontSize: 8, halign: 'right' },
+                footStyles: { fillColor: [230, 235, 245], textColor: [20, 20, 20], fontStyle: 'bold', fontSize: 8, halign: 'right' },
+                columnStyles: { 0: { halign: 'left' } },
+              });
+
+              doc.save(`resumen-diario-${days}d.pdf`);
+            }
+
+            // Exportar el desglose diario a CSV: fecha, nº de ventas, una
+            // columna por moneda (valor nativo) y el total en moneda base.
+            function exportDailySummaryCSV() {
+              const rows: Record<string, unknown>[] = salesData.map(row => {
+                const breakdown = (row as R).currency_breakdown as Record<string, number> | undefined;
+                const rec: Record<string, unknown> = {
+                  'Fecha': String(row.date),
+                  'Nº ventas': Number((row as R).count ?? 0),
+                };
+                for (const code of columns) rec[curLabel(code)] = Number(breakdown?.[code] ?? 0);
+                rec[`Total (${baseName})`] = Number((row as R).total ?? 0);
+                return rec;
+              });
+              const totals: Record<string, unknown> = { 'Fecha': 'Total', 'Nº ventas': totalCount };
+              for (const code of columns) totals[curLabel(code)] = sumBy(code);
+              totals[`Total (${baseName})`] = baseTotal;
+              rows.push(totals);
+              exportCSV(rows, `ventas-diario-${days}d`);
             }
 
             return (
               <div className="card p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-semibold text-[var(--text-primary)]">Resumen diario de ventas</h3>
-                  <button onClick={()=>exportCSV(salesData,'ventas-diario')} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
-                </div>
-                {/* Totales por moneda (encabezado) */}
-                <div className="flex flex-wrap gap-3 mb-4">
-                  {sortedCodes.map(code => {
-                    const sum = salesData.reduce((acc, r) => {
-                      const breakdown = (r as R).currency_breakdown as Record<string, number> | undefined;
-                      return acc + Number(breakdown?.[code] ?? 0);
-                    }, 0);
-                    return (
-                      <div key={code} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
-                        <span className="text-xs text-[var(--text-tertiary)]">{curLabel(code)}</span>
-                        <span className={`text-sm font-bold ${curColor(code)}`}>{formatCurrency(sum)}</span>
-                      </div>
-                    );
-                  })}
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
-                    <span className="text-xs text-[var(--text-tertiary)]">Transferencia</span>
-                    <span className="text-sm font-bold text-purple-400">{formatCurrency(salesData.reduce((sum, r) => sum + Number(r.transfer_total ?? 0), 0))}</span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={exportDailySummaryCSV} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
+                    <button onClick={exportDailySummaryPDF} className="btn-secondary flex items-center gap-1.5 text-xs"><FileDown size={13}/>PDF</button>
                   </div>
+                </div>
+                {/* Total del período por cada moneda con ventas */}
+                <div className="flex flex-wrap gap-3 mb-4">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-500/30 bg-brand-600/10">
+                    <span className="text-xs text-[var(--text-tertiary)]">Total · {baseName}</span>
+                    <span className="text-sm font-bold text-brand-400">{formatCurrency(baseTotal)}</span>
+                  </div>
+                  {columns.map((code, i) => (
+                    <div key={code} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+                      <span className="text-xs text-[var(--text-tertiary)]">{curLabel(code)}</span>
+                      <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-[var(--bg-muted)] text-[var(--text-tertiary)]">{typeOf(code) === 'digital' ? 'Digital' : 'Efectivo'}</span>
+                      <span className={`text-sm font-bold ${colors[i % colors.length]}`}>{formatMoney(sumBy(code), curInfo(code).symbol, code)}</span>
+                    </div>
+                  ))}
                 </div>
                 {/* Tabla diaria */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--border-primary)]">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Fecha</th>
-                        {sortedCodes.map(code => (
-                          <th key={code} className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">{curLabel(code)}</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide"><InfoTooltip content={tipFecha} iconClassName="w-3 h-3 ml-0.5 inline-block -mt-0.5">Fecha</InfoTooltip></th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide"><InfoTooltip content={tipCount} iconClassName="w-3 h-3 ml-0.5 inline-block -mt-0.5">Nº ventas</InfoTooltip></th>
+                        {columns.map(code => (
+                          <th key={code} className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">
+                            <span className="inline-flex items-center justify-end gap-1">
+                              {typeOf(code) === 'digital' && (
+                                <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">D</span>
+                              )}
+                              <InfoTooltip content={tipCurrency(code)} iconClassName="w-3 h-3 ml-0.5 inline-block -mt-0.5">{curLabel(code)}</InfoTooltip>
+                            </span>
+                          </th>
                         ))}
-                        <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Transferencia</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide border-l border-[var(--border-primary)]"><InfoTooltip content={tipTotalBase} iconClassName="w-3 h-3 ml-0.5 inline-block -mt-0.5">Total · {baseCode}</InfoTooltip></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {salesData.map((row, i) => (
-                        <tr key={i} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
-                          <td className="px-3 py-2.5 text-[var(--text-secondary)]">{String(row.date)}</td>
-                          {sortedCodes.map(code => {
-                            const breakdown = (row as R).currency_breakdown as Record<string, number> | undefined;
-                            const val = breakdown?.[code] ?? 0;
-                            return <td key={code} className={`px-3 py-2.5 ${curColor(code)} text-right`}>{formatCurrency(Number(val))}</td>;
-                          })}
-                          <td className="px-3 py-2.5 text-purple-400 text-right">{formatCurrency(Number(row.transfer_total ?? 0))}</td>
-                        </tr>
-                      ))}
+                      {salesData.map((row, i) => {
+                        const breakdown = (row as R).currency_breakdown as Record<string, number> | undefined;
+                        return (
+                          <tr key={i} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                            <td className="px-3 py-2.5 text-[var(--text-secondary)]">{String(row.date)}</td>
+                            <td className="px-3 py-2.5 text-right text-[var(--text-primary)]">{Number((row as R).count ?? 0)}</td>
+                            {columns.map((code, j) => (
+                              <td key={code} className={`px-3 py-2.5 ${colors[j % colors.length]} text-right`}>{formatMoney(Number(breakdown?.[code] ?? 0), curInfo(code).symbol, code)}</td>
+                            ))}
+                            <td className="px-3 py-2.5 text-brand-400 text-right font-medium border-l border-[var(--border-primary)]">{formatCurrency(Number((row as R).total ?? 0))}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
+                    {/* Totales del período: suma de cada columna */}
+                    <tfoot>
+                      <tr className="border-t-2 border-[var(--border-primary)] bg-[var(--bg-secondary)] font-semibold">
+                        <td className="px-3 py-2.5 text-[var(--text-primary)]">Total</td>
+                        <td className="px-3 py-2.5 text-right text-[var(--text-primary)]">{totalCount}</td>
+                        {columns.map((code, j) => (
+                          <td key={code} className={`px-3 py-2.5 ${colors[j % colors.length]} text-right`}>{formatMoney(sumBy(code), curInfo(code).symbol, code)}</td>
+                        ))}
+                        <td className="px-3 py-2.5 text-brand-400 text-right border-l border-[var(--border-primary)]">{formatCurrency(baseTotal)}</td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </div>
@@ -607,7 +743,7 @@ export default function ReportesPage() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-sm font-semibold text-[var(--text-primary)]">Pagos por transferencia</h3>
-                <p className="text-xs text-[var(--text-tertiary)] mt-0.5">Productos vendidos con pago por transferencia, teléfono del cliente y referencia bancaria</p>
+                <p className="text-xs text-[var(--text-tertiary)] mt-0.5">Productos vendidos con pago por transferencia (monedas digitales), teléfono del cliente y referencia bancaria</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={()=>exportCSV(transfers,'transferencias')} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>CSV</button>
@@ -625,7 +761,10 @@ export default function ReportesPage() {
                       <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{formatCurrency(Number(t.unit_price))}</td>
                       <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{formatNumber(Number(t.quantity),2)}</td>
                       <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{formatCurrency(Number(t.subtotal))}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap"><span className="text-xs font-medium px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">{String(t.currency_code ?? '—')}</span></td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">{String(t.currency_code ?? '—')}</span>
+                        <span className={`ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${t.currency_type === 'digital' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-[var(--bg-muted)] text-[var(--text-tertiary)] border-[var(--border-primary)]'}`}>{t.currency_type === 'digital' ? 'Digital' : 'Efectivo'}</span>
+                      </td>
                       <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{String(t.phone ?? '—')}</td>
                       <td className="px-3 py-2.5 font-mono text-xs text-[var(--text-secondary)]">{String(t.bank_ref ?? '—')}</td>
                     </tr>
