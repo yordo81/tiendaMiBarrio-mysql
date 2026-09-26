@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { formatCurrency, formatMoney, formatNumber, cn, findProductByBarcode } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import { notifyShiftSummaryChanged } from '@/lib/shift-events';
@@ -18,7 +18,9 @@ import { normalizePhone } from '@/lib/validate';
 
 type AnyRecord = Record<string, unknown>;
 type PayMethod = 'cash' | 'transfer' | 'mixed' | 'credit';
-type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; /** Referencia al dólar: 1 USD = X moneda */ usdRate?: number | null };
+// Tipo de moneda: 'cash' = física (solo efectivo), 'digital' = solo transferencia
+type CurrencyType = 'cash' | 'digital';
+type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; currencyType: CurrencyType; rate: number; /** Referencia al dólar: 1 USD = X moneda */ usdRate?: number | null };
 // Parte del cobro mixto: efectivo y transferencia de UNA moneda ('' = base)
 interface PaymentPart { cash: number; transfer: number; currency: string; }
 
@@ -82,10 +84,11 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
       .catch(() => toast.error('Error al cargar datos'));
     // Monedas y tasas (para convertir precios y cobrar dividido)
     fetch('/api/currencies').then(r => r.json()).then(d => {
-      const raw = (d.currencies ?? []) as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number>; usd_rate?: number | null }[];
+      const raw = (d.currencies ?? []) as { code: string; name: string; symbol: string; is_base: boolean; currency_type?: string; rates: Record<string, number>; usd_rate?: number | null }[];
       const baseCode = raw.find(c => c.is_base)?.code ?? '';
       setCurrencies(raw.map(c => ({
         code: c.code, name: c.name, symbol: c.symbol, is_base: c.is_base,
+        currencyType: c.currency_type === 'digital' ? 'digital' : 'cash',
         rate: c.is_base ? 1 : (c.rates?.[baseCode] ?? 0),
         // Referencia al dólar: 1 USD = X moneda (lo que muestra la UI)
         usdRate: c.usd_rate ?? null,
@@ -96,6 +99,14 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
   const cartTotal = cart.reduce((a, i) => a + i.quantity * i.unit_price, 0);
   const activeCurrencies = useMemo(() => currencies.filter(c => c.is_base || Number(c.rate) > 0), [currencies]);
   const baseCurrency = currencies.find(c => c.is_base) ?? null;
+  // Monedas admitidas según el método: efectivo → físicas, transferencia →
+  // digitales, mixto → ambas. El crédito se registra en la moneda base.
+  const currenciesForMethod = useCallback((method: PayMethod): CurrencyOption[] => {
+    if (method === 'cash') return activeCurrencies.filter(c => c.currencyType === 'cash');
+    if (method === 'transfer') return activeCurrencies.filter(c => c.currencyType === 'digital');
+    return activeCurrencies;
+  }, [activeCurrencies]);
+  const methodCurrencies = payMethod === 'credit' ? activeCurrencies : currenciesForMethod(payMethod);
   const saleCurrency = currencies.find(c => c.code === splitCurrency) ?? null;
   const isForeignSale = !!saleCurrency && !saleCurrency.is_base;
   // Precio del producto convertido a la moneda de la venta y redondeado hacia
@@ -551,7 +562,14 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                 return (
                   <button
                     key={m}
-                    onClick={() => { setPayMethod(m); if (m === 'credit') setSplitCurrency(''); }}
+                    onClick={() => {
+                      setPayMethod(m);
+                      if (m === 'credit') { setSplitCurrency(''); return; }
+                      // El método restringe las monedas: si la elegida deja de
+                      // ser válida, cae a la primera permitida.
+                      const allowed = currenciesForMethod(m).map(c => (c.is_base ? '' : c.code));
+                      if (!allowed.includes(splitCurrency)) setSplitCurrency(allowed[0] ?? '');
+                    }}
                     className={cn(
                       'px-3 py-2 rounded-lg text-sm border transition-colors',
                       payMethod === m
@@ -604,14 +622,16 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
               ⚠ Se registrará como deuda. Debes seleccionar un cliente.
             </div>
           )}
-          {/* Moneda de venta (solo si hay más de una activa; crédito = base) */}
-          {payMethod !== 'credit' && activeCurrencies.length > 1 && (
+          {/* Moneda de venta (siempre visible que haya monedas para el método;
+              crédito = base). Con una sola moneda digital muestra igualmente
+              en qué moneda se cobra la transferencia. */}
+          {payMethod !== 'credit' && methodCurrencies.length > 0 && (
             <div>
               <label className="label">Moneda de venta</label>
               <SearchableSelect
-                options={activeCurrencies.map(c => ({
+                options={methodCurrencies.map(c => ({
                   value: c.is_base ? '' : c.code,
-                  label: `${c.symbol} ${c.code}`, sublabel: c.is_base ? 'Moneda base' : (c.rate > 0 ? (c.code === 'USD' ? 'Referencia (dólar)' : `1 USD = ${c.usdRate ?? '—'} ${c.code}`) : undefined),
+                  label: `${c.symbol} ${c.code}`, sublabel: `${c.currencyType === 'digital' ? 'Digital' : 'Efectivo'}${c.is_base ? ' · Moneda base' : (c.rate > 0 ? (c.code === 'USD' ? ' · Referencia (dólar)' : ` · 1 USD = ${c.usdRate ?? '—'} ${c.code}`) : '')}`,
                 }))}
                 value={splitCurrency}
                 onChange={v => setSplitCurrency(v)}
@@ -623,7 +643,7 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
           {/* Cobro mixto en varias monedas: cada parte agrupa el efectivo y la
               transferencia de UNA moneda. Los importes se convierten con la tasa
               de cada moneda y se registran como pagos separados. */}
-          {payMethod !== 'credit' && activeCurrencies.length > 1 && (
+          {payMethod !== 'credit' && methodCurrencies.length > 1 && (
             <div className="rounded-xl border p-3 space-y-2.5" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
               <Toggle
                 checked={splitPay}
@@ -634,6 +654,8 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                 <div className="space-y-2">
                   {payParts.map((part, idx) => {
                     const partCur = currencies.find(c => c.code === part.currency) ?? null;
+                    // Tipo de moneda de la parte: física → solo efectivo; digital → solo transferencia.
+                    const partType: CurrencyType = partCur ? partCur.currencyType : (baseCurrency?.currencyType ?? 'cash');
                     const coveredBase = payParts.reduce((a, p) => a + (p.cash + p.transfer > 0 ? (p.cash + p.transfer) / (p.currency ? (currencies.find(c => c.code === p.currency)?.rate || 1) : 1) : 0), 0);
                     const coveredDiff = Math.round((coveredBase - cartTotalBase) * 100) / 100;
                     const partTotal = part.cash + part.transfer;
@@ -651,9 +673,13 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                         <div>
                           <label className="label">Moneda</label>
                           <SearchableSelect
-                            options={activeCurrencies.map(c => ({ value: c.code, label: `${c.symbol} ${c.code}`, sublabel: c.is_base ? 'Moneda base' : (c.rate > 0 ? (c.code === 'USD' ? 'Referencia (dólar)' : `1 USD = ${c.usdRate ?? '—'} ${c.code}`) : undefined) }))}
+                            options={activeCurrencies.map(c => ({ value: c.code, label: `${c.symbol} ${c.code}`, sublabel: `${c.currencyType === 'digital' ? 'Digital' : 'Efectivo'}${c.is_base ? ' · Moneda base' : (c.rate > 0 ? (c.code === 'USD' ? ' · Referencia (dólar)' : ` · 1 USD = ${c.usdRate ?? '—'} ${c.code}`) : '')}` }))}
                             value={part.currency}
-                            onChange={v => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, currency: v } : p))}
+                            onChange={v => {
+                              // Al cambiar la moneda se limpia el monto que su tipo no admite
+                              const t: CurrencyType = currencies.find(c => c.code === v)?.currencyType ?? (baseCurrency?.currencyType ?? 'cash');
+                              setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, currency: v, cash: t === 'digital' ? 0 : p.cash, transfer: t === 'cash' ? 0 : p.transfer } : p));
+                            }}
                             placeholder="Seleccionar moneda"
                             noResultsMessage="Sin monedas"
                           />
@@ -666,12 +692,13 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                                 type="number"
                                 min="0"
                                 step="1"
-                                className="input text-xs font-semibold"
-                                placeholder="0.00"
+                                className="input text-xs font-semibold disabled:opacity-40"
+                                placeholder={partType === 'digital' ? 'No aplica' : '0.00'}
+                                disabled={partType === 'digital'}
                                 value={part.cash || ''}
                                 onChange={e => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, cash: parseFloat(e.target.value) || 0 } : p))}
                               />
-                              {partRemain > 0 && (
+                              {partRemain > 0 && partType !== 'digital' && (
                                 <button
                                   onClick={() => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, cash: partRemain } : p))}
                                   className="text-[11px] font-medium px-2.5 rounded-lg text-white transition-transform active:scale-95 whitespace-nowrap"
@@ -688,8 +715,9 @@ export default function SaleModal({ open, onClose, onSuccess }: SaleModalProps) 
                               type="number"
                               min="0"
                               step="1"
-                              className="input text-xs font-semibold"
-                              placeholder="0.00"
+                              className="input text-xs font-semibold disabled:opacity-40"
+                              placeholder={partType === 'cash' ? 'No aplica' : '0.00'}
+                              disabled={partType === 'cash'}
                               value={part.transfer || ''}
                               onChange={e => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, transfer: parseFloat(e.target.value) || 0 } : p))}
                             />

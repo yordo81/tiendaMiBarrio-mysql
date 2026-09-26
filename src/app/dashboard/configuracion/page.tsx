@@ -59,11 +59,11 @@ export default function ConfiguracionPage() {
   const [usbSupported] = useState(() => isWebUsbSupported());
 
   // ── Monedas y tasas de cambio ──
-  type CurrencyDto = { code: string; name: string; symbol: string; is_base: boolean; active: boolean; rates: Record<string, number>; usd_rate?: number | null };
+  type CurrencyDto = { code: string; name: string; symbol: string; is_base: boolean; active: boolean; currency_type: 'cash' | 'digital'; rates: Record<string, number>; usd_rate?: number | null };
   const [currencies, setCurrencies] = useState<CurrencyDto[]>([]);
   const [currenciesLoading, setCurrenciesLoading] = useState(true);
   const [showNewCurrency, setShowNewCurrency] = useState(false);
-  const [newCurrency, setNewCurrency] = useState({ code: '', name: '', symbol: '' });
+  const [newCurrency, setNewCurrency] = useState<{ code: string; name: string; symbol: string; currency_type: 'cash' | 'digital' }>({ code: '', name: '', symbol: '', currency_type: 'cash' });
   const [creatingCurrency, setCreatingCurrency] = useState(false);
   const [rateEdit, setRateEdit] = useState<{ from: string; to: string; rate: string } | null>(null);
   const [savingRate, setSavingRate] = useState(false);
@@ -120,7 +120,7 @@ export default function ConfiguracionPage() {
       });
       toast.success('Moneda creada');
       setShowNewCurrency(false);
-      setNewCurrency({ code: '', name: '', symbol: '' });
+      setNewCurrency({ code: '', name: '', symbol: '', currency_type: 'cash' });
       loadCurrencies();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error al crear la moneda');
@@ -152,6 +152,19 @@ export default function ConfiguracionPage() {
       loadCurrencies();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error');
+    }
+  }
+
+  async function handleSetCurrencyType(code: string, currencyType: 'cash' | 'digital') {
+    try {
+      await apiFetch('/api/currencies', {
+        method: 'PUT',
+        body: JSON.stringify({ action: 'set_type', code, currency_type: currencyType }),
+      });
+      toast.success(currencyType === 'digital' ? 'Moneda marcada como digital' : 'Moneda marcada como física');
+      loadCurrencies();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al cambiar el tipo de moneda');
     }
   }
 
@@ -837,6 +850,7 @@ export default function ConfiguracionPage() {
                       <span className="text-lg font-bold text-[var(--text-primary)]">{c.symbol}</span>
                       <span className="text-sm font-semibold text-[var(--text-primary)]">{c.code}</span>
                       {c.is_base && <span className="badge-success text-[10px] px-1.5 py-0.5">Base</span>}
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-muted)] text-[var(--text-tertiary)]">{c.currency_type === 'digital' ? 'Digital' : 'Efectivo'}</span>
                     </div>
                     <p className="text-xs text-[var(--text-tertiary)]">{c.name}</p>
                   </button>
@@ -881,6 +895,9 @@ export default function ConfiguracionPage() {
                           {c.is_base && (
                             <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">Base</span>
                           )}
+                          {c.currency_type === 'digital' && (
+                            <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">Digital</span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 ml-auto">
@@ -918,6 +935,23 @@ export default function ConfiguracionPage() {
                           </button>
                         )}
                         {!isDollar && <span className="text-sm font-semibold text-brand-400">{c.code}</span>}
+                      </div>
+                      {/* Tipo de moneda: física (efectivo) o digital (transferencia) */}
+                      <div className="flex items-center rounded-lg border border-[var(--border-primary)] overflow-hidden" title="Las monedas físicas solo se cobran en efectivo; las digitales solo por transferencia">
+                        {([['cash', 'Efectivo'], ['digital', 'Digital']] as const).map(([val, label]) => (
+                          <button
+                            key={val}
+                            onClick={() => c.currency_type !== val && handleSetCurrencyType(c.code, val)}
+                            className={cn(
+                              'text-[11px] font-semibold px-2.5 py-1.5 transition-colors',
+                              c.currency_type === val
+                                ? 'bg-brand-600 text-white'
+                                : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
                       </div>
                       <button
                         onClick={() => handleToggleCurrency(c.code, false)}
@@ -977,6 +1011,27 @@ export default function ConfiguracionPage() {
               maxLength={10}
               onChange={e => setNewCurrency(f => ({ ...f, symbol: e.target.value }))}
             />
+          </div>
+          <div>
+            <label className="label">Tipo de moneda *</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([['cash', 'Efectivo', 'Moneda física: solo se cobra en efectivo'], ['digital', 'Digital', 'Moneda digital: solo se cobra por transferencia']] as const).map(([val, label, desc]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setNewCurrency(f => ({ ...f, currency_type: val }))}
+                  className={cn(
+                    'text-left p-3 rounded-xl border-2 transition-all',
+                    newCurrency.currency_type === val
+                      ? 'border-brand-500 bg-brand-500/10'
+                      : 'border-[var(--border-secondary)] bg-[var(--bg-primary)] hover:border-[#6e7681]'
+                  )}
+                >
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">{desc}</p>
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex gap-2 justify-end pt-1">
             <button onClick={() => setShowNewCurrency(false)} disabled={creatingCurrency} className="btn-secondary disabled:opacity-50">Cancelar</button>

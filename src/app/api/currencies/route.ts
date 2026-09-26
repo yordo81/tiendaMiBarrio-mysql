@@ -21,8 +21,9 @@ export const GET = handle(async () => {
     name: string;
     symbol: string;
     is_base: number;
+    currency_type: string;
     active: number;
-  }>('SELECT code, name, symbol, is_base, active FROM currencies ORDER BY is_base DESC, code ASC');
+  }>('SELECT code, name, symbol, is_base, currency_type, active FROM currencies ORDER BY is_base DESC, code ASC');
 
   // Obtener todas las tasas de cambio (con la fecha de la última actualización:
   // el POS la usa para avisar al vendedor cuando la tasa está desactualizada)
@@ -58,6 +59,8 @@ export const GET = handle(async () => {
       return {
         ...c,
         is_base: Boolean(c.is_base),
+        // 'cash' = moneda física (solo efectivo); 'digital' = solo transferencia
+        currency_type: c.currency_type === 'digital' ? 'digital' : 'cash',
         active: Boolean(c.active),
         // Tasa hacia la base (derivada de la referencia USD); la base = 1.
         // Una moneda sin tasa USD queda vacía: no se puede convertir.
@@ -84,6 +87,8 @@ export const POST = handle(async (req: Request) => {
   const code = String(body.code ?? '').trim().toUpperCase();
   const name = String(body.name ?? '').trim();
   const symbol = String(body.symbol ?? '').trim();
+  // Tipo de moneda: 'cash' (física, solo efectivo) o 'digital' (solo transferencia)
+  const currencyType = body.currency_type === 'digital' ? 'digital' : 'cash';
 
   if (!code || code.length > 10) return err('El código de la moneda es obligatorio (máx. 10 caracteres)');
   if (!name) return err('El nombre de la moneda es obligatorio');
@@ -100,8 +105,8 @@ export const POST = handle(async (req: Request) => {
   }
 
   await execute(
-    'INSERT INTO currencies (code, name, symbol, is_base, active) VALUES (?, ?, ?, ?, 1)',
-    [code, name, symbol, isBase ? 1 : 0]
+    'INSERT INTO currencies (code, name, symbol, is_base, currency_type, active) VALUES (?, ?, ?, ?, ?, 1)',
+    [code, name, symbol, isBase ? 1 : 0, currencyType]
   );
 
   await logAudit({
@@ -111,7 +116,7 @@ export const POST = handle(async (req: Request) => {
     entity_type: 'currency',
     entity_id: code,
     entity_name: `${name} (${code})`,
-    details: { code, name, symbol, is_base: isBase },
+    details: { code, name, symbol, is_base: isBase, currency_type: currencyType },
   });
 
   return ok({ ok: true, code }, 201);
@@ -208,7 +213,31 @@ export const PUT = handle(async (req: Request) => {
     return ok({ ok: true });
   }
 
-  // Actualizar nombre/símbolo
+  // Actualizar tipo de moneda (física/digital)
+  if (action === 'set_type') {
+    const code = String(body.code ?? '').trim().toUpperCase();
+    if (!code) return err('Código de moneda requerido');
+    const currencyType = body.currency_type === 'digital' ? 'digital' : 'cash';
+
+    const currency = await queryOne<{ code: string }>('SELECT code FROM currencies WHERE code = ?', [code]);
+    if (!currency) return err('Moneda no encontrada');
+
+    await execute('UPDATE currencies SET currency_type = ? WHERE code = ?', [currencyType, code]);
+
+    await logAudit({
+      user_id: user.id,
+      user_name: user.name,
+      action: 'update',
+      entity_type: 'currency',
+      entity_id: code,
+      entity_name: `Tipo de ${code}: ${currencyType === 'digital' ? 'digital' : 'física'}`,
+      details: { code, currency_type: currencyType },
+    });
+
+    return ok({ ok: true });
+  }
+
+  // Actualizar nombre/símbolo/tipo
   const code = String(body.code ?? '').trim().toUpperCase();
   const name = String(body.name ?? '').trim();
   const symbol = String(body.symbol ?? '').trim();
@@ -217,7 +246,8 @@ export const PUT = handle(async (req: Request) => {
   if (!name) return err('Nombre requerido');
   if (!symbol) return err('Símbolo requerido');
 
-  await execute('UPDATE currencies SET name = ?, symbol = ? WHERE code = ?', [name, symbol, code]);
+  const currencyType = body.currency_type === 'digital' ? 'digital' : 'cash';
+  await execute('UPDATE currencies SET name = ?, symbol = ?, currency_type = ? WHERE code = ?', [name, symbol, currencyType, code]);
 
   return ok({ ok: true });
 });

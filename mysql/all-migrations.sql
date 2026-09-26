@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS currencies (
   name        VARCHAR(100) NOT NULL COMMENT 'Nombre de la moneda (ej: Peso Cubano)',
   symbol      VARCHAR(10)  NOT NULL COMMENT 'Símbolo de la moneda (ej: $, €, ₽)',
   is_base     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '1 = moneda base del negocio',
+  currency_type VARCHAR(10) NOT NULL DEFAULT 'cash' COMMENT 'cash = moneda física (efectivo); digital = moneda digital (transferencia)',
   active      TINYINT(1)   NOT NULL DEFAULT 1,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -567,11 +568,11 @@ VALUES (
 );
 
 -- Monedas comunes
-INSERT IGNORE INTO currencies (code, name, symbol, is_base, active) VALUES
-  ('CUP', 'Peso Cubano',         '$',  1, 1),
-  ('USD', 'Dólar Estadounidense', '$',  0, 1),
-  ('EUR', 'Euro',                 '€',  0, 1),
-  ('MLC', 'Moneda Libremente Convertible', '₱', 0, 1);
+INSERT IGNORE INTO currencies (code, name, symbol, is_base, currency_type, active) VALUES
+  ('CUP', 'Peso Cubano',         '$',  1, 'cash',    1),
+  ('USD', 'Dólar Estadounidense', '$',  0, 'cash',    1),
+  ('EUR', 'Euro',                 '€',  0, 'cash',    1),
+  ('MLC', 'Moneda Libremente Convertible', '₱', 0, 'digital', 1);
 
 -- Tasas de cambio iniciales
 INSERT IGNORE INTO currency_rates (id, from_currency, to_currency, rate, updated_at) VALUES
@@ -603,7 +604,8 @@ INSERT IGNORE INTO schema_migrations (filename) VALUES ('all-migrations.sql');
 INSERT IGNORE INTO schema_migrations (filename) VALUES
   ('migration-026-payments-currency.sql'),
   ('migration-027-product-currencies.sql'),
-  ('migration-028-enable-accounting.sql');
+  ('migration-028-enable-accounting.sql'),
+  ('migration-030-currency-type.sql');
 
 -- ============================================================
 -- ÉXITO

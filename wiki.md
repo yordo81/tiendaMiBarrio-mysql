@@ -120,17 +120,20 @@ Existen dos modos de venta:
    lleva mucho sin actualizarse aparece un aviso *«Tasa sin actualizar»*.
 2. **Toca los productos** para agregarlos al carrito; ajusta cantidades con **+/−**.
    Puedes **buscar** por nombre y filtrar por categoría.
-3. Pulsa **Cobrar** para abrir el modal de cobro (3 pasos):
+3. Pulsa **Cobrar** para abrir el modal de cobro (4 pasos):
    - **Paso 1 — Método de pago:** Efectivo, Transferencia, Mixto o Crédito
      (Crédito solo para Dueño/Administrador).
-   - **Paso 2 — Datos del cobro:** según el método, efectivo recibido y **cambio**,
-     monto por transferencia, teléfono del cliente, moneda y **Cobro parcial**.
-   - **Paso 3 — Resumen:** revisa el detalle, la fecha (el Dueño/Administrador puede
+   - **Paso 2 — Moneda:** elige la **moneda de pago** (en tarjetas, como los
+     métodos) y si el cobro será **parcial** (varias monedas). Con Crédito se
+     registra en la moneda base.
+   - **Paso 3 — Recibido:** declara el **efectivo recibido** y el **cambio**, el
+     monto por transferencia, los montos del cobro parcial y el teléfono del cliente.
+   - **Paso 4 — Resumen:** revisa el detalle, la fecha (el Dueño/Administrador puede
      cambiarla) y pulsa **Confirmar venta**.
 4. Al confirmar se abre la pantalla de éxito con **Imprimir ticket** y **Nueva venta**.
 
-> El **Total a cobrar** se muestra a partir del paso 2, para dejar el paso 1 limpio
-> y centrado en elegir el método de pago.
+> El **Total a cobrar** aparece en los pasos 3 y 4, ya donde se declaran el efectivo
+> y los montos, para dejar los pasos 1 y 2 centrados en elegir el método y la moneda.
 
 ### 4.2 Métodos de pago
 
@@ -159,10 +162,11 @@ moneda**, marcado como **COBRO PARCIAL**.
 
 **Disponible cuando** hay más de una moneda activa y el método **no es Crédito**.
 
-1. En el **paso 2** del cobro, activa **«Cobro parcial (varias monedas y
-   comprobantes)»**.
+1. En el **paso 2 (Moneda)** del cobro, activa **«Cobro parcial (varias monedas y
+   comprobantes)»**. En el **paso 3 (Recibido)** se declaran los montos.
 2. Se crean dos partes por defecto. Para cada **Parte**:
-   - **Moneda** (deja vacío para la moneda base).
+   - **Moneda** (deja vacío para la moneda base). Las opciones se filtran por el
+     **tipo**: las físicas solo en **Efectivo** y las digitales solo en **Transferencia**.
    - **Método**: Efectivo o Transferencia (independiente en cada parte).
    - **Monto**: pulsa **Resto** para cubrir automáticamente lo que falta en esa moneda
      (siempre redondeado al múltiplo de 0.05).
@@ -179,6 +183,10 @@ moneda**, marcado como **COBRO PARCIAL**.
 
 > Si eliges **Crédito**, el cobro parcial se desactiva y la venta se registra en la
 > moneda base.
+
+> Recuerda la regla de tipos: **físicas → efectivo** y **digitales → transferencia**.
+> El cobro parcial es la forma natural de combinar una moneda física (efectivo) con una
+> digital (transferencia) en una misma venta.
 
 ---
 
@@ -345,9 +353,9 @@ Las categorías de gasto se administran desde este módulo.
 
 | Pestaña | Contenido |
 |---------|-----------|
-| **Ventas** | Totales, cantidad, promedio, gastos y utilidad; listado y exportación. |
+| **Ventas** | Totales, cantidad, promedio, gastos y utilidad; listado, **Resumen diario de ventas** (una columna por cada moneda con ventas en el período, **incluida la moneda base**, con el monto **nativo** de cada moneda; solo aparece una moneda si hubo alguna venta en ella, la **cantidad de ventas por día**, más una columna final con el **total equivalente en moneda base**) y exportación. Incluye **filtro por moneda** («Todas las monedas» o una en concreto). La exportación **CSV** del resumen diario incluye fecha, cantidad de ventas, cada moneda y el **total en moneda base** por día. |
 | **Rentabilidad** | Márgenes: ventas, costo, utilidad bruta, gastos, utilidad neta y margen %. |
-| **Transferencias** | Ventas por transferencia. Incluye **columna de moneda** y **filtro por moneda** («Todas las monedas» o una en concreto). |
+| **Transferencias** | Ventas por transferencia (**monedas digitales**). Incluye **columna de moneda** (con su etiqueta Digital/Efectivo) y **filtro por moneda** («Todas las monedas» o una en concreto). |
 | **Variación Precios** | Historial de cambios de precio por producto. |
 | **Reabastecimiento** | Pronóstico de reposición según consumo. |
 | **Vencimientos** | Productos próximos a vencer / vencidos. |
@@ -424,9 +432,18 @@ Solo el **Dueño** puede acceder. Pestañas:
 
   Es decir, cada moneda define cuántas unidades equivalen a **1 dólar (USD)**.
 
+### Tipos de moneda (física / digital)
+- **Efectivo (física):** solo se puede cobrar **en efectivo**.
+- **Digital:** solo se puede cobrar **por transferencia**.
+- El **cobro mixto** admite ambas.
+- Al elegir el método en el cobro, las monedas se **filtran** por su tipo; con
+  **Crédito** se registra siempre en la moneda base.
+- Los reportes identifican los pagos **físicos** y **digitales** y desglosan el
+  efectivo y las transferencias por separado.
+
 ### Administrar monedas (Configuración → Monedas)
 - **Crear/editar moneda:** **Código ISO** (ej. `USD`, `MLC`, `EUR`, `CUP`),
-  **nombre completo** y **símbolo**.
+  **nombre completo**, **símbolo** y **tipo** (Efectivo / Digital).
 - **Definir la moneda base.**
 - **Actualizar la tasa USD** de cada moneda. Mantener las tasas al día evita avisos
   de *«tasa sin actualizar»* en el POS y precios incorrectos.
@@ -438,7 +455,9 @@ Solo el **Dueño** puede acceder. Pestañas:
 - Al registrar la venta, la **tasa se congela** en cada pago (`usd_rate`), de modo
   que los reportes y el arqueo conservan el valor histórico aunque luego cambie la tasa.
 - Los **reportes** convierten importes multi-moneda a la moneda base para totalizar.
-- El **arqueo** suma el efectivo esperado por moneda y muestra el total en moneda base.
+- El **arqueo** suma el efectivo esperado por moneda (físicas) y muestra el total en moneda base.
+- Las **monedas físicas** alimentan el **efectivo**; las **digitales**, la **transferencia**.
+  Eso se refleja en el POS, la contabilidad y los reportes.
 
 > **Recomendación:** actualiza las tasas antes de abrir caja cada día.
 

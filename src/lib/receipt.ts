@@ -159,7 +159,7 @@ ${payRows}
 </style></head><body>
   ${logo ? `<div class="center"><img class="logo" src="${esc(logo)}" alt=""/></div>` : ''}
   <div class="center title">${esc(data.businessName)}</div>
-  ${data.partial ? '<div class="center title">COBRO PARCIAL</div>' : ''}
+  ${data.partial ? '<div class="center title">COBRO EN VARIAS MONEDAS</div>' : ''}
   ${data.partial && data.partialPart ? `<div class="center">Corresponde a: ${esc(moneyCur(data.partialPart.amount, null, data.partialPart.currencyCode))}</div>` : ''}
   <div class="sep"></div>
   <div class="row"><span>Fecha:</span><span>${esc(dateLabel)}</span></div>
@@ -234,7 +234,7 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
 
   // Encabezado
   push(center(data.businessName || 'MI NEGOCIO'), { bold: true });
-  if (data.partial) push(center('COBRO PARCIAL'), { bold: true });
+  if (data.partial) push(center('COBRO EN VARIAS MONEDAS'), { bold: true });
   if (data.partial && data.partialPart) push(center(`Corresponde a: ${moneyCur(data.partialPart.amount, null, data.partialPart.currencyCode)}`));
   push(sep);
   push(kv('Fecha', data.date ? formatDateTime(data.date) : '—'));

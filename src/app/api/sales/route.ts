@@ -52,8 +52,8 @@ export const POST = handle(async (req: Request) => {
   // Convención: las tasas se guardan SIEMPRE contra el dólar (currency_rates
   // solo tiene filas USD → moneda: 1 USD = X moneda). De ahí se deriva la
   // tasa hacia la moneda base que usa el sistema para convertir.
-  const currencyRows = await query<{ code: string; is_base: number }>(
-    'SELECT code, is_base FROM currencies WHERE active = 1'
+  const currencyRows = await query<{ code: string; is_base: number; currency_type: string }>(
+    'SELECT code, is_base, currency_type FROM currencies WHERE active = 1'
   );
   const usdRows = await query<{ to_currency: string; rate: number }>(
     "SELECT to_currency, rate FROM currency_rates WHERE from_currency = 'USD'"
@@ -230,6 +230,26 @@ export const POST = handle(async (req: Request) => {
       notes: payment?.notes ?? null,
     });
   }
+  // ── Tipo de moneda vs método de pago ──────────────────────────
+  // Las monedas físicas ('cash') solo se cobran en efectivo; las digitales
+  // ('digital') solo por transferencia. El cobro mixto de una misma moneda
+  // no distingue type, así que solo se valida cuando la fila es puramente
+  // efectivo o puramente transferencia. La moneda base hereda su tipo.
+  const typeByCode = new Map<string, string>();
+  for (const c of currencyRows) typeByCode.set(c.code, c.currency_type === 'digital' ? 'digital' : 'cash');
+  const currencyTypeOf = (code: string | null): string =>
+    typeByCode.get(code ?? baseCode) ?? 'cash';
+  for (const p of paymentRows) {
+    if (p.method === 'credit') continue;
+    const t = currencyTypeOf(p.currency_code);
+    if (p.amount_cash > 0 && p.amount_transfer <= 0 && t !== 'cash') {
+      return err(`La moneda ${p.currency_code ?? baseCode} es digital: solo se puede cobrar por transferencia`);
+    }
+    if (p.amount_transfer > 0 && p.amount_cash <= 0 && t !== 'digital') {
+      return err(`La moneda ${p.currency_code ?? baseCode} es física: solo se puede cobrar en efectivo`);
+    }
+  }
+
   // Validar que los pagos cubran el total (convertido a moneda base)
   if (status === 'completed') {
     const paidBase = r2(paymentRows.reduce((a, p) => a + convertAmount(p.amount_cash + p.amount_transfer, p.currency_code, baseCode || null, currencies), 0));
