@@ -2237,7 +2237,11 @@ export default function TouchPosPage() {
               Se cobrará el total ({fmtMoney(cartTotal)}) por transferencia bancaria. El teléfono celular del cliente es opcional.
             </div>
           )}          {/* Datos de la transferencia */}
-          {payStep === 3 && ((payMethod === 'transfer' || payMethod === 'mixed') || (multiCurrency && payParts.some(p => p.method === 'transfer' && p.amount > 0))) && (
+          {/* Datos de la transferencia: solo cuando el cobro incluye una
+              transferencia (método transferencia, mixto de una sola moneda o
+              alguna moneda digital entre las escogidas en el cobro
+              multi-moneda). Con solo monedas físicas escogidas no aparece. */}
+          {payStep === 3 && (payMethod === 'transfer' || (!multiCurrency && payMethod === 'mixed') || (multiCurrency && payParts.some(p => p.method === 'transfer'))) && (
             <div className="rounded-xl border p-4" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
               <p className="label mb-3">Datos de la transferencia</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
