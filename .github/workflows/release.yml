@@ -1,0 +1,120 @@
+name: Release
+
+# semantic-release: analiza los commits de main (Conventional Commits) y
+# calcula la siguiente versión. Si hay cambios relevantes:
+#   1. Crea el tag vX.Y.Z y el GitHub Release con las notas
+#   2. Actualiza CHANGELOG.md y package.json (commit "chore(release):")
+#   3. Publica la imagen Docker versionada (X.Y.Z, major.minor, latest)
+#
+# Nota: la publicación de Docker vive AQUÍ y no en un workflow disparado por
+# el tag, porque los tags creados con GITHUB_TOKEN no encadenan otros
+# workflows (limitación de GitHub Actions).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # push del commit de release, creación de tags y releases
+  issues: write # comentario en issues cerrados por la release
+  pull-requests: write # comentario en PRs incluidos en la release
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false # nunca cancelar un release a medias
+
+jobs:
+  release:
+    name: semantic-release
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.out.outputs.released }}
+      tag: ${{ steps.out.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # historial completo: semantic-release analiza commits y tags previos
+          persist-credentials: true # permite el push del commit de release
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get latest tag before release
+        id: pre
+        run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: semantic-release-bot
+          GIT_AUTHOR_EMAIL: semantic-release-bot@users.noreply.github.com
+          GIT_COMMITTER_NAME: semantic-release-bot
+          GIT_COMMITTER_EMAIL: semantic-release-bot@users.noreply.github.com
+        run: npx semantic-release
+
+      - name: Detect new release
+        id: out
+        env:
+          TAG_BEFORE: ${{ steps.pre.outputs.tag }}
+        run: |
+          TAG_AFTER=$(git describe --tags --abbrev=0 2>/dev/null || echo none)
+          if [ -n "$TAG_AFTER" ] && [ "$TAG_AFTER" != "$TAG_BEFORE" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG_AFTER" >> "$GITHUB_OUTPUT"
+            echo "Se publicó la release $TAG_AFTER"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "Sin cambios relevantes: no se genera release"
+          fi
+
+  docker-publish:
+    name: Docker (release versionada)
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: Produccion
+      deployment: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }} # build exacto del commit etiquetado
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker Login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      # Con el ref = tag vX.Y.Z, type=semver genera {version} y {major}.{minor}
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: yordo81/tienda_mb_app
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

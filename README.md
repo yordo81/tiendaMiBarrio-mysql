@@ -552,6 +552,41 @@ node scripts/ventas-por-producto.js     # Análisis de ventas
 
 ---
 
+## Versionado y releases 🏷️
+
+El proyecto usa [semantic-release](https://semantic-release.gitbook.io/semantic-release/): la versión se calcula automáticamente a partir de los mensajes de commit (Conventional Commits) en cada push a `main`.
+
+### Cómo se versiona
+
+| Mensaje de commit | Tipo de release | Ejemplo de versión |
+|-------------------|-----------------|--------------------|
+| `fix: ...` | Parche | 2.0.1 |
+| `feat: ...` | Funcionalidad | 2.1.0 |
+| `feat!: ...` o commit con `BREAKING CHANGE:` | Major | 3.0.0 |
+| `docs:`, `chore:`, `refactor:`, `test:`, `ci:`, `style:` | Sin release | — |
+
+> Los scopes también cuentan: `fix(ventas): ...`, `feat(reportes): ...`
+
+### Qué genera cada release
+
+En cada push a `main`, el workflow **Release**:
+
+1. Analiza los commits desde el último tag y calcula la siguiente versión
+2. Crea el tag `vX.Y.Z` y el **GitHub Release** con las notas agrupadas por tipo de cambio
+3. Actualiza `CHANGELOG.md` y `package.json` (commit automático `chore(release): X.Y.Z [skip ci]`)
+4. Publica la imagen Docker `yordo81/tienda_mb_app` con tags `X.Y.Z`, `X.Y` y `latest`
+
+En los PRs, el workflow **Docker Image CI** solo verifica que la imagen compila (no publica).
+
+### Comandos útiles
+
+```bash
+npm run release:dry  # Simular release localmente (no publica nada)
+npm run release      # Ejecutar semantic-release localmente (requiere GITHUB_TOKEN)
+```
+
+---
+
 ## Licencia
 
 Open Source. Proyecto personal con fines educativos y de gestión comercial.
