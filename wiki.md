@@ -228,6 +228,28 @@ puedes:
 - **Reimprimir** el ticket del cliente.
 - Consultar el estado (completada / pendiente por crédito).
 
+### Cobrar una venta pendiente (paso a paso)
+
+En el detalle de una venta **pendiente** o **parcial** aparece el botón **Cobrar**,
+que abre el mismo asistente de cobro del POS táctil (4 pasos):
+
+1. **Método:** Efectivo, Transferencia o Mixto.
+2. **Moneda:** cualquiera de las monedas activas (físicas o digitales). El abono
+   se convierte a la moneda de la deuda con la tasa vigente.
+3. **Recibido:** **monto a cobrar** (arranca con el **resto pendiente** y se puede
+   editar para un abono parcial), efectivo recibido y cambio, monto por
+   transferencia y datos de la transferencia.
+4. **Resumen:** revisa el abono y confirma. La venta pasa a **Parcial** o **Pagada**
+   según lo abonado y el saldo del cliente se reduce.
+
+> **Regla de dinero faltante:** con método **Efectivo** o **Mixto**, el
+> "Efectivo recibido" debe cubrir la parte en efectivo del cobro (±0.01).
+> Si falta dinero no se puede avanzar al resumen ni confirmar: la UI muestra
+> "Faltan: X" en rojo y el botón queda deshabilitado. El botón **Exacto**
+> rellena el campo con el monto debido. Esta regla se aplica igual en el
+> POS táctil al registrar una venta (en modo turnos y en el asistente de
+> cobro de abonos).
+
 ---
 
 ## 9. Reservaciones

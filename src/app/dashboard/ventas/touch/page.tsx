@@ -273,11 +273,17 @@ export default function TouchPosPage() {
       return;
     }
     if (next > 3 && multiCurrency && !partialCovers) {
-      toast.error(`Los montos no cubren el total. Falta ≈ ${formatMoney(Math.max(0, -partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`);
+      toast.error(`Los montos no cubren el total. Falta ≈ ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`);
       return;
     }
     if (next > 3 && !multiCurrency && payMethod === 'mixed' && (amountTransfer <= 0 || amountTransfer >= cartTotal)) {
       toast.error('Indica un monto de transferencia menor que el total');
+      return;
+    }
+    // El efectivo recibido debe cubrir lo debido: sin dinero suficiente no se
+    // avanza al resumen ni se confirma el cobro.
+    if (next > 3 && !multiCurrency && insufficientCash) {
+      toast.error(`El efectivo recibido no cubre lo debido. Faltan ${formatMoney(Math.max(0, r2(cashDue - cashReceived)), saleCurrency ? activeCurrency?.symbol : baseCurrency?.symbol, saleCurrency ? (activeCurrency?.code ?? null) : (baseCurrency?.code ?? null))}`);
       return;
     }
     setPayStep(next);
@@ -927,6 +933,10 @@ export default function TouchPosPage() {
   // Efectivo que aplica al total según el método (para el cálculo de cambio)
   const cashDue = payMethod === 'cash' ? cartTotal : payMethod === 'mixed' ? (amountTransfer > 0 ? cartTotal - amountTransfer : 0) : 0;
   const change = cashReceived - cashDue;
+  // El efectivo recibido debe cubrir lo debido (±0.01): se exige siempre que
+  // el método incluya efectivo. Sin registrarlo (0) no se puede confirmar.
+  const cashCovers = payMethod === 'transfer' || payMethod === 'credit' || r2(cashReceived + 0.01) >= cashDue;
+  const insufficientCash = (payMethod === 'cash' || payMethod === 'mixed') && !cashCovers;
 
   // Teléfono celular cubano: +53 opcional + 5 + 7 dígitos (8 en total)
   const transferPhoneNormalized = transferPhone.trim() ? normalizePhone(transferPhone) : '';
@@ -1030,7 +1040,7 @@ export default function TouchPosPage() {
         return;
       }
       if (!partialCovers) {
-        toast.error(`Los montos no cubren el total. Falta ≈ ${formatMoney(Math.max(0, -partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`);
+        toast.error(`Los montos no cubren el total. Falta ≈ ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`);
         return;
       }
     }
@@ -1040,6 +1050,12 @@ export default function TouchPosPage() {
         toast.error('Indica un monto de transferencia menor que el total');
         return;
       }
+    }
+    // El efectivo recibido debe cubrir lo debido: sin dinero suficiente no se
+    // registra la venta.
+    if (!multiCurrency && insufficientCash) {
+      toast.error(`El efectivo recibido no cubre lo debido. Faltan ${fmtMoney(Math.max(0, r2(cashDue - cashReceived)))}`);
+      return;
     }
     // Crédito: exige cliente. La venta queda pendiente y suma el saldo
     // en la cuenta del cliente.
@@ -2029,7 +2045,7 @@ export default function TouchPosPage() {
                   <p className={cn('text-[11px] font-medium', partialCovers ? 'text-green-400' : 'text-yellow-400')}>
                     {partialCovers
                       ? `✓ Cubre el total (${formatMoney(partialCoveredBase, baseCurrency?.symbol, baseCurrency?.code)})`
-                      : `Falta cubrir ≈ ${formatMoney(Math.max(0, -partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`}
+                      : `Falta cubrir ≈ ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`}
                   </p>
               </div>
             </div>
@@ -2196,7 +2212,9 @@ export default function TouchPosPage() {
                   ));
                 })()}
               </div>
-              {cashReceived > 0 && (
+              {/* Alerta desde que se entra al paso: en mixto, en cuanto se
+                  registra la transferencia ya se sabe cuánto efectivo falta. */}
+              {(cashReceived > 0 || insufficientCash) && (
                 <p className={cn('text-sm font-semibold flex items-center gap-1.5', change >= 0 ? 'text-green-400' : 'text-red-400')}>
                   {change >= 0 ? <>Cambio: {fmtMoney(change)}</> : <>Faltan: {fmtMoney(-change)}</>}
                 </p>
@@ -2325,7 +2343,7 @@ export default function TouchPosPage() {
                   <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>1 USD = {activeCurrency?.usdRate} {activeCurrency?.code}</span>
                 </div>
               )}
-              {payMethod === 'cash' && cashReceived > 0 && (
+              {(payMethod === 'cash' || payMethod === 'mixed') && cashReceived > 0 && (
                 <div className="flex items-center justify-between text-sm">
                   <span style={{ color: 'var(--text-tertiary)' }}>Efectivo recibido</span>
                   <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cashReceived)}</span>
@@ -2349,12 +2367,12 @@ export default function TouchPosPage() {
                 <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>Total</span>
                 <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cartTotal)}</span>
               </div>
-              {payMethod === 'cash' && cashReceived > 0 && (
+              {(payMethod === 'cash' || payMethod === 'mixed') && (cashReceived > 0 || insufficientCash) && (
                 <p className={cn('text-sm font-semibold', change >= 0 ? 'text-green-400' : 'text-red-400')}>
                   {change >= 0 ? `Cambio: ${fmtMoney(change)}` : `Faltan: ${fmtMoney(-change)}`}
                 </p>
               )}
-              {canCharge && !hasStockIssues() && (
+              {canCharge && !hasStockIssues() && !insufficientCash && (
                 <p className="text-[11px] text-green-400">✓ Todo listo para registrar la venta</p>
               )}
             </div>
@@ -2395,7 +2413,7 @@ export default function TouchPosPage() {
             ) : (
               <button
                 onClick={handleConfirm}
-                disabled={saving || cart.length === 0 || hasStockIssues() || !canCharge}
+                disabled={saving || cart.length === 0 || hasStockIssues() || !canCharge || insufficientCash}
                 className="btn-primary flex-1 py-3.5 text-base disabled:opacity-50"
               >
                 {saving ? 'Registrando...' : `Confirmar — ${fmtMoney(cartTotal)}`}

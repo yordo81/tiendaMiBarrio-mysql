@@ -22,7 +22,16 @@ export const GET = handle(async (req: Request) => {
   const userId = searchParams.get('user_id');
   const limit = Math.max(1, Math.min(500, parseInt(searchParams.get('limit') ?? '50') || 50));
 
-  let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name,p.name AS pos_name,cur.symbol AS currency_symbol,cur.name AS currency_name,cur.is_base AS currency_is_base FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id LEFT JOIN currencies cur ON cur.code=s.currency_code`;
+  // `total_paid` = lo abonado a la venta expresado en SU propia moneda (los
+  // abonos pueden venir en otras monedas: se convierten con la tasa congelada
+  // de cada uno y luego a la moneda de la venta). El listado lo usa para
+  // mostrar lo cobrado y lo pendiente de las ventas a crédito.
+  let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name,p.name AS pos_name,cur.symbol AS currency_symbol,cur.name AS currency_name,cur.is_base AS currency_is_base,
+    ROUND(COALESCE((
+      SELECT SUM(CASE WHEN cp.currency_code IS NOT NULL AND cp.currency_code<>'' THEN cp.amount*COALESCE(cp.exchange_rate,1) ELSE cp.amount END)
+      FROM customer_payments cp WHERE cp.sale_id = s.id
+    ),0) / COALESCE(NULLIF(s.exchange_rate,0),1), 2) AS total_paid
+    FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id LEFT JOIN currencies cur ON cur.code=s.currency_code`;
   const params: unknown[] = [];
   const where: string[] = [];
   if (from) { where.push('s.date>=?'); params.push(from); }

@@ -12,9 +12,11 @@ import EmptyState from '@/components/ui/EmptyState';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import PaySaleModal, { type PayCurrencyOption } from '@/components/sales/PaySaleModal';
 import { toast } from '@/components/ui/toaster';
 import { printReceipt, buildReceiptFromSale, fetchDefaultTicketPrinter } from '@/lib/receipt';
-import { ShoppingCart, Plus, Search, Eye, CreditCard, CheckCircle, Ban, Printer, Clock3 } from 'lucide-react';
+import { convertAmount, r2 } from '@/lib/currency';
+import { ShoppingCart, Plus, Search, Eye, CreditCard, Ban, Printer, Clock3 } from 'lucide-react';
 
 type AnyRecord = Record<string,unknown>;
 
@@ -24,6 +26,11 @@ function saleCurrencyBadge(s: AnyRecord): { label: string; title: string } | nul
   if (!code) return null; // sin moneda = moneda base: no se marca
   const symbol = String(s.currency_symbol ?? '').trim();
   return { label: symbol ? `${symbol} ${code}` : code, title: String(s.currency_name ?? code) };
+}
+
+// Formatea un monto con la moneda real de la venta (símbolo y código)
+function fmtSaleAmount(s: AnyRecord, amount: number): string {
+  return formatMoney(amount, s.currency_symbol ? String(s.currency_symbol) : null, s.currency_code ? String(s.currency_code) : null);
 }
 
 // Convierte el total de la venta a la moneda base con la tasa congelada
@@ -44,11 +51,9 @@ export default function VentasPage() {
   const [showPaySale, setShowPaySale] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [paySaleForm, setPaySaleForm] = useState({ amount: 0, method: 'cash', notes: '' });
-  const [paySaleSaving, setPaySaleSaving] = useState(false);
   const [search, setSearch] = useState('');
   // ── Monedas para mostrar tasa en el detalle ──
-  type CurrencyOption = { code: string; name: string; symbol: string; is_base: boolean; rate: number; /** Referencia al dólar: 1 USD = X moneda */ usdRate?: number | null; rateUpdatedAt?: string | null };
+  type CurrencyOption = PayCurrencyOption & { rateUpdatedAt?: string | null };
   const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
   const { workMode } = usePosSelector(false);
   const { user } = useAuthStore();
@@ -151,11 +156,13 @@ export default function VentasPage() {
         const curRes = await fetch('/api/currencies');
         if (curRes.ok) {
           const curData = await curRes.json();
-          const rawCurrencies = curData.currencies as { code: string; name: string; symbol: string; is_base: boolean; rates: Record<string, number>; usd_rate?: number | null }[];
+          const rawCurrencies = curData.currencies as { code: string; name: string; symbol: string; is_base: boolean; currency_type?: string; rates: Record<string, number>; usd_rate?: number | null }[];
           const baseCode = rawCurrencies?.find(c => c.is_base)?.code ?? '';
           const ratesUpdatedAt = (curData.rates_updated_at ?? {}) as Record<string, string>;
           setCurrencies((rawCurrencies ?? []).map(c => ({
             code: c.code, name: c.name, symbol: c.symbol, is_base: c.is_base,
+            // 'cash' = moneda física (solo efectivo); 'digital' = solo transferencia
+            currencyType: c.currency_type === 'digital' ? 'digital' : 'cash',
             rate: c.rates?.[baseCode] ?? 1,
             // Referencia al dólar: 1 USD = X moneda (toda tasa se guarda como fila USD → moneda)
             usdRate: c.usd_rate ?? null,
@@ -236,20 +243,24 @@ export default function VentasPage() {
     }
   }
 
-  async function handlePaySale() {
-    if (!selectedSale || paySaleForm.amount <= 0) return;
-    setPaySaleSaving(true);
+  // Tras registrar un abono desde el asistente: refresca el detalle de la venta
+  // (estado, total abonado y abonos) y el listado.
+  async function handlePaid() {
+    if (!selectedSale) return;
     try {
-      await api.paySale(String(selectedSale.id), paySaleForm);
-      toast.success('Pago registrado');
-      notifyShiftSummaryChanged();
-      setShowPaySale(false);
-      setPaySaleForm({ amount: 0, method: 'cash', notes: '' });
-      // Recargar detalle
       const detail = await api.getSaleDetail(String(selectedSale.id));
-      setSelectedSale(prev => ({ ...prev, ...detail, items: detail.items, payments: detail.payments, customer_payments: detail.customer_payments, total_paid: detail.total_paid }));
-      load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Error al registrar pago'); } finally { setPaySaleSaving(false); }
+      setSelectedSale(prev => {
+        if (!prev) return prev;
+        const paid = Number(detail.total_paid ?? 0);
+        // El estado de la venta lo decide el servidor según el total abonado:
+        // se refleja aquí para que el botón Cobrar desaparezca al quedar saldada.
+        const status = paid + 0.01 >= Number(prev.total ?? 0)
+          ? 'completed'
+          : paid > 0 ? 'partial' : String(prev.status ?? 'pending');
+        return { ...prev, ...detail, items: detail.items, payments: detail.payments, customer_payments: detail.customer_payments, total_paid: detail.total_paid, status };
+      });
+    } catch { /* el listado se refresca igualmente */ }
+    load();
   }
 
   const filteredSales = sales.filter(s => String(s.customer_name??'').toLowerCase().includes(search.toLowerCase()));
@@ -327,7 +338,21 @@ export default function VentasPage() {
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{s.user_name?String(s.user_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>
                   {workMode==='shifts'&&<td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{s.pos_name?String(s.pos_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>}
                   <td className="px-4 py-3 text-[var(--text-primary)] font-semibold">
-                    {(() => { const b = saleCurrencyBadge(s); return <span className="inline-flex items-center gap-1.5">{formatMoney(Number(s.total), s.currency_symbol ? String(s.currency_symbol) : null, s.currency_code ? String(s.currency_code) : null)}{b && <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20" title={b.title}>{b.label}</span>}</span>; })()}
+                    {(() => { const b = saleCurrencyBadge(s); return <span className="inline-flex items-center gap-1.5">{fmtSaleAmount(s, Number(s.total))}{b && <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20" title={b.title}>{b.label}</span>}</span>; })()}
+                    {/* Ventas a crédito: lo cobrado y lo que queda pendiente
+                        (se actualiza tras cada abono, en cualquier moneda) */}
+                    {(s.status === 'pending' || s.status === 'partial' || Number(s.total_paid ?? 0) > 0) && (
+                      <div className="mt-0.5 text-[10px] font-normal text-[var(--text-tertiary)]">
+                        {(() => {
+                          const total = Number(s.total ?? 0);
+                          const paid = Number(s.total_paid ?? 0);
+                          const left = Math.max(0, Math.round((total - paid) * 100) / 100);
+                          return paid > 0
+                            ? <>Cobrado {fmtSaleAmount(s, paid)} · Pendiente {fmtSaleAmount(s, left)}</>
+                            : <>Pendiente {fmtSaleAmount(s, total)}</>;
+                        })()}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{s.status==='pending'?'Crédito':'Contado'}</td>
                   <td className="px-4 py-3"><span className={statusClass[String(s.status)]??'badge-info'}>{statusLabel[String(s.status)]??String(s.status)}</span></td>
@@ -394,6 +419,14 @@ export default function VentasPage() {
                     </p>
                   );
                 })()}
+                {/* Ventas a crédito: lo abonado y lo pendiente, en la moneda de
+                    la venta (los abonos pueden venir en otras monedas) */}
+                {(Number((selectedSale as any).total_paid ?? 0) > 0 || selectedSale.status === 'pending' || selectedSale.status === 'partial') && (
+                  <p className="text-[11px] mt-1 text-[var(--text-tertiary)]">
+                    Cobrado <span className="text-green-400">{fmtSaleAmount(selectedSale, Number((selectedSale as any).total_paid ?? 0))}</span>
+                    {' · '}Pendiente <span className="text-yellow-400">{fmtSaleAmount(selectedSale, Math.max(0, r2(Number(selectedSale.total) - Number((selectedSale as any).total_paid ?? 0))))}</span>
+                  </p>
+                )}
               </div>
             </div>
             {(selectedSale.items as AnyRecord[]|undefined)?.length&&(
@@ -447,29 +480,37 @@ export default function VentasPage() {
               <div>
                 <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">Abonos recibidos</p>
                 <div className="space-y-2">
-                  {(selectedSale as any).customer_payments.map((cp: AnyRecord) => (
+                  {(selectedSale as any).customer_payments.map((cp: AnyRecord) => {
+                    // El abono puede venir en cualquier moneda; se muestra con su
+                    // código y, si difiere, su equivalente en la moneda de la venta.
+                    const baseCode = currencies.find(c => c.is_base)?.code ?? '';
+                    const cpCode = String(cp.currency_code ?? '').trim() || baseCode;
+                    const saleCode = String(selectedSale.currency_code ?? '').trim() || baseCode;
+                    const cpSym = currencies.find(c => c.code === cpCode)?.symbol ?? null;
+                    const amount = Number(cp.amount ?? 0);
+                    const eq = cpCode === saleCode ? null : convertAmount(amount, cpCode, saleCode, currencies);
+                    return (
                     <div key={String(cp.id)} className="flex justify-between items-center text-sm p-3 bg-green-500/5 rounded-xl border border-green-500/20">
                       <div>
-                        <span className="text-green-400 font-medium">{formatCurrency(Number(cp.amount))}</span>
+                        <span className="text-green-400 font-medium">{formatMoney(amount, cpSym, cpCode || null)}</span>
+                        {eq != null && (
+                          <span className="text-[10px] text-[var(--text-tertiary)] ml-1.5">
+                            ≈ {formatMoney(eq, currencies.find(c => c.code === saleCode)?.symbol, saleCode)} en {saleCode}
+                          </span>
+                        )}
                         <span className="text-xs text-[var(--text-tertiary)] ml-2">{cp.date ? formatDateTime(String(cp.date)) : '—'} · {String(cp.method)}</span>
                       </div>
                       {cp.notes ? <span className="text-xs text-[var(--text-secondary)]">{String(cp.notes)}</span> : null}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
             {/* Botón Cobrar si está pendiente/parcial */}
             {(selectedSale.status === 'pending' || selectedSale.status === 'partial') && !!selectedSale.customer_id && (
               <button
-                onClick={() => {
-                  setPaySaleForm({
-                    amount: Number(selectedSale.total) - Number((selectedSale as any).total_paid ?? 0),
-                    method: 'cash',
-                    notes: '',
-                  });
-                  setShowPaySale(true);
-                }}
+                onClick={() => setShowPaySale(true)}
                 className="btn-primary w-full flex items-center justify-center gap-2 py-3 text-base"
               >
                 <CreditCard className="w-5 h-5" />
@@ -490,41 +531,14 @@ export default function VentasPage() {
         )}
       </Modal>
 
-      {/* Pay Sale Modal */}
-      <Modal open={showPaySale} onClose={() => setShowPaySale(false)} title={`Registrar pago — ${String(selectedSale?.customer_name ?? '')}`} size="sm">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] text-sm">
-              <p className="text-xs text-[var(--text-tertiary)]">Total venta</p>
-              <p className="text-[var(--text-primary)] font-semibold">{formatCurrency(Number(selectedSale?.total ?? 0))}</p>
-            </div>
-            <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] text-sm">
-              <p className="text-xs text-[var(--text-tertiary)]">Pagado</p>
-              <p className="text-green-400 font-semibold">{formatCurrency(Number((selectedSale as any)?.total_paid ?? 0))}</p>
-            </div>
-          </div>
-          <div><label className="label">Monto a cobrar *</label><input type="number" min="1" step="1" className="input" value={paySaleForm.amount || ''} onChange={e => setPaySaleForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} /></div>
-          <div><label className="label">Método</label>
-            <SearchableSelect
-              options={[
-                { value: 'cash', label: 'Efectivo' },
-                { value: 'transfer', label: 'Transferencia' },
-                { value: 'mixed', label: 'Mixto' }
-              ]}
-              value={paySaleForm.method}
-              onChange={v => setPaySaleForm(f => ({ ...f, method: v }))}
-              placeholder="Seleccionar método"
-            />
-          </div>
-          <div><label className="label">Notas</label><input className="input" value={paySaleForm.notes} onChange={e => setPaySaleForm(f => ({ ...f, notes: e.target.value }))} /></div>
-          <div className="flex gap-3">
-            <button onClick={() => setShowPaySale(false)} className="btn-secondary flex-1">Cancelar</button>
-            <button onClick={handlePaySale} disabled={paySaleSaving || paySaleForm.amount <= 0} className="btn-primary flex-1 disabled:opacity-50">
-              {paySaleSaving ? 'Registrando...' : <span className="flex items-center justify-center gap-2"><CheckCircle className="w-4 h-4" />Confirmar pago</span>}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {/* Asistente de cobro paso a paso (igual que el POS táctil) */}
+      <PaySaleModal
+        open={showPaySale}
+        sale={selectedSale}
+        currencies={currencies}
+        onClose={() => setShowPaySale(false)}
+        onPaid={handlePaid}
+      />
 
       {/* Confirm Cancel Sale — solo admin/owner */}
       <ConfirmDialog
