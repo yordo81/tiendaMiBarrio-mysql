@@ -228,6 +228,15 @@ puedes:
 - **Reimprimir** el ticket del cliente.
 - Consultar el estado (completada / pendiente por crédito).
 
+### Columna "Tipo": método de la venta
+
+La columna **Tipo** del listado muestra el **método con el que se registró la
+venta**: Efectivo, Transferencia, Mixto, Oferta (precio negociado cobrado en
+varias monedas) o Crédito (queda como deuda). El método se guarda en la venta
+misma (`sales.payment_method`, migración 033) al crearla, así que no depende del
+estado ni de los pagos posteriores; para ventas anteriores a la columna se deriva
+de sus pagos (crédito/mixto/contado) como respaldo.
+
 ### Cobrar una venta pendiente (paso a paso)
 
 En el detalle de una venta **pendiente** o **parcial** aparece el botón **Cobrar**,
@@ -235,10 +244,14 @@ que abre el mismo asistente de cobro del POS táctil (4 pasos):
 
 1. **Método:** Efectivo, Transferencia o Mixto.
 2. **Moneda:** cualquiera de las monedas activas (físicas o digitales). El abono
-   se convierte a la moneda de la deuda con la tasa vigente.
+   se convierte a la moneda de la deuda con la tasa vigente. Con el método
+   **Mixto** y varias monedas activas se marca **más de una moneda a la vez** y
+   el abono se reparte entre ellas (una parte por moneda).
 3. **Recibido:** **monto a cobrar** (arranca con el **resto pendiente** y se puede
    editar para un abono parcial), efectivo recibido y cambio, monto por
-   transferencia y datos de la transferencia.
+   transferencia y datos de la transferencia. En el cobro en varias monedas se
+   declara el monto de cada parte y el abono **también puede ser parcial**: lo
+   que quede sigue pendiente y la venta queda **Parcial**.
 4. **Resumen:** revisa el abono y confirma. La venta pasa a **Parcial** o **Pagada**
    según lo abonado y el saldo del cliente se reduce.
 
@@ -249,6 +262,10 @@ que abre el mismo asistente de cobro del POS táctil (4 pasos):
 > rellena el campo con el monto debido. Esta regla se aplica igual en el
 > POS táctil al registrar una venta (en modo turnos y en el asistente de
 > cobro de abonos).
+
+> En el **listado de ventas**, bajo el total se muestra **Pagado** con el desglose
+> por moneda y, debajo, una línea por **abono parcial** recibido (fecha · monedas y
+> montos), para verificar de un vistazo lo que se acaba de cobrar.
 
 ---
 

@@ -35,7 +35,7 @@ import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 // roles conserva la ventana modal de venta en /dashboard/ventas.
 
 type AnyRecord = Record<string, unknown>;
-type PayMethod = 'cash' | 'transfer' | 'mixed' | 'credit';
+type PayMethod = 'cash' | 'transfer' | 'mixed' | 'credit' | 'oferta';
 interface CartLine { product: AnyRecord; quantity: number; unit_price: number; }
 // Tipo de moneda: 'cash' = física (solo efectivo), 'digital' = solo transferencia
 type CurrencyType = 'cash' | 'digital';
@@ -47,7 +47,11 @@ const PAY_METHODS: { id: PayMethod; label: string; icon: typeof Banknote; desc: 
   { id: 'transfer', label: 'Transferencia', icon: Landmark, desc: 'Pago bancario', step: 2 },
   { id: 'mixed', label: 'Mixto', icon: Wallet, desc: 'Efectivo + transferencia', step: 3 },
   // Crédito: queda como deuda; solo se muestra a dueño y administrador (canUseCredit)
-  { id: 'credit', label: 'Crédito', icon: HandCoins, desc: 'Queda como deuda', step: 4 },
+  // Oferta: cobro en varias monedas (como el mixto multi-moneda) con total a
+  // cobrar negociado editable en el paso 3. Exclusiva de dueño y
+  // administrador (canUseOffer): se oculta al resto de perfiles.
+  { id: 'oferta', label: 'Oferta', icon: HandCoins, desc: 'Varias monedas · precio a tratar', step: 4 },
+  { id: 'credit', label: 'Crédito', icon: HandCoins, desc: 'Queda como deuda', step: 5 },
 ];
 
 // Descripciones alternativas del paso 2 cuando se cobra en moneda extranjera
@@ -193,6 +197,10 @@ export default function TouchPosPage() {
   interface PartialPart { currency: string; method: 'cash' | 'transfer'; amount: number; }
   const [multiCurrency, setMultiCurrency] = useState(false);
   const [payParts, setPayParts] = useState<PartialPart[]>([]);
+  // ── Oferta: total a cobrar negociado ──
+  // El vendedor edita el TOTAL A COBRAR en el paso 3 del asistente de cobro;
+  // el total se reparte automáticamente entre las líneas del pedido.
+  const [offerTotal, setOfferTotal] = useState(0);
 
   // Solo monedas con tasa de pago mayor que cero
   const activeCurrencies = useMemo(() => currencies.filter(c => c.is_base || Number(c.rate) > 0), [currencies]);
@@ -209,6 +217,9 @@ export default function TouchPosPage() {
     () => (payMethod === 'credit' ? activeCurrencies : currenciesForMethod(payMethod)),
     [activeCurrencies, currenciesForMethod, payMethod]
   );
+  // El mixto multi-moneda (selección de varias monedas con montos por parte)
+  // aplica al método mixto y al método oferta.
+  const useMultiCurrencyUI = (payMethod === 'mixed' || payMethod === 'oferta') && stepCurrencies.length > 1;
 
   // Menú de usuario y turno de caja
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -272,9 +283,26 @@ export default function TouchPosPage() {
       if (multiCurrency && payParts.length === 0) toast.error('Marca al menos una moneda del cobro');
       return;
     }
-    if (next > 3 && multiCurrency && !partialCovers) {
-      toast.error(`Los montos no cubren el total. Falta ≈ ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`);
+    // Oferta: el total negociado (paso 3) debe ser mayor que 0
+    if (next > 3 && payMethod === 'oferta' && !(chargeTotal > 0)) {
+      toast.error('El total de la oferta debe ser mayor que 0');
       return;
+    }
+    if (next > 3 && multiCurrency) {
+      if (partialOverpay) {
+        toast.error(`Los montos superan el total a cobrar (${fmtMoney(chargeTotal)})`);
+        return;
+      }
+      // Oferta: se puede cobrar solo una parte (el resto queda como deuda del
+      // cliente). El mixto multi-moneda debe cubrir el total de la venta.
+      if (!partialCovers && !isOfferSale) {
+        toast.error(`Los montos no cubren el total. Falta ≈ ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`);
+        return;
+      }
+      if (isOfferPartial && !customerId) {
+        toast.error('Para cobrar solo una parte de la oferta selecciona el cliente (el resto queda como deuda)');
+        return;
+      }
     }
     if (next > 3 && !multiCurrency && payMethod === 'mixed' && (amountTransfer <= 0 || amountTransfer >= cartTotal)) {
       toast.error('Indica un monto de transferencia menor que el total');
@@ -544,9 +572,16 @@ export default function TouchPosPage() {
   // cobra en USD)
   useEffect(() => {
     if (cart.length === 0 || currencies.length === 0) return;
-    setCart(prev => prev.map(item => ({
+    const newPrices = cart.map(item => getConvertedPrice(Number(item.product.sale_price), String(item.product.sale_currency ?? '')));
+    const newTotal = cart.reduce((a, item, idx) => a + item.quantity * newPrices[idx], 0);
+    // Oferta: el total negociado conserva su proporción (mismo descuento)
+    // cuando cambian los precios de lista por conversión de moneda o tasas.
+    if (payMethod === 'oferta' && offerTotal > 0 && cartTotal > 0 && newTotal > 0 && Math.abs(newTotal - cartTotal) > 0.005) {
+      setOfferTotal(Math.round(offerTotal * (newTotal / cartTotal) * 100) / 100);
+    }
+    setCart(prev => prev.map((item, idx) => ({
       ...item,
-      unit_price: getConvertedPrice(Number(item.product.sale_price), String(item.product.sale_currency ?? '')),
+      unit_price: newPrices[idx],
     })));
   }, [saleCurrency, currencies]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -631,24 +666,68 @@ export default function TouchPosPage() {
   const cartTotal = cart.reduce((a, i) => a + i.quantity * i.unit_price, 0);
   const cartCount = cart.reduce((a, i) => a + i.quantity, 0);
 
+  // ── Oferta: total negociado ──
+  // El vendedor edita el TOTAL A COBRAR en el paso 3 del cobro. El total se
+  // reparte proporcionalmente entre las líneas (precios unitarios de 2
+  // decimales) para que la suma que calcula el servidor coincida exactamente
+  // con lo cobrado.
+  const isOfferSale = payMethod === 'oferta';
+  const offerPrices = useMemo(() => {
+    const out: Record<string, number> = {};
+    if (cart.length === 0) return out;
+    const target = Math.round(offerTotal * 100) / 100;
+    // Sin total válido o igual al de lista: precios normales del pedido.
+    if (!(target > 0) || Math.abs(target - cartTotal) < 0.005) {
+      cart.forEach(i => { out[String(i.product.id)] = i.unit_price; });
+      return out;
+    }
+    const scale = target / cartTotal;
+    cart.forEach(i => {
+      // Mínimo 0.01: el servidor solo acepta precios custom mayores que 0
+      out[String(i.product.id)] = Math.max(0.01, Math.round(i.unit_price * scale * 100) / 100);
+    });
+    // Residuo del redondeo (centavos): se absorbe en la línea con menor
+    // cantidad (cantidad 1 = cualquier centavo es ajustable exactamente).
+    const actual = cart.reduce((a, i) => a + i.quantity * out[String(i.product.id)], 0);
+    const cents = Math.round((target - actual) * 100);
+    if (cents !== 0) {
+      const lines = [...cart].sort((a, b) => a.quantity - b.quantity);
+      const divider = lines.find(l => Number.isInteger(l.quantity) && l.quantity > 0 && cents % l.quantity === 0);
+      const line = divider ?? lines[0];
+      const q = line.quantity > 0 ? line.quantity : 1;
+      const id = String(line.product.id);
+      out[id] = Math.max(0.01, Math.round((out[id] + cents / 100 / q) * 100) / 100);
+    }
+    return out;
+  }, [cart, offerTotal, cartTotal]);
+  const linePrice = (i: CartLine): number => {
+    const v = offerPrices[String(i.product.id)];
+    return v != null && v > 0 ? v : i.unit_price;
+  };
+  // Suma REAL que se registrará (puede diferir ± centavos por redondeo cuando
+  // todas las cantidades son mayores que 1).
+  const offerActual = cart.reduce((a, i) => a + i.quantity * linePrice(i), 0);
+  // Total a cobrar según el método: oferta usa el total negociado.
+  const chargeTotal = isOfferSale ? offerActual : cartTotal;
+
   // Equivalente del total en cada moneda activa: base → tal cual;
   // extranjeras → dividir por su tasa.
   const totalByCurrency = useMemo(() => {
     const map: Record<string, number> = {};
     activeCurrencies.forEach(c => {
       map[c.code] = c.is_base
-        ? Math.round(cartTotal * 100) / 100
-        : (c.rate > 0 ? Math.round((cartTotal / c.rate) * 100) / 100 : 0);
+        ? Math.round(chargeTotal * 100) / 100
+        : (c.rate > 0 ? Math.round((chargeTotal / c.rate) * 100) / 100 : 0);
     });
     return map;
-  }, [activeCurrencies, cartTotal]);
+  }, [activeCurrencies, chargeTotal]);
 
   // ── Moneda activa del pedido ──────────────────────────────
   const activeCurrency = currencies.find(c => c.code === saleCurrency) ?? null;
   const baseCurrency = currencies.find(c => c.is_base) ?? null;
   const isForeignSale = !!activeCurrency && !activeCurrency.is_base;
   // Total equivalente en moneda base (con la tasa de la moneda elegida)
-  const cartTotalBase = isForeignSale && activeCurrency ? Math.round(cartTotal * activeCurrency.rate * 100) / 100 : cartTotal;
+  const cartTotalBase = isForeignSale && activeCurrency ? Math.round(chargeTotal * activeCurrency.rate * 100) / 100 : chargeTotal;
   // Aviso de tasa desactualizada: sin fecha de actualización o con más de 24 h
   const RATE_STALE_HOURS = 24;
   const rateAgeHours = (() => {
@@ -675,6 +754,11 @@ export default function TouchPosPage() {
   const partialRemainBase = r2(cartTotalBase - partialCoveredBase);
   // El cobro multi-moneda es válido cuando las partes cubren el total (± 0.01).
   const partialCovers = partialCoveredBase + 0.01 >= cartTotalBase;
+  // Oferta pagada en parte: el total negociado ya está aplicado y el cliente
+  // paga ahora solo una parte (repartida entre monedas); el resto queda como
+  // deuda suya. El mixto multi-moneda sigue exigiendo cubrir el total.
+  const isOfferPartial = isOfferSale && partialCoveredBase > 0.01 && !partialCovers;
+  const partialOverpay = partialCoveredBase > cartTotalBase + 0.05;
   // Resto a cubrir por una parte concreta, expresado en SU moneda (múltiplo de 0.05).
   function partialPartRemain(idx: number): number {
     const others = r2(payParts.reduce((a, p, i) => a + (i === idx ? 0 : partBaseAmount(p)), 0));
@@ -923,6 +1007,7 @@ export default function TouchPosPage() {
     setAmountTransfer(0);
     setMultiCurrency(false);
     setPayParts([]);
+    setOfferTotal(0); // limpia el total negociado de la oferta
     setSaleCurrency(''); // el próximo cobro arranca en la moneda base
     setTransferPhone('');
     setTransferRef('');
@@ -1039,10 +1124,24 @@ export default function TouchPosPage() {
         toast.error('Agrega al menos un monto al cobro');
         return;
       }
-      if (!partialCovers) {
+      if (partialOverpay) {
+        toast.error(`Los montos superan el total a cobrar (${fmtMoney(chargeTotal)})`);
+        return;
+      }
+      // Oferta con cobro parcial: el resto queda como deuda del cliente.
+      if (!partialCovers && !isOfferSale) {
         toast.error(`Los montos no cubren el total. Falta ≈ ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`);
         return;
       }
+      if (isOfferPartial && !customerId) {
+        toast.error('Para cobrar solo una parte de la oferta selecciona el cliente (el resto queda como deuda)');
+        return;
+      }
+    }
+    // Oferta: el total negociado debe ser mayor que 0
+    if (payMethod === 'oferta' && !(chargeTotal > 0)) {
+      toast.error('El total de la oferta debe ser mayor que 0');
+      return;
     }
     // Mixto en una sola moneda: exige un monto de transferencia parcial (menor que el total)
     if (!multiCurrency && payMethod === 'mixed') {
@@ -1090,22 +1189,29 @@ export default function TouchPosPage() {
     }
     setSaving(true);
     try {
-      const total = cartTotal;
+      const total = chargeTotal;
       const res = await api.createSale({
         items: cart.map(i => ({
           product_id: i.product.id,
           quantity: i.quantity,
-          unit_price: i.unit_price,
+          // Oferta: el precio de venta FINAL negociado se envía por línea
+          // (el servidor lo acepta porque registra el método oferta).
+          unit_price: isOfferSale ? linePrice(i) : i.unit_price,
           cost: Number(i.product.cost ?? 0),
         })),
         // Moneda de la venta: '' = moneda base. La tasa se congela en el
         // servidor con el valor vigente de la BD.
         currency_code: saleCurrency || null,
+        // Total al precio de lista: el servidor lo guarda solo si es mayor
+        // que el total cobrado (para mostrar el descuento en el ticket).
+        list_total: isOfferSale ? cartTotal : null,
         payment: multiCurrency
           ? {
               // Cobro en varias monedas: el servidor crea una fila de pago por
-              // cada parte; el método real (efectivo/transferencia) va en cada una.
-              method: 'cash',
+              // cada parte; el método real (efectivo/transferencia) va en cada
+              // una. En oferta, el método general de la venta queda como
+              // 'oferta' (la validación de cobertura usa sus partes).
+              method: isOfferSale ? 'oferta' : 'cash',
               parts: partialParts.map(p => ({
                 currency_code: p.currency || null,
                 amount_cash: p.method === 'cash' ? p.amount : 0,
@@ -1244,8 +1350,20 @@ export default function TouchPosPage() {
                   <span>{formatNumber(cartCount, 0)}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Total</span>
-                  <span className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cartTotal)}</span>
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+                    Total
+                    {isOfferSale && Math.abs(offerActual - cartTotal) > 0.005 && (
+                      <span className="ml-2 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--brand-600)', color: '#fff' }}>
+                        Oferta
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                    {fmtMoney(chargeTotal)}
+                    {isOfferSale && Math.abs(offerActual - cartTotal) > 0.005 && (
+                      <span className="ml-2 text-sm font-normal line-through" style={{ color: 'var(--text-tertiary)' }}>{fmtMoney(cartTotal)}</span>
+                    )}
+                  </span>
                 </div>
                 {/* Total dual: equivalente en la otra moneda (base ↔ extranjera) */}
                 {cart.length > 0 && (isForeignSale
@@ -1256,7 +1374,7 @@ export default function TouchPosPage() {
                     ? (() => {
                         const cur = currencies.find(c => !c.is_base);
                         return <p className="text-xs text-right" style={{ color: 'var(--text-tertiary)' }}>
-                          ≈ {formatMoney(Math.round((cartTotal / (cur?.rate || 1)) * 100) / 100, cur?.symbol, cur?.code)} en {cur?.code}
+                          ≈ {formatMoney(Math.round((chargeTotal / (cur?.rate || 1)) * 100) / 100, cur?.symbol, cur?.code)} en {cur?.code}
                         </p>;
                       })()
                     : null))}
@@ -1278,7 +1396,7 @@ export default function TouchPosPage() {
                   className="w-full rounded-xl py-4 text-lg font-semibold text-white transition-all active:scale-[0.98] disabled:opacity-40 shadow-lg"
                   style={{ backgroundColor: 'var(--brand-600)', boxShadow: '0 10px 25px -5px color-mix(in srgb, var(--brand-500) 40%, transparent)' }}
                 >
-                  {saving ? 'Registrando...' : `Cobrar ${cart.length > 0 ? fmtMoney(cartTotal) : ''}`}
+                  {saving ? 'Registrando...' : `Cobrar ${cart.length > 0 ? fmtMoney(chargeTotal) : ''}`}
                 </button>
               </>
             );
@@ -1322,6 +1440,8 @@ export default function TouchPosPage() {
 
   // Venta a crédito: permitida solo para el dueño y el administrador
   const canUseCredit = user?.role === 'owner' || user?.role === 'admin';
+  // Oferta: solo dueño y administrador pueden vender a precio negociado
+  const canUseOffer = user?.role === 'owner' || user?.role === 'admin';
 
   // Fecha de hoy (local) en formato YYYY-MM-DD: valor por defecto del
   // selector de fecha de venta.
@@ -1832,7 +1952,7 @@ export default function TouchPosPage() {
               método de pago, más aviso de tasa desactualizada. Con crédito se
               cobra en la moneda base: el selector se oculta. En mixto con
               varias monedas se reemplaza por la selección múltiple. */}
-          {payStep === 2 && payMethod !== 'credit' && !(payMethod === 'mixed' && stepCurrencies.length > 1) && (
+          {payStep === 2 && payMethod !== 'credit' && !useMultiCurrencyUI && (
             stepCurrencies.length > 0 ? (
               <div>
                 <label className="label">Moneda de pago</label>
@@ -1907,7 +2027,7 @@ export default function TouchPosPage() {
           {/* Mixto multi-moneda: se eligen las monedas del cobro (selección
               múltiple). Disponible con más de una moneda activa y sin crédito
               (el crédito se registra en moneda base). */}
-          {payStep === 2 && payMethod === 'mixed' && stepCurrencies.length > 1 && (
+          {payStep === 2 && useMultiCurrencyUI && (
             <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
               <p className="label mb-0">Monedas del cobro</p>
               <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
@@ -1962,6 +2082,41 @@ export default function TouchPosPage() {
               </div>
               {payParts.length === 0 && (
                 <p className="text-[10px] text-yellow-400">Marca al menos una moneda para continuar.</p>
+              )}
+            </div>
+          )}
+          {/* Oferta: total a cobrar editable (paso 3 del asistente) */}
+          {payStep === 3 && isOfferSale && (
+            <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+              <div className="flex items-center justify-between">
+                <p className="label mb-0">Total a cobrar (oferta)</p>
+                <button
+                  type="button"
+                  onClick={() => setOfferTotal(cartTotal)}
+                  className="text-xs font-medium px-2.5 py-1.5 rounded-lg text-white transition-transform active:scale-95"
+                  style={{ backgroundColor: 'var(--brand-600)' }}
+                >
+                  Precio de lista
+                </button>
+              </div>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="input text-2xl font-bold text-center"
+                placeholder="0.00"
+                value={offerTotal || ''}
+                onChange={e => setOfferTotal(parseFloat(e.target.value) || 0)}
+              />
+              <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                Precio de lista {fmtMoney(cartTotal)}
+                {Math.abs(offerActual - cartTotal) > 0.005
+                  ? ` · ${offerActual < cartTotal ? 'descuento' : 'recargo'} de ${fmtMoney(Math.abs(offerActual - cartTotal))}`
+                  : ''}
+                {Math.abs(offerActual - offerTotal) > 0.005 ? ` · se registrará ${fmtMoney(offerActual)}` : ''}
+              </p>
+              {!(offerTotal > 0) && (
+                <p className="text-[10px] text-yellow-400">Ingresa un total mayor que 0 para continuar.</p>
               )}
             </div>
           )}
@@ -2042,12 +2197,39 @@ export default function TouchPosPage() {
                       <Plus className="w-3.5 h-3.5" /> Agregar otra moneda
                     </button>
                   )}
-                  <p className={cn('text-[11px] font-medium', partialCovers ? 'text-green-400' : 'text-yellow-400')}>
+                  <p className={cn('text-[11px] font-medium', partialCovers || isOfferPartial ? 'text-green-400' : 'text-yellow-400')}>
                     {partialCovers
                       ? `✓ Cubre el total (${formatMoney(partialCoveredBase, baseCurrency?.symbol, baseCurrency?.code)})`
-                      : `Falta cubrir ≈ ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`}
+                      : isOfferSale
+                        ? `Oferta parcial: se cobra ahora ${formatMoney(partialCoveredBase, baseCurrency?.symbol, baseCurrency?.code)} y quedan ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)} como deuda${customerId ? '' : ' (elige un cliente)'}`
+                        : `Falta cubrir ≈ ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)}`}
                   </p>
               </div>
+            </div>
+          )}
+
+          {/* Oferta: cliente para el cobro parcial. Si el cliente paga solo
+              una parte, el resto queda como deuda suya: por eso el cliente es
+              obligatorio en ese caso (opcional si cubre toda la oferta). */}
+          {payStep === 3 && isOfferSale && (
+            <div>
+              <label className="label">Cliente {isOfferPartial ? '*' : ''}</label>
+              <SearchableSelect
+                options={customers.map(c => ({
+                  value: String(c.id),
+                  label: String(c.name),
+                  sublabel: Number(c.balance) > 0 ? `Debe ${formatCurrency(Number(c.balance))}` : undefined,
+                }))}
+                value={customerId}
+                onChange={v => setCustomerId(v)}
+                placeholder="Selecciona el cliente…"
+                noResultsMessage="Sin clientes"
+              />
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                {isOfferPartial
+                  ? `El cobro parcial deja ${formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)} como deuda del cliente.`
+                  : 'Opcional: necesaria si vas a cobrar solo una parte de la oferta.'}
+              </p>
             </div>
           )}
 
@@ -2093,7 +2275,7 @@ export default function TouchPosPage() {
           <div>
             <label className="label">Método de pago</label>
             <div className="grid grid-cols-2 xl:grid-cols-3 gap-2.5">
-              {PAY_METHODS.filter(m => m.id !== 'credit' || canUseCredit).map(m => (
+              {PAY_METHODS.filter(m => (m.id !== 'credit' || canUseCredit) && (m.id !== 'oferta' || canUseOffer)).map(m => (
                 <button
                   key={m.id}
                   onClick={() => {
@@ -2101,6 +2283,13 @@ export default function TouchPosPage() {
                     setCashReceived(0); setAmountTransfer(0); setTransferPhone(''); setTransferRef('');
                     // El crédito se registra siempre en la moneda base y no admite varias monedas
                     if (m.id === 'credit') { setSaleCurrency(''); setMultiCurrency(false); setPayParts([]); }
+                    else if (m.id === 'oferta') {
+                      // Oferta: cobro en varias monedas (mismo desglose que el
+                      // mixto multi-moneda) con total negociado editable en el
+                      // paso 3. Con una sola moneda activa queda una única parte.
+                      setOfferTotal(cartTotal);
+                      togglePartialPay(true);
+                    }
                     else if (m.id === 'mixed' && stepCurrencies.length > 1) {
                       // Mixto con varias monedas activas: se cobra en varias
                       // monedas (una parte por moneda, sin toggle manual).
@@ -2315,7 +2504,7 @@ export default function TouchPosPage() {
               <div className="flex items-center justify-between text-sm">
                 <span style={{ color: 'var(--text-tertiary)' }}>Método de pago</span>
                 <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-                  {multiCurrency ? 'Mixto · varias monedas' : (PAY_METHODS.find(m => m.id === payMethod)?.label ?? '—')}
+                  {multiCurrency ? (isOfferSale ? 'Oferta · varias monedas' : 'Mixto · varias monedas') : (PAY_METHODS.find(m => m.id === payMethod)?.label ?? '—')}
                   {!multiCurrency && isForeignSale && payMethod !== 'credit' ? ` · ${activeCurrency?.code}` : ''}
                 </span>
               </div>
@@ -2334,6 +2523,15 @@ export default function TouchPosPage() {
                       </div>
                     );
                   })}
+                  {isOfferSale && (
+                    isOfferPartial ? (
+                      <p className="text-[10px] text-green-400">
+                        ✓ Oferta parcial: se cobra {formatMoney(partialCoveredBase, baseCurrency?.symbol, baseCurrency?.code)} de {formatMoney(cartTotalBase, baseCurrency?.symbol, baseCurrency?.code)} y quedan {formatMoney(Math.max(0, partialRemainBase), baseCurrency?.symbol, baseCurrency?.code)} como deuda del cliente.
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-green-400">✓ Oferta: total negociado aplicado.</p>
+                    )
+                  )}
                   <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>Se imprimirá un comprobante por moneda.</p>
                 </div>
               )}
@@ -2363,16 +2561,22 @@ export default function TouchPosPage() {
                   </span>
                 </div>
               )}
+              {isOfferSale && Math.abs(offerActual - cartTotal) > 0.005 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span style={{ color: 'var(--text-tertiary)' }}>{offerActual < cartTotal ? 'Descuento' : 'Recargo'} de oferta</span>
+                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{fmtMoney(Math.abs(offerActual - cartTotal))}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between text-sm pt-1.5 border-t" style={{ borderColor: 'var(--border-primary)' }}>
                 <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>Total</span>
-                <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cartTotal)}</span>
+                <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{fmtMoney(chargeTotal)}</span>
               </div>
               {(payMethod === 'cash' || payMethod === 'mixed') && (cashReceived > 0 || insufficientCash) && (
                 <p className={cn('text-sm font-semibold', change >= 0 ? 'text-green-400' : 'text-red-400')}>
                   {change >= 0 ? `Cambio: ${fmtMoney(change)}` : `Faltan: ${fmtMoney(-change)}`}
                 </p>
               )}
-              {canCharge && !hasStockIssues() && !insufficientCash && (
+              {canCharge && !hasStockIssues() && !insufficientCash && !(isOfferPartial && !customerId) && !partialOverpay && (
                 <p className="text-[11px] text-green-400">✓ Todo listo para registrar la venta</p>
               )}
             </div>
@@ -2413,10 +2617,10 @@ export default function TouchPosPage() {
             ) : (
               <button
                 onClick={handleConfirm}
-                disabled={saving || cart.length === 0 || hasStockIssues() || !canCharge || insufficientCash}
+                disabled={saving || cart.length === 0 || hasStockIssues() || !canCharge || insufficientCash || partialOverpay || (isOfferPartial && !customerId)}
                 className="btn-primary flex-1 py-3.5 text-base disabled:opacity-50"
               >
-                {saving ? 'Registrando...' : `Confirmar — ${fmtMoney(cartTotal)}`}
+                {saving ? 'Registrando...' : `Confirmar — ${fmtMoney(chargeTotal)}`}
               </button>
             )}
           </div>
@@ -2511,13 +2715,13 @@ export default function TouchPosPage() {
             </div>
             <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>¡Venta registrada!</h2>
             <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>
-              Ticket {lastSale.id ? `#${lastSale.id.slice(0, 8).toUpperCase()}` : ''} · {lastSale.partial ? 'Mixto · varias monedas' : (PAY_METHODS.find(m => m.id === lastSale.method)?.label)}
+              Ticket {lastSale.id ? `#${lastSale.id.slice(0, 8).toUpperCase()}` : ''} · {lastSale.partial ? (lastSale.method === 'oferta' ? 'Oferta · varias monedas' : 'Mixto · varias monedas') : (PAY_METHODS.find(m => m.id === lastSale.method)?.label)}
             </p>
             <div className="my-6 space-y-2">
               {/* Desglose de los pagos registrados */}
               {(lastSale.payments?.length ?? 0) > 0 && lastSale.payments!.map((p, i) => {
                 const cur = currencies.find(c => c.code === p.currency);
-                const lbl = p.method === 'transfer' ? 'Transferencia' : p.method === 'credit' ? 'Crédito' : p.method === 'mixed' ? 'Mixto' : 'Efectivo';
+                const lbl = p.method === 'transfer' ? 'Transferencia' : p.method === 'credit' ? 'Crédito' : p.method === 'mixed' ? 'Mixto' : p.method === 'oferta' ? 'Oferta' : 'Efectivo';
                 return (
                   <div key={i} className="flex justify-between text-sm">
                     <span style={{ color: 'var(--text-tertiary)' }}>{lbl} · {cur?.code ?? p.currency ?? baseCurrency?.code ?? '—'}</span>

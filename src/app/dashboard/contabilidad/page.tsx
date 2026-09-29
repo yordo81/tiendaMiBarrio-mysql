@@ -665,6 +665,7 @@ export default function ContabilidadPage() {
               else if (method === 'mixed') { methodLabel = 'Mixto'; methodColor = 'text-purple-400 bg-purple-500/10 border-purple-500/20'; }
               else if (method === 'register') { methodLabel = 'Caja'; methodColor = 'text-brand-400 bg-brand-500/10 border-brand-500/20'; }
               else if (method === 'credit') { methodLabel = 'Crédito'; methodColor = 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20'; }
+              else if (method === 'oferta') { methodLabel = 'Oferta'; methodColor = 'text-orange-400 bg-orange-500/10 border-orange-500/20'; }
 
               return (
                 <div key={String(m.id ?? i)} className="px-5 py-3.5 hover:bg-[#1c2128] transition-colors">

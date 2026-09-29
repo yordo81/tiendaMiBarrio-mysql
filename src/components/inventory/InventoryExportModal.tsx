@@ -335,7 +335,7 @@ export default function InventoryExportModal({ open, onClose, products, location
             </div>
             <p className="text-[10px] text-[var(--text-tertiary)]">
               Se seleccionan <span className="font-medium text-[var(--text-secondary)]">{loading ? '…' : sample.length}</span> de {loading ? '…' : items.length} productos al azar.
-              Usa "Regenerar muestra" para cambiar cuáles entran al conteo.
+              Usa &quot;Regenerar muestra&quot; para cambiar cuáles entran al conteo.
             </p>
           </div>
         )}
@@ -373,7 +373,7 @@ export default function InventoryExportModal({ open, onClose, products, location
             </div>
             <div>
               <p className="text-sm font-medium text-[var(--text-primary)]">Inventario ciego (conteo físico)</p>
-              <p className="text-[10px] text-[var(--text-tertiary)]">No muestra las existencias; incluye columnas en blanco de "Conteo" y "Observaciones" para anotar a mano.</p>
+              <p className="text-[10px] text-[var(--text-tertiary)]">No muestra las existencias; incluye columnas en blanco de &quot;Conteo&quot; y &quot;Observaciones&quot; para anotar a mano.</p>
             </div>
           </button>
         </div>

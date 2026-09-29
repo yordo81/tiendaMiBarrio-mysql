@@ -7,13 +7,15 @@ import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
-import SearchableSelect from '@/components/ui/SearchableSelect';
 import Pagination from '@/components/ui/Pagination';
+import PaySaleModal, { type PayCurrencyOption } from '@/components/sales/PaySaleModal';
 import { toast } from '@/components/ui/toaster';
 import { Users, Plus, Search, Edit2, CreditCard, History, ShoppingCart, Trash2, Phone, PhoneOff, CheckCircle, ToggleLeft, ToggleRight } from 'lucide-react';
 type R = Record<string,unknown>;
 
 const PHONE_REGEX = /^(\+?53)?[\s.-]?\d{7,8}$/;
+// Moneda tal como la consume el asistente de cobro (igual que en ventas)
+type CurrencyOption = PayCurrencyOption & { rateUpdatedAt?: string | null };
 
 export default function ClientesPage() {
   const { user } = useAuthStore();
@@ -27,6 +29,8 @@ export default function ClientesPage() {
   const [editCustomer, setEditCustomer] = useState<R|null>(null);
   const [deleteTarget, setDeleteTarget] = useState<R|null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Abonos con el mismo asistente de cobro del POS táctil (PaySaleModal en
+  // modo deuda de cliente). Abre siempre sobre el saldo general del cliente.
   const [payTarget, setPayTarget] = useState<R|null>(null);
   const [history, setHistory] = useState<R[]>([]);
   const [histTarget, setHistTarget] = useState<R|null>(null);
@@ -35,8 +39,8 @@ export default function ClientesPage() {
   const [phoneTouched, setPhoneTouched] = useState(false);
 
   const canDelete = user?.role === 'owner' || user?.role === 'admin';
-  const [payForm, setPayForm] = useState({ amount:0, method:'cash', notes:'', sale_id:'' });
-  const [pendingSales, setPendingSales] = useState<R[]>([]);
+  // Monedas activas para el asistente de cobro (mismo formato que en ventas).
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -44,6 +48,27 @@ export default function ClientesPage() {
 
   const load = useCallback(async () => { const d = await api.getCustomers({ includeInactive: true }); setCustomers(d); setLoading(false); }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Monedas para el asistente de cobro (físicas/digitales y tasas), igual
+  // que las carga la página de ventas.
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/currencies').then(r => r.json()).then(d => {
+      if (!alive) return;
+      const raw = d.currencies as { code: string; name: string; symbol: string; is_base: boolean; currency_type?: string; rates: Record<string, number>; usd_rate?: number | null }[];
+      const baseCode = raw?.find(c => c.is_base)?.code ?? '';
+      const ratesUpdatedAt = (d.rates_updated_at ?? {}) as Record<string, string>;
+      setCurrencies((raw ?? []).map(c => ({
+        code: c.code, name: c.name, symbol: c.symbol, is_base: c.is_base,
+        // 'cash' = moneda física (solo efectivo); 'digital' = solo transferencia
+        currencyType: c.currency_type === 'digital' ? 'digital' : 'cash',
+        rate: c.rates?.[baseCode] ?? 1,
+        usdRate: c.usd_rate ?? null,
+        rateUpdatedAt: c.is_base ? null : (ratesUpdatedAt[`USD->${c.code}`] ?? null),
+      })));
+    }).catch(() => { /* monedas opcionales */ });
+    return () => { alive = false; };
+  }, []);
 
   async function handleSave() {
     if (!form.name.trim()) return;
@@ -55,13 +80,11 @@ export default function ClientesPage() {
     } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); setPhoneTouched(false); }
   }
 
-  async function handlePay() {
-    if (!payTarget||payForm.amount<=0) return;
-    setSaving(true);
-    try {
-      await api.addPayment({ customer_id: payTarget.id, amount: payForm.amount, method: payForm.method, notes: payForm.notes, sale_id: payForm.sale_id || null });
-      toast.success('Abono registrado'); notifyShiftSummaryChanged(); setShowPayModal(false); setPayTarget(null); setPendingSales([]); load();
-    } catch(e) { toast.error(e instanceof Error?e.message:'Error'); } finally { setSaving(false); }
+  // Tras registrar el abono con el asistente: refresca el listado (el saldo
+  // del cliente ya se actualizó en el servidor).
+  function handlePaid() {
+    notifyShiftSummaryChanged();
+    load();
   }
 
   async function openHistory(c: R) {
@@ -120,7 +143,7 @@ export default function ClientesPage() {
                   <td className="px-4 py-3"><span className={cn('font-medium',Number(c.balance)>0?'text-red-400':'text-green-400')}>{formatCurrency(Number(c.balance??0))}</span></td>
                   <td className="px-4 py-3"><div className="flex gap-1">
                     <button onClick={()=>openHistory(c)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors" title="Historial"><History className="w-3.5 h-3.5"/></button>
-                    {Number(c.balance)>0&&<button onClick={async ()=>{setPayTarget(c);setPayForm({amount:0,method:'cash',notes:'',sale_id:''});const sales = await api.getSales('limit=100');setPendingSales(sales.filter((s:R)=>String(s.customer_id)===String(c.id)&&(s.status==='pending'||s.status==='partial')));setShowPayModal(true);}} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Abonar"><CreditCard className="w-3.5 h-3.5"/></button>}
+                    {Number(c.balance)>0&&<button onClick={()=>{setPayTarget(c);setShowPayModal(true);}} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Abonar"><CreditCard className="w-3.5 h-3.5"/></button>}
                     <button onClick={()=>{setEditCustomer(c);setForm({name:String(c.name),phone:String(c.phone??''),notes:String(c.notes??'')});setPhoneTouched(false);setShowModal(true);}} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors" title="Editar"><Edit2 className="w-3.5 h-3.5"/></button>
                     <button onClick={()=>toggleActive(c)} className={cn('p-1.5 rounded-lg transition-colors', Boolean(c.active) ? 'text-green-400 hover:text-red-400 hover:bg-red-500/10' : 'text-red-400 hover:text-green-400 hover:bg-green-500/10')} title={Boolean(c.active) ? 'Desactivar' : 'Activar'}>
                       {Boolean(c.active) ? <ToggleRight className="w-3.5 h-3.5"/> : <ToggleLeft className="w-3.5 h-3.5"/>}
@@ -179,45 +202,17 @@ export default function ClientesPage() {
         </div>
       </Modal>
 
-      <Modal open={showPayModal} onClose={()=>setShowPayModal(false)} title={`Registrar abono — ${String(payTarget?.name??'')}`} size="sm">
-        <div className="space-y-4">
-          <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] text-sm"><p className="text-[var(--text-tertiary)]">Saldo pendiente</p><p className="text-red-400 font-semibold text-lg">{formatCurrency(Number(payTarget?.balance??0))}</p></div>
-          <div><label className="label">Vincular a venta (opcional)</label>
-            <select className="input" value={payForm.sale_id} onChange={e=>{
-              const saleId = e.target.value;
-              const sale = pendingSales.find(s => String(s.id) === saleId);
-              setPayForm(f => ({
-                ...f,
-                sale_id: saleId,
-                amount: sale ? Number(sale.total) : f.amount,
-              }));
-            }}>
-              <option value="">— Abono general (sin vincular) —</option>
-              {pendingSales.map(s => (
-                <option key={String(s.id)} value={String(s.id)}>
-                  {s.date ? formatDateTime(String(s.date)).slice(0,10) : '—'} · {formatCurrency(Number(s.total))} ({String(s.status)})
-                </option>
-              ))}
-            </select>
-            {payForm.sale_id && <p className="text-xs text-green-400 mt-1">Al pagar el total, la venta se marcará como completada</p>}
-          </div>
-          <div><label className="label">Monto del abono *</label><input type="number" min="1" step="1" className="input" value={payForm.amount||''} onChange={e=>setPayForm(f=>({...f,amount:parseFloat(e.target.value)||0}))}/></div>
-          <div><label className="label">Método</label>
-            <SearchableSelect
-              options={[
-                { value: 'cash', label: 'Efectivo' },
-                { value: 'transfer', label: 'Transferencia' },
-                { value: 'mixed', label: 'Mixto' }
-              ]}
-              value={payForm.method}
-              onChange={v => setPayForm(f => ({ ...f, method: v }))}
-              placeholder="Seleccionar método"
-            />
-          </div>
-          <div><label className="label">Notas</label><input className="input" value={payForm.notes} onChange={e=>setPayForm(f=>({...f,notes:e.target.value}))}/></div>
-          <div className="flex flex-col xs:flex-row gap-2 xs:gap-3"><button onClick={()=>setShowPayModal(false)} className="btn-secondary flex-1">Cancelar</button><button onClick={handlePay} disabled={saving||payForm.amount<=0} className="btn-primary flex-1 disabled:opacity-50">{saving?'Registrando...':'Registrar abono'}</button></div>
-        </div>
-      </Modal>
+      {/* Asistente de cobro paso a paso (igual que el POS táctil): abono al
+          saldo general del cliente, en cualquier moneda activa. */}
+      <PaySaleModal
+        open={showPayModal}
+        sale={null}
+        customer={payTarget}
+        customerBalance={Number(payTarget?.balance ?? 0)}
+        currencies={currencies}
+        onClose={() => { setShowPayModal(false); setPayTarget(null); }}
+        onPaid={handlePaid}
+      />
 
       <Modal open={showHistory} onClose={()=>setShowHistory(false)} title={`Historial — ${String(histTarget?.name??'')}`} size="md">
         {history.length===0?<p className="text-center text-[var(--text-tertiary)] py-8 text-sm">Sin abonos registrados</p>:(

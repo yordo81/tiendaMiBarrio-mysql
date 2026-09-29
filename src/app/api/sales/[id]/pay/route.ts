@@ -161,13 +161,22 @@ export const POST = handle(async (req: Request, ctx) => {
     await conn.execute('UPDATE customers SET balance=GREATEST(0,balance-?),updated_at=? WHERE id=?', [paidNewBase, ts, customerId]);
 
     // Total abonado a la venta, convertido a moneda base (mezcla abonos en
-    // distintas monedas con sus tasas congeladas).
+    // distintas monedas con sus tasas congeladas). Se incluyen TAMBIÉN los
+    // pagos registrados al crear la venta (tabla payments, method<>'credit'):
+    // sin esto, una venta crédito/oferta-parcial con pago inicial quedaría en
+    // 'partial' aunque el abono cubra todo el resto pendiente.
     const [payRows] = await conn.execute(
       `SELECT COALESCE(SUM(CASE WHEN currency_code IS NOT NULL AND currency_code<>'' THEN amount*COALESCE(exchange_rate,1) ELSE amount END),0) AS paid
        FROM customer_payments WHERE sale_id=?`,
       [saleId]
     );
-    const paid = Number((payRows as { paid: number }[])[0].paid);
+    const [salePayRows] = await conn.execute(
+      `SELECT COALESCE(SUM(CASE WHEN currency_code IS NOT NULL AND currency_code<>'' THEN (amount_cash+amount_transfer)*COALESCE(exchange_rate,1) ELSE (amount_cash+amount_transfer) END),0) AS paid
+       FROM payments WHERE sale_id=? AND method<>'credit'`,
+      [saleId]
+    );
+    const paid = r2(Number((payRows as { paid: number }[])[0].paid)
+      + Number((salePayRows as { paid: number }[])[0].paid));
 
     if (paid + 0.01 >= saleTotalBase) {
       await conn.execute("UPDATE sales SET status='completed',updated_at=? WHERE id=?", [ts, saleId]);

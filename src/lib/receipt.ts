@@ -15,7 +15,7 @@ export interface ReceiptItem {
 }
 
 export interface ReceiptPaymentPart {
-  method: 'cash' | 'transfer';
+  method: 'cash' | 'transfer' | 'mixed' | 'oferta';
   /** Monto en la moneda de la parte */
   amount: number;
   /** Código de la moneda de la parte (null = moneda base) */
@@ -35,7 +35,9 @@ export interface ReceiptData {
   posName?: string | null;
   items: ReceiptItem[];
   total: number;
-  payMethod: 'cash' | 'transfer' | 'mixed' | 'credit';
+  /** Total al precio de lista antes del descuento de oferta (null = sin descuento) */
+  listTotal?: number | null;
+  payMethod: 'cash' | 'transfer' | 'mixed' | 'credit' | 'oferta';
   /** Cobro parcial: este comprobante corresponde a una parte del total (varias monedas) */
   partial?: boolean;
   /** Cobro parcial: la parte (moneda y monto) que documenta ESTE comprobante */
@@ -125,7 +127,7 @@ export function buildReceiptHtml(data: ReceiptData, width: '57' | '80'): string 
     : '';
   // Cobro dividido: desglose de cada parte con su moneda
   const payLines = (data.payments ?? []).filter(p => p.amount > 0);
-  const payMethodLabel: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', credit: 'Crédito' };
+  const payMethodLabel: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', mixed: 'Mixto', credit: 'Crédito', oferta: 'Oferta' };
   const payRows = payLines.length > 0
     ? payLines.map(p => {
         const label = payMethodLabel[p.method] ?? p.method;
@@ -133,10 +135,28 @@ export function buildReceiptHtml(data: ReceiptData, width: '57' | '80'): string 
         // al monto, sin repetir símbolo y código.
         return `  <div class="row"><span>${esc(label)}:</span><span class="right">${moneyCur(p.amount, null, p.currencyCode)}</span></div>`;
       }).join('\n')
-    : '';
+    // Sin partes por moneda: si hay desglose efectivo/transferencia (pago
+    // mixto en una sola moneda) se muestra igual, en la moneda de la venta.
+    : data.cashAmount > 0 && data.transferAmount > 0
+      ? `  <div class="row"><span>Efectivo:</span><span class="right">${moneyCur(data.cashAmount, data.currencySymbol, data.currencyCode)}</span></div>\n  <div class="row"><span>Transferencia:</span><span class="right">${moneyCur(data.transferAmount, data.currencySymbol, data.currencyCode)}</span></div>`
+      : data.payMethod === 'credit'
+        ? `  <div class="row"><span>Crédito:</span><span class="right">${moneyCur(data.total, data.currencySymbol, data.currencyCode)}</span></div>`
+        : data.payMethod === 'oferta'
+          ? `  <div class="row"><span>Oferta:</span><span class="right">${moneyCur(data.total, data.currencySymbol, data.currencyCode)}</span></div>`
+          : '';
   const payBlock = payRows ? `  <div class="sep"></div>
 ${payRows}
 ` : '';
+  // Oferta con descuento: precio de lista y descuento antes del TOTAL
+  // (mínimo 0.01 para no imprimir "Descuento -0.00" por redondeo)
+  const listTotal = data.listTotal != null ? Number(data.listTotal) : null;
+  const offerDiscount = listTotal != null ? Math.round((listTotal - data.total) * 100) / 100 : 0;
+  const offerBlock = listTotal != null && offerDiscount >= 0.01
+    ? [
+        `  <div class="row"><span>Precio de lista:</span><span>${moneyCur(listTotal, data.currencySymbol, data.currencyCode)}</span></div>`,
+        `  <div class="row"><span>Descuento oferta:</span><span>-${moneyCur(offerDiscount, data.currencySymbol, data.currencyCode)}</span></div>`,
+      ].join('\n') + '\n'
+    : '';
 
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <title>Ticket ${esc(data.saleId)}</title>
@@ -167,7 +187,7 @@ ${payRows}
   <div class="sep"></div>
   ${itemRows}
   <div class="sep"></div>
-  <div class="row total"><span>TOTAL</span><span>${moneyCur(data.total, data.currencySymbol, data.currencyCode)}</span></div>
+${offerBlock}  <div class="row total"><span>TOTAL</span><span>${moneyCur(data.total, data.currencySymbol, data.currencyCode)}</span></div>
 ${foreignLine}${payBlock}  ${data.notes ? `<div class="row"><span>Nota:</span><span>${esc(data.notes)}</span></div>` : ''}
   <div class="sep"></div>
   <div class="center">¡Gracias por su compra!</div>
@@ -251,6 +271,14 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
   }
   push(sep);
 
+  // Oferta con descuento: precio de lista y descuento antes del TOTAL
+  // (mínimo 0.01 para no imprimir "Descuento -0.00" por redondeo)
+  const listTotal = data.listTotal != null ? Number(data.listTotal) : null;
+  const offerDiscount = listTotal != null ? Math.round((listTotal - data.total) * 100) / 100 : 0;
+  if (listTotal != null && offerDiscount >= 0.01) {
+    push(`Precio de lista: ${moneyCur(listTotal, data.currencySymbol, data.currencyCode)}`);
+    push(`Descuento oferta: -${moneyCur(offerDiscount, data.currencySymbol, data.currencyCode)}`);
+  }
   // Total — el monto en doble tamaño se alinea a la derecha con ESC a (la
   // impresora maneja la alineación; el padding manual desbordaría el papel).
   push('TOTAL', { bold: true });
@@ -264,12 +292,23 @@ export function encodeEscPos(data: ReceiptData, width: '57' | '80'): Uint8Array 
     push(`Equiv: ${moneyCur(data.total * data.exchangeRate!, data.baseCurrencySymbol, data.baseCurrencyCode)}`);
   }
   // Cobro dividido: una línea por parte con su moneda
-  const payMethodLabel: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', credit: 'Crédito' };
-  for (const p of (data.payments ?? []).filter(pp => pp.amount > 0)) {
-    const label = payMethodLabel[p.method] ?? p.method;
-    // La moneda de cada parte se muestra UNA sola vez (como código) junto al
-    // monto, sin repetir símbolo y código.
-    push(`${label}: ${moneyCur(p.amount, null, p.currencyCode)}`);
+  const payMethodLabel: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', mixed: 'Mixto', credit: 'Crédito', oferta: 'Oferta' };
+  const escPayParts = (data.payments ?? []).filter(pp => pp.amount > 0);
+  if (escPayParts.length > 0) {
+    for (const p of escPayParts) {
+      const label = payMethodLabel[p.method] ?? p.method;
+      // La moneda de cada parte se muestra UNA sola vez (como código) junto al
+      // monto, sin repetir símbolo y código.
+      push(`${label}: ${moneyCur(p.amount, null, p.currencyCode)}`);
+    }
+  } else if (data.cashAmount > 0 && data.transferAmount > 0) {
+    // Pago mixto en una sola moneda: desglose efectivo/transferencia
+    push(`Efectivo: ${moneyCur(data.cashAmount, data.currencySymbol, data.currencyCode)}`);
+    push(`Transferencia: ${moneyCur(data.transferAmount, data.currencySymbol, data.currencyCode)}`);
+  } else if (data.payMethod === 'credit') {
+    push(`Crédito: ${moneyCur(data.total, data.currencySymbol, data.currencyCode)}`);
+  } else if (data.payMethod === 'oferta') {
+    push(`Oferta: ${moneyCur(data.total, data.currencySymbol, data.currencyCode)}`);
   }
   if (data.notes) {
     for (const ln of wrapText(`Nota: ${data.notes}`, cols)) push(ln);
@@ -477,6 +516,8 @@ export function buildReceiptFromSale(opts: {
   partialPart?: { method?: string; amount: number; currency_code?: string | null; currency_symbol?: string | null } | null;
   cash: number;
   transfer: number;
+  /** Total al precio de lista (oferta): muestra el descuento en el ticket */
+  listTotal?: number | null;
   notes?: string | null;
   sellerName?: string | null;
   /** Moneda base del negocio (para el equivalente en el ticket) */
@@ -505,6 +546,10 @@ export function buildReceiptFromSale(opts: {
       unit_price: Number(i.unit_price ?? 0),
     })),
     total: Number(opts.sale.total ?? 0),
+    // Precio de lista de la oferta: override explícito o desde la fila de venta
+    listTotal: opts.listTotal != null
+      ? Number(opts.listTotal)
+      : (opts.sale.list_total != null ? Number(opts.sale.list_total) : null),
     payMethod: opts.payMethod,
     partial: opts.partial ?? false,
     partialPart: opts.partialPart
@@ -520,7 +565,8 @@ export function buildReceiptFromSale(opts: {
     notes: opts.notes ?? null,
     // Cobro dividido: partes de pago con su moneda (una fila por moneda cobrada)
     payments: (opts.payments ?? []).map(p => ({
-      method: p.method === 'transfer' ? 'transfer' : 'cash',
+      // 'mixed' y 'oferta' conservan su etiqueta en el desglose del ticket
+      method: p.method === 'transfer' ? 'transfer' : p.method === 'mixed' ? 'mixed' : p.method === 'oferta' ? 'oferta' : 'cash',
       amount: Number(p.amount ?? 0),
       currencyCode: p.currency_code ? String(p.currency_code) : null,
       currencySymbol: p.currency_symbol ? String(p.currency_symbol) : null,

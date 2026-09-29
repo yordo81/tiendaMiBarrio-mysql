@@ -23,7 +23,9 @@ INSERT IGNORE INTO schema_migrations (filename) VALUES
   ('all-migrations.sql'),
   ('migration-026-payments-currency.sql'),
   ('migration-027-product-currencies.sql'),
-  ('migration-028-enable-accounting.sql');
+  ('migration-028-enable-accounting.sql'),
+  ('migration-032-sales-list-total.sql'),
+  ('migration-033-sales-payment-method.sql');
 
 CREATE TABLE IF NOT EXISTS users (
   id            CHAR(36)     NOT NULL PRIMARY KEY,
@@ -136,8 +138,10 @@ CREATE TABLE IF NOT EXISTS sales (
   pos_id      VARCHAR(36)   NULL COMMENT 'Punto de venta / caja donde se realizó la venta',
   currency_code  VARCHAR(10)   NULL COMMENT 'Moneda de la venta',
   exchange_rate  DECIMAL(16,6) NULL COMMENT 'Tasa de cambio al momento de la venta',
+  list_total     DECIMAL(12,2) NULL COMMENT 'Total al precio de lista antes del descuento de oferta',
   date        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   total       DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  payment_method ENUM('cash','transfer','mixed','credit','oferta') NULL COMMENT 'Método general de la venta: cash/transfer/mixed/credit/oferta',
   status      ENUM('completed','partial','pending','cancelled') NOT NULL DEFAULT 'completed',
   notes       TEXT          NULL,
   created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -166,7 +170,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
 CREATE TABLE IF NOT EXISTS payments (
   id              CHAR(36)      NOT NULL PRIMARY KEY,
   sale_id         CHAR(36)      NOT NULL,
-  method          ENUM('cash','transfer','mixed','credit') NOT NULL,
+  method          ENUM('cash','transfer','mixed','credit','oferta') NOT NULL,
   amount_cash     DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   amount_transfer DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   currency_code   VARCHAR(10)   NULL COMMENT 'Moneda del pago',

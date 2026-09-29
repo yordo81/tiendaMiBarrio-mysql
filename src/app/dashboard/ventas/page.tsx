@@ -20,8 +20,102 @@ import { ShoppingCart, Plus, Search, Eye, CreditCard, Ban, Printer, Clock3 } fro
 
 type AnyRecord = Record<string,unknown>;
 
-// Etiqueta compacta de la moneda de una venta (badge de la tabla/detalle)
-function saleCurrencyBadge(s: AnyRecord): { label: string; title: string } | null {
+type CurrencyLite = { code: string; symbol?: string; name?: string; is_base?: boolean };
+type PaidPart = { code: string; amount: number };
+
+/** Código de la moneda base del negocio ('' si aún no se cargan las monedas). */
+function baseCurrencyCode(currencies: CurrencyLite[] = []): string {
+  return (currencies.find(c => c.is_base)?.code ?? '').toUpperCase();
+}
+
+// ── Desglose por moneda de lo REALMENTE cobrado ──────────────────
+// Fuente única para el badge y el "Pagado" de la tabla y del detalle.
+// - Listado: el servidor agrega pagos y abonos como "CODIGO=MONTO" por moneda
+//   (payment_parts / abono_parts); la fila de crédito ya viene excluida.
+// - Detalle: se usan las filas crudas de payments / customer_payments, donde
+//   currency_code NULL = moneda base.
+function parsePaidParts(s: AnyRecord, currencies: CurrencyLite[] = []): PaidPart[] {
+  const totals = new Map<string, number>();
+  const add = (codeRaw: unknown, amountRaw: unknown) => {
+    const code = String(codeRaw ?? '').trim().toUpperCase();
+    const amount = Number(amountRaw);
+    if (!code || !Number.isFinite(amount) || amount <= 0) return;
+    totals.set(code, r2((totals.get(code) ?? 0) + amount));
+  };
+  if (s.payment_parts != null || s.abono_parts != null) {
+    for (const raw of `${s.payment_parts ?? ''},${s.abono_parts ?? ''}`.split(',')) {
+      const eq = raw.indexOf('=');
+      if (eq < 0) continue;
+      add(raw.slice(0, eq), raw.slice(eq + 1));
+    }
+  } else {
+    const baseCode = baseCurrencyCode(currencies);
+    for (const p of (s.payments as AnyRecord[] | undefined) ?? []) {
+      // La fila de crédito representa la deuda (moneda base), no un cobro.
+      if (String(p.method ?? '') === 'credit') continue;
+      add(p.currency_code || baseCode, Number(p.amount_cash ?? 0) + Number(p.amount_transfer ?? 0));
+    }
+    for (const cp of (s.customer_payments as AnyRecord[] | undefined) ?? []) {
+      add(cp.currency_code || baseCode, cp.amount);
+    }
+  }
+  return [...totals.entries()].map(([code, amount]) => ({ code, amount }));
+}
+
+/** Monto pagado por moneda, con su código. Ej: "USD 22.25 · CUP 20,000.00". */
+function paidPartsLabel(parts: PaidPart[]): string {
+  return parts.map(p => formatMoney(p.amount, null, p.code)).join(' · ');
+}
+
+// ── Abonos recibidos, uno por abono ───────────────────────────────
+// El servidor manda `abono_lines` ("fecha~CODIGO=MONTO" por moneda, abonos
+// separados por ';'): las monedas de un mismo abono comparten fecha (con
+// segundos, para no mezclar dos abonos del mismo minuto), así se muestra el
+// desglose por moneda de CADA abono parcial y no solo el agregado.
+type SaleAbono = { date: string; parts: PaidPart[] };
+function parseSaleAbonos(s: AnyRecord): SaleAbono[] {
+  const raw = String(s.abono_lines ?? '').trim();
+  if (!raw) return [];
+  const byAbono = new Map<string, PaidPart[]>();
+  for (const chunk of raw.split(';')) {
+    const sep = chunk.indexOf('~');
+    if (sep < 0) continue;
+    const date = chunk.slice(0, sep).trim();
+    const pair = chunk.slice(sep + 1);
+    const eq = pair.indexOf('=');
+    if (eq < 0) continue;
+    const code = pair.slice(0, eq).trim().toUpperCase();
+    const amount = Number(pair.slice(eq + 1));
+    if (!code || !Number.isFinite(amount) || amount <= 0) continue;
+    const parts = byAbono.get(date) ?? [];
+    parts.push({ code, amount });
+    byAbono.set(date, parts);
+  }
+  // Se agrupa con segundos (para no juntar dos abonos del mismo minuto) pero
+  // se muestra sin ellos.
+  return [...byAbono.entries()].map(([date, parts]) => ({ date: date.replace(/:\d{2}$/, ''), parts }));
+}
+
+// Etiqueta compacta de la moneda de una venta (badge de la tabla/detalle).
+// Prioriza las monedas REALES en que se cobró (pagos de la venta + abonos
+// vinculados): una venta multi-moneda (oferta/mixto) o con abonos en otra
+// moneda se marca con esas monedas. Si todo quedó en la moneda base, cae a
+// la moneda de la venta (sin moneda = base: no se marca).
+function saleCurrencyBadge(
+  s: AnyRecord,
+  currencies: CurrencyLite[] = []
+): { label: string; title: string } | null {
+  const paid = parsePaidParts(s, currencies).map(p => p.code);
+  const baseCode = baseCurrencyCode(currencies);
+  const nonBase = paid.filter(c => c !== baseCode);
+  if (nonBase.length > 0) {
+    const label = paid.map(code => {
+      const cur = currencies.find(x => (x.code ?? '').toUpperCase() === code);
+      return cur?.symbol ? `${cur.symbol} ${code}` : code;
+    }).join(' · ');
+    const title = paid.map(code => currencies.find(x => (x.code ?? '').toUpperCase() === code)?.name ?? code).join(' · ');
+    return { label, title };
+  }
   const code = String(s.currency_code ?? '').trim();
   if (!code) return null; // sin moneda = moneda base: no se marca
   const symbol = String(s.currency_symbol ?? '').trim();
@@ -33,6 +127,22 @@ function fmtSaleAmount(s: AnyRecord, amount: number): string {
   return formatMoney(amount, s.currency_symbol ? String(s.currency_symbol) : null, s.currency_code ? String(s.currency_code) : null);
 }
 
+// Etiqueta del método general de la venta (columna "Tipo"). Se toma de
+// sales.payment_method (migración 033, se guarda al crear la venta). Para
+// ventas anteriores sin ese dato se deriva de sus pagos: crédito si no hay
+// cobro y la venta está pendiente; varias filas de pago = mixto; una sola,
+// el método de esa fila; sin pagos, contado (efectivo).
+function saleMethodLabel(s: AnyRecord): string {
+  const m = String(s.payment_method ?? '').trim();
+  if (m) return METHOD_LABELS[m] ?? m;
+  const parts = String(s.payment_parts ?? '').trim();
+  const rows = parts ? parts.split(',').filter(Boolean).length : 0;
+  if (rows === 0 && s.status === 'pending') return 'Crédito';
+  if (rows > 1) return 'Mixto';
+  if (s.status === 'pending') return 'Crédito';
+  return 'Contado';
+}
+
 // Convierte el total de la venta a la moneda base con la tasa congelada
 // (NULL/1 = ya está en base). Para mostrar el equivalente en el detalle.
 function saleTotalInBase(s: AnyRecord): number | null {
@@ -40,6 +150,8 @@ function saleTotalInBase(s: AnyRecord): number | null {
   if (!s.currency_code || !rate || rate === 1) return null;
   return Math.round(Number(s.total) * rate * 100) / 100;
 }
+// Etiquetas del método general de la venta (columna "Tipo" del listado)
+const METHOD_LABELS: Record<string,string> = { cash:'Efectivo', transfer:'Transferencia', mixed:'Mixto', credit:'Crédito', oferta:'Oferta' };
 const statusLabel: Record<string,string> = { completed:'Pagada', pending:'Pendiente', partial:'Parcial', cancelled:'Cancelada' };
 const statusClass: Record<string,string> = { completed:'badge-success', pending:'badge-warning', partial:'badge-info', cancelled:'badge-danger' };
 
@@ -338,23 +450,50 @@ export default function VentasPage() {
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{s.user_name?String(s.user_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>
                   {workMode==='shifts'&&<td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{s.pos_name?String(s.pos_name):<span className="text-[var(--text-tertiary)] italic">—</span>}</td>}
                   <td className="px-4 py-3 text-[var(--text-primary)] font-semibold">
-                    {(() => { const b = saleCurrencyBadge(s); return <span className="inline-flex items-center gap-1.5">{fmtSaleAmount(s, Number(s.total))}{b && <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20" title={b.title}>{b.label}</span>}</span>; })()}
-                    {/* Ventas a crédito: lo cobrado y lo que queda pendiente
-                        (se actualiza tras cada abono, en cualquier moneda) */}
-                    {(s.status === 'pending' || s.status === 'partial' || Number(s.total_paid ?? 0) > 0) && (
-                      <div className="mt-0.5 text-[10px] font-normal text-[var(--text-tertiary)]">
-                        {(() => {
-                          const total = Number(s.total ?? 0);
-                          const paid = Number(s.total_paid ?? 0);
-                          const left = Math.max(0, Math.round((total - paid) * 100) / 100);
-                          return paid > 0
-                            ? <>Cobrado {fmtSaleAmount(s, paid)} · Pendiente {fmtSaleAmount(s, left)}</>
-                            : <>Pendiente {fmtSaleAmount(s, total)}</>;
-                        })()}
-                      </div>
-                    )}
+                    {(() => { const b = saleCurrencyBadge(s, currencies); return <span className="inline-flex items-center gap-1.5">{fmtSaleAmount(s, Number(s.total))}{b && <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20" title={b.title}>{b.label}</span>}</span>; })()}
+                    {/* Cobros reales por moneda: crédito/abonos y ventas
+                        cobradas en varias monedas (oferta/mixto). Muestra el
+                        monto pagado en cada moneda y, si queda, lo pendiente. */}
+                    {(() => {
+                      const paidParts = parsePaidParts(s, currencies);
+                      const total = Number(s.total ?? 0);
+                      const paid = Number(s.total_paid ?? 0);
+                      // Una venta 'completed' ya está cobrada del todo (al crearla
+                      // o con abonos posteriores): no queda pendiente aunque
+                      // total_paid (solo abonos) sea 0 por haberse pagado en el
+                      // momento de la venta.
+                      const left = s.status === 'completed' ? 0 : Math.max(0, Math.round((total - paid) * 100) / 100);
+                      // Con deuda/abonos o cobro en varias monedas se desglosa
+                      // el monto pagado por moneda (una venta normal en una
+                      // sola moneda se resume en el badge de al lado).
+                      if (!(s.status === 'pending' || s.status === 'partial' || paid > 0 || paidParts.length > 1)) return null;
+                      // Abonos recibidos: desglose por moneda de cada abono
+                      // parcial (hasta 3, los más recientes) bajo el "Pagado".
+                      const abonos = parseSaleAbonos(s);
+                      const shownAbonos = abonos.slice(-3);
+                      const olderCount = abonos.length - shownAbonos.length;
+                      return (
+                        <div className="mt-0.5 text-[10px] font-normal text-[var(--text-tertiary)]">
+                          {paidParts.length > 0
+                            ? <>Pagado {paidPartsLabel(paidParts)}{left > 0.01 ? <> · Pendiente {fmtSaleAmount(s, left)}</> : null}</>
+                            : <>Pendiente {fmtSaleAmount(s, total)}</>}
+                          {abonos.length > 0 && (
+                            <div className="mt-0.5 space-y-0.5">
+                              {olderCount > 0 && (
+                                <div>+{olderCount} abono{olderCount === 1 ? '' : 's'} anterior{olderCount === 1 ? '' : 'es'}</div>
+                              )}
+                              {shownAbonos.map((a, i) => (
+                                <div key={`${a.date}-${i}`}>
+                                  Abono {a.date} · <span className="text-green-400">{paidPartsLabel(a.parts)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{s.status==='pending'?'Crédito':'Contado'}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{saleMethodLabel(s)}</td>
                   <td className="px-4 py-3"><span className={statusClass[String(s.status)]??'badge-info'}>{statusLabel[String(s.status)]??String(s.status)}</span></td>
                   <td className="px-4 py-3"><button onClick={()=>openDetail(s)} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-brand-400 hover:bg-brand-500/10 transition-colors"><Eye className="w-3.5 h-3.5"/></button></td>
                 </tr>
@@ -383,7 +522,9 @@ export default function VentasPage() {
                   // Cobro dividido: una fila de pago por moneda → desglose en el ticket
                   payments: pays.map(p => ({
                     method: String(p.method ?? 'cash'),
-                    amount: Number(p.amount_cash ?? 0) > 0 ? Number(p.amount_cash) : Number(p.amount_transfer ?? 0),
+                    // Pago mixto en una moneda: la fila trae efectivo + transferencia,
+                    // el total cobrado en esa moneda es la suma de ambos.
+                    amount: Number(p.amount_cash ?? 0) + Number(p.amount_transfer ?? 0),
                     // NULL = moneda base → se resuelve al código base para el ticket
                     currency_code: p.currency_code ? String(p.currency_code) : (base?.code ?? null),
                     currency_symbol: currencies.find(c => c.code === String(p.currency_code ?? ''))?.symbol ?? null,
@@ -399,8 +540,7 @@ export default function VentasPage() {
               Imprimir ticket
             </button>
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Fecha</p><p className="text-[var(--text-primary)]">{selectedSale.date?formatDateTime(String(selectedSale.date)):'—'}</p></div>
-              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Estado</p><span className={statusClass[String(selectedSale.status)]??'badge-info'}>{statusLabel[String(selectedSale.status)]??String(selectedSale.status)}</span>{(() => { const b = saleCurrencyBadge(selectedSale); return b ? <span className="ml-2 inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20" title={b.title}>{b.label}</span> : null; })()}</div>
+              <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Fecha</p><p className="text-[var(--text-primary)]">{selectedSale.date?formatDateTime(String(selectedSale.date)):'—'}</p></div>                <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Estado</p><span className={statusClass[String(selectedSale.status)]??'badge-info'}>{statusLabel[String(selectedSale.status)]??String(selectedSale.status)}</span>{(() => { const b = saleCurrencyBadge(selectedSale, currencies); return b ? <span className="ml-2 inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20" title={b.title}>{b.label}</span> : null; })()}</div>
               <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Cliente</p><p className="text-[var(--text-primary)]">{String(selectedSale.customer_name??'Sin cliente')}</p></div>
               <div className="bg-[var(--bg-primary)] rounded-xl p-3"><p className="text-xs text-[var(--text-tertiary)] mb-1">Total</p>
                 <p className="text-[var(--text-primary)] font-semibold">{formatMoney(Number(selectedSale.total), selectedSale.currency_symbol ? String(selectedSale.currency_symbol) : null, selectedSale.currency_code ? String(selectedSale.currency_code) : null)}</p>
@@ -419,14 +559,24 @@ export default function VentasPage() {
                     </p>
                   );
                 })()}
-                {/* Ventas a crédito: lo abonado y lo pendiente, en la moneda de
-                    la venta (los abonos pueden venir en otras monedas) */}
-                {(Number((selectedSale as any).total_paid ?? 0) > 0 || selectedSale.status === 'pending' || selectedSale.status === 'partial') && (
-                  <p className="text-[11px] mt-1 text-[var(--text-tertiary)]">
-                    Cobrado <span className="text-green-400">{fmtSaleAmount(selectedSale, Number((selectedSale as any).total_paid ?? 0))}</span>
-                    {' · '}Pendiente <span className="text-yellow-400">{fmtSaleAmount(selectedSale, Math.max(0, r2(Number(selectedSale.total) - Number((selectedSale as any).total_paid ?? 0))))}</span>
-                  </p>
-                )}
+                {/* Cobros reales por moneda (crédito/abonos y cobro en varias
+                    monedas): monto pagado en cada moneda y, si queda, el
+                    saldo pendiente en la moneda de la venta. */}
+                {(() => {
+                  const paidParts = parsePaidParts(selectedSale, currencies);
+                  const total = Number(selectedSale.total ?? 0);
+                  const paid = Number((selectedSale as any).total_paid ?? 0);
+                  // 'completed' = cobrada por completo (al crearla o con abonos).
+                  const left = selectedSale.status === 'completed' ? 0 : Math.max(0, r2(total - paid));
+                  if (!(paid > 0 || selectedSale.status === 'pending' || selectedSale.status === 'partial' || paidParts.length > 1)) return null;
+                  return (
+                    <p className="text-[11px] mt-1 text-[var(--text-tertiary)]">
+                      {paidParts.length > 0
+                        ? <>Pagado <span className="text-green-400">{paidPartsLabel(paidParts)}</span>{left > 0.01 ? <> · Pendiente <span className="text-yellow-400">{fmtSaleAmount(selectedSale, left)}</span></> : null}</>
+                        : <>Pendiente <span className="text-yellow-400">{fmtSaleAmount(selectedSale, total)}</span></>}
+                    </p>
+                  );
+                })()}
               </div>
             </div>
             {(selectedSale.items as AnyRecord[]|undefined)?.length&&(
@@ -464,14 +614,16 @@ export default function VentasPage() {
             )}
             {/* Payment method info */}
             {(selectedSale.payments as AnyRecord[]|undefined)?.map(pay=>{
-              const methodName = pay.method === 'transfer' ? 'Transferencia' : pay.method === 'mixed' ? 'Mixto' : pay.method === 'credit' ? 'Crédito' : 'Efectivo';
+              const methodName = pay.method === 'transfer' ? 'Transferencia' : pay.method === 'mixed' ? 'Mixto' : pay.method === 'credit' ? 'Crédito' : pay.method === 'oferta' ? 'Oferta' : 'Efectivo';
               // Moneda del pago: NULL en la BD = moneda base. Se muestra UNA sola
               // vez (como código) en la etiqueta, sin repetir símbolo y código.
               const payCode = String(pay.currency_code ?? '').trim() || (currencies.find(c => c.is_base)?.code ?? '');
+              const payCur = currencies.find(c => c.code === payCode) || currencies.find(c => c.is_base);
+              const paySym = payCur?.symbol ?? '$';
               return (
                 <div key={String(pay.id)} className="flex justify-between items-center text-sm p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)]">
                   <span className="text-[var(--text-secondary)]">{methodName}{payCode ? ` · ${payCode}` : ''}</span>
-                  <span className="text-[var(--text-primary)] font-medium">{pay.method==='mixed'?`Ef: ${formatCurrency(Number(pay.amount_cash))} / Tr: ${formatCurrency(Number(pay.amount_transfer))}`:formatCurrency(Number(pay.amount_cash)+Number(pay.amount_transfer))}</span>
+                  <span className="text-[var(--text-primary)] font-medium">{pay.method==='mixed'?`Ef: ${formatMoney(Number(pay.amount_cash), paySym)} / Tr: ${formatMoney(Number(pay.amount_transfer), paySym)}`:formatMoney(Number(pay.amount_cash)+Number(pay.amount_transfer), paySym)}</span>
                 </div>
               );
             })}

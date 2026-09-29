@@ -7,7 +7,7 @@
     "dev:https": "node scripts/generate-local-ssl-node.mjs && next dev --experimental-https --experimental-https-key localhost.key --experimental-https-cert localhost.crt",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "db:setup": "node scripts/setup-db.js",
     "release": "semantic-release",

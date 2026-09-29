@@ -188,7 +188,7 @@ export default function AuditoriaPage() {
                       // el cierre del turno desde /api/shifts/[id]/close)
                       const pb = details.payment_breakdown;
                       if (pb && typeof pb === 'object' && !Array.isArray(pb)) {
-                        const methodLabel: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', mixed: 'Mixto', credit: 'Crédito' };
+                        const methodLabel: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', mixed: 'Mixto', credit: 'Crédito', oferta: 'Oferta' };
                         const parts: string[] = [];
                         for (const [m, v] of Object.entries(pb as R)) {
                           const val = v as R;

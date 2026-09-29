@@ -18,7 +18,7 @@ export const VALID = {
   // sales.status
   SALE_STATUSES: ['completed', 'partial', 'pending', 'cancelled'] as const,
   // payments.method
-  PAYMENT_METHODS: ['cash', 'transfer', 'mixed', 'credit'] as const,
+  PAYMENT_METHODS: ['cash', 'transfer', 'mixed', 'credit', 'oferta'] as const,
   // customer_payments.method
   CUSTOMER_PAYMENT_METHODS: ['cash', 'transfer', 'mixed'] as const,
   // stock_movements.type

@@ -22,16 +22,41 @@ export const GET = handle(async (req: Request) => {
   const userId = searchParams.get('user_id');
   const limit = Math.max(1, Math.min(500, parseInt(searchParams.get('limit') ?? '50') || 50));
 
-  // `total_paid` = lo abonado a la venta expresado en SU propia moneda (los
-  // abonos pueden venir en otras monedas: se convierten con la tasa congelada
-  // de cada uno y luego a la moneda de la venta). El listado lo usa para
-  // mostrar lo cobrado y lo pendiente de las ventas a crédito.
+  // `total_paid` = lo cobrado a la venta expresado en SU propia moneda: los
+  // pagos hechos AL CREARLA (cobro normal, mixto/ oferta en varias monedas) más
+  // los abonos posteriores. Los montos pueden venir en otras monedas, así que
+  // se convierten con la tasa congelada de cada uno y luego a la moneda de la
+  // venta. El listado lo usa para mostrar lo cobrado y lo pendiente (incluido
+  // el cobro parcial de una oferta, que deja la venta en 'partial').
+  // `payment_parts` / `abono_parts`: montos REALES cobrados por la venta en cada
+  // moneda (pagos hechos al crearla + abonos vinculados), con el formato
+  // "CODIGO=MONTO" separados por comas. Se combinan en el listado para mostrar
+  // el badge de monedas y el monto pagado por moneda: una venta de oferta, un
+  // pago mixto en varias monedas o un abono en otra moneda NO se reflejan solo
+  // con s.currency_code. La fila de crédito (method='credit') se excluye porque
+  // representa la deuda (moneda base), no un cobro. NULL en las filas de pago =
+  // moneda base, que se resuelve al código base del negocio.
+  // `abono_lines`: cada abono por separado ("fecha~CODIGO=MONTO" por moneda,
+  // abonos separados por ';'), para que el listado muestre el desglose por
+  // moneda de cada abono parcial y no solo el total agregado.
   let sql = `SELECT s.*,c.name AS customer_name,u.name AS user_name,p.name AS pos_name,cur.symbol AS currency_symbol,cur.name AS currency_name,cur.is_base AS currency_is_base,
-    ROUND(COALESCE((
+    ROUND((COALESCE((
       SELECT SUM(CASE WHEN cp.currency_code IS NOT NULL AND cp.currency_code<>'' THEN cp.amount*COALESCE(cp.exchange_rate,1) ELSE cp.amount END)
       FROM customer_payments cp WHERE cp.sale_id = s.id
-    ),0) / COALESCE(NULLIF(s.exchange_rate,0),1), 2) AS total_paid
-    FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id LEFT JOIN currencies cur ON cur.code=s.currency_code`;
+    ),0) + COALESCE((
+      SELECT SUM(CASE WHEN pay.currency_code IS NOT NULL AND pay.currency_code<>'' THEN (pay.amount_cash+pay.amount_transfer)*COALESCE(pay.exchange_rate,1) ELSE (pay.amount_cash+pay.amount_transfer) END)
+      FROM payments pay WHERE pay.sale_id = s.id AND pay.method<>'credit'
+    ),0)) / COALESCE(NULLIF(s.exchange_rate,0),1), 2) AS total_paid,
+    (SELECT GROUP_CONCAT(CONCAT(COALESCE(NULLIF(pay.currency_code,''), base.code), '=', ROUND(pay.amount_cash+pay.amount_transfer,2))
+      ORDER BY pay.currency_code SEPARATOR ',')
+      FROM payments pay WHERE pay.sale_id=s.id AND pay.method<>'credit') AS payment_parts,
+    (SELECT GROUP_CONCAT(CONCAT(COALESCE(NULLIF(acp.currency_code,''), base.code), '=', ROUND(acp.amount,2))
+      ORDER BY acp.currency_code SEPARATOR ',')
+      FROM customer_payments acp WHERE acp.sale_id=s.id) AS abono_parts,
+    (SELECT GROUP_CONCAT(CONCAT(DATE_FORMAT(al.date,'%d/%m %H:%i:%s'), '~', COALESCE(NULLIF(al.currency_code,''), base.code), '=', ROUND(al.amount,2))
+      ORDER BY al.date, al.id SEPARATOR ';')
+      FROM customer_payments al WHERE al.sale_id=s.id) AS abono_lines
+    FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN pos p ON p.id=s.pos_id LEFT JOIN currencies cur ON cur.code=s.currency_code LEFT JOIN currencies base ON base.is_base=1`;
   const params: unknown[] = [];
   const where: string[] = [];
   if (from) { where.push('s.date>=?'); params.push(from); }
@@ -51,7 +76,7 @@ export const GET = handle(async (req: Request) => {
 // ── POST: Crear nueva venta ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireAuth();
-  const { items, payment, customer_id, location_id, notes, date, pos_id, currency_code } = await req.json();
+  const { items, payment, customer_id, location_id, notes, date, pos_id, currency_code, list_total } = await req.json();
   if (!items?.length) return err('La venta debe tener al menos un producto');
   // Nota: las ventas a crédito pueden registrarse sin cliente (el POS táctil
   // de los vendedores no pide cliente; la deuda queda pendiente en el historial).
@@ -120,6 +145,12 @@ export const POST = handle(async (req: Request) => {
   // se usa el sale_price de la BD. Solo el dueño y el admin pueden
   // modificar el precio de venta al crear la venta.
   const canOverridePrice = sessionUser.role === 'owner' || sessionUser.role === 'admin';
+  // La venta a precio negociado (método "oferta") es exclusiva de dueño/admin:
+  // el resto de perfiles no puede crearla aunque llame al endpoint directo.
+  const canUseOffer = canOverridePrice;
+  if (payment?.method === 'oferta' && !canUseOffer) {
+    return err('Solo el dueño y los administradores pueden registrar ventas con método oferta');
+  }
   // Registro de precios modificados para auditoría
   const priceOverrides: { product_id: string; product_name: string; original_price: number; custom_price: number; quantity: number }[] = [];
   const resolvedItems: {
@@ -190,10 +221,18 @@ export const POST = handle(async (req: Request) => {
         hour12: false,
       }).format(new Date()).replace(', ', ' ');
   const total = itemsToProcess.reduce((a: number, i: { quantity: number; unit_price: number }) => a + i.quantity * i.unit_price, 0);
+  // Total al precio de lista (oferta): solo se guarda si supera el total
+  // cobrado en al menos 0.01 — es el dato que el ticket usa para mostrar el
+  // descuento aplicado (evita "Descuento -0.00" por redondeo).
+  const listTotalRaw = list_total != null ? Number(list_total) : 0;
+  const listTotal = Number.isFinite(listTotalRaw) && Math.round(listTotalRaw * 100) - Math.round(total * 100) >= 1
+    ? Math.round(listTotalRaw * 100) / 100
+    : null;
   // Total equivalente en moneda base (para validar el cobro y registrar el
   // crédito: el saldo del cliente se acumula en la moneda base)
   const totalBase = r2(itemsToProcess.reduce((a: number, i: { quantity: number; unit_price: number }) => a + convertAmount(i.quantity * i.unit_price, saleCurrency, baseCode || null, currencies), 0));
-  const status = payment?.method === 'credit' ? 'pending' : 'completed';
+  // El estado se decide más abajo, cuando ya se conoce lo pagado (el cobro
+  // parcial de una oferta deja la venta 'partial').
 
   // ── Pagos: una fila por moneda (cobro dividido) ──
   // Formato nuevo: payment.parts = [{ method, amount, currency_code, notes }].
@@ -201,6 +240,11 @@ export const POST = handle(async (req: Request) => {
   // de modo que el arqueo por moneda sepa exactamente cuánto entró de cada una.
   // Formato legacy: payment.amount_cash / amount_transfer en la moneda de la venta.
   const paymentRows: { method: string; amount_cash: number; amount_transfer: number; currency_code: string | null; exchange_rate: number | null; notes: string | null }[] = [];
+  if (payment?.method === 'oferta' && !(Array.isArray(payment?.parts) && payment.parts.length > 0)) {
+    // "Oferta": venta en varias monedas con precio final negociado; sin el
+    // desglose de partes no hay forma de registrar el cobro por moneda.
+    return err('El método oferta requiere el desglose de pago por moneda (parts)');
+  }
   if (payment?.method === 'credit') {
     // El crédito solo se registra en la moneda base: queda como deuda
     // (el saldo del cliente se acumula sin conversión de moneda).
@@ -259,12 +303,30 @@ export const POST = handle(async (req: Request) => {
     }
   }
 
-  // Validar que los pagos cubran el total (convertido a moneda base)
-  if (status === 'completed') {
-    const paidBase = r2(paymentRows.reduce((a, p) => a + convertAmount(p.amount_cash + p.amount_transfer, p.currency_code, baseCode || null, currencies), 0));
-    if (paidBase + 0.01 < totalBase) {
-      return err(`Los pagos no cubren el total de la venta (recibido ≈ ${paidBase} ${baseCode || ''}, total ≈ ${totalBase} ${baseCode || ''})`);
-    }
+  // Total realmente cobrado (en moneda base), sumando una parte por moneda.
+  const paidBase = r2(paymentRows.reduce((a, p) => a + convertAmount(p.amount_cash + p.amount_transfer, p.currency_code, baseCode || null, currencies), 0));
+  const isCredit = payment?.method === 'credit';
+  // Cobro parcial de una Oferta: la venta se registra por el total negociado y
+  // el cliente paga ahora solo una parte (repartida entre monedas); el resto
+  // queda como deuda suya (la venta queda 'partial'). Requiere cliente.
+  const offerPartial = payment?.method === 'oferta' && paidBase + 0.01 < totalBase;
+  if (offerPartial && !customer_id) {
+    return err('El cobro parcial de una oferta requiere seleccionar un cliente: el resto queda como deuda suya');
+  }
+  // Método general de la venta (columna sales.payment_method, columna "Tipo"
+  // del listado): 'oferta' si el POS lo declara; con varias partes es un cobro
+  // en varias monedas (mixto, salvo que sea oferta); con una sola parte, el
+  // método de esa parte; en el resto, el método declarado.
+  const salePaymentMethod =
+    payment?.method === 'oferta'
+      ? 'oferta'
+      : paymentRows.length > 1
+        ? 'mixed'
+        : (paymentRows[0]?.method ?? 'cash');
+  const status = isCredit ? 'pending' : offerPartial ? 'partial' : 'completed';
+  // Validar que los pagos cubran el total (salvo el cobro parcial de oferta).
+  if (status === 'completed' && paidBase + 0.01 < totalBase) {
+    return err(`Los pagos no cubren el total de la venta (recibido ≈ ${paidBase} ${baseCode || ''}, total ≈ ${totalBase} ${baseCode || ''})`);
   }
 
   // ── Validar stock antes de iniciar la transacción (pre-check rápido) ──
@@ -293,8 +355,8 @@ export const POST = handle(async (req: Request) => {
   await transaction(async (conn) => {
     // Insertar encabezado de venta (incluye moneda)
     await conn.execute(
-      'INSERT INTO sales (id,customer_id,user_id,pos_id,currency_code,exchange_rate,usd_rate,date,total,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      [saleId, customer_id??null, sessionUser.id, posId || null, saleCurrency, saleExchangeRate, saleExchangeUsd, saleDate, total, status, notes??null, ts, ts]
+      'INSERT INTO sales (id,customer_id,user_id,pos_id,currency_code,exchange_rate,usd_rate,list_total,date,total,payment_method,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [saleId, customer_id??null, sessionUser.id, posId || null, saleCurrency, saleExchangeRate, saleExchangeUsd, listTotal, saleDate, total, salePaymentMethod, status, notes??null, ts, ts]
     );
     for (const item of itemsToProcess) {
       // Insertar cada producto vendido (precio, costo y moneda desde la BD)
@@ -374,8 +436,11 @@ export const POST = handle(async (req: Request) => {
     }
 
     // Si es crédito, actualizar saldo del cliente (en moneda base)
-    if (payment?.method === 'credit' && customer_id) {
+    if (isCredit && customer_id) {
       await conn.execute('UPDATE customers SET balance=balance+?,updated_at=? WHERE id=?',[totalBase, ts, customer_id]);
+    } else if (offerPartial && customer_id) {
+      // Cobro parcial de la oferta: solo la parte no cobrada suma al saldo.
+      await conn.execute('UPDATE customers SET balance=balance+?,updated_at=? WHERE id=?',[r2(totalBase - paidBase), ts, customer_id]);
     }
   });
 

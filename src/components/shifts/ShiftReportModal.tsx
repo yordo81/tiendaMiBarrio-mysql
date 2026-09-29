@@ -30,6 +30,7 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   transfer: 'Transferencia',
   mixed: 'Mixto',
   credit: 'Crédito',
+  oferta: 'Oferta',
 };
 
 export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReportModalProps) {
