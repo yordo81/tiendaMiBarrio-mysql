@@ -5,6 +5,14 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 Basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y [Semantic Versioning](https://semver.org/lang/es/).
 
 
+# [1.1.0](https://github.com/yordo81/tiendaMiBarrio-mysql/compare/v1.0.0...v1.1.0) (2026-09-29)
+
+
+### Features
+
+* **ventas:** asistente de cobro de abonos y bloqueo por dinero faltante ([c82ba75](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/c82ba75027fdd62f8f665f34a22741471cd3c388))
+* **ventas:** ofertas negociadas, cobro parcial multi-moneda y método de la venta ([66d1c74](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/66d1c74383864a15b07cc4aa1d917c122b87adc4))
+
 # 1.0.0 (2026-09-28)
 
 
