@@ -355,6 +355,19 @@ export default function VentasPage() {
     }
   }
 
+  // Refresca SOLO el detalle de la venta abierta (tras modificar precios):
+  // mantiene el modal de cobro abierto con la deuda ya recalculada.
+  async function refreshDetail() {
+    if (!selectedSale) return;
+    try {
+      const detail = await api.getSaleDetail(String(selectedSale.id));
+      const listRows = await api.getSales(`from=${fromDate}&to=${toDate}${posFilter ? `&pos_id=${posFilter}` : ''}`);
+      const fresh = (listRows as AnyRecord[]).find(s => String(s.id) === String(selectedSale.id));
+      setSelectedSale(prev => (prev ? { ...(fresh ?? prev), ...detail, items: detail.items, payments: detail.payments, customer_payments: detail.customer_payments, total_paid: detail.total_paid } : prev));
+      setSales(listRows);
+    } catch { /* el listado se refresca en el próximo load */ }
+  }
+
   // Tras registrar un abono desde el asistente: refresca el detalle de la venta
   // (estado, total abonado y abonos) y el listado.
   async function handlePaid() {
@@ -683,11 +696,15 @@ export default function VentasPage() {
         )}
       </Modal>
 
-      {/* Asistente de cobro paso a paso (igual que el POS táctil) */}
+      {/* Asistente de cobro paso a paso (igual que el POS táctil). El dueño
+          y los administradores pueden modificar los precios de la venta a
+          crédito mientras se abona (como la oferta). */}
       <PaySaleModal
         open={showPaySale}
         sale={selectedSale}
         currencies={currencies}
+        saleItems={(selectedSale?.items as AnyRecord[] | undefined) ?? null}
+        onPricesSaved={refreshDetail}
         onClose={() => setShowPaySale(false)}
         onPaid={handlePaid}
       />

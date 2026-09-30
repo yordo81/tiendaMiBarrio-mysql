@@ -2,13 +2,14 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Check, Banknote, Landmark, Wallet, Coins, ChevronLeft, ChevronRight,
-  CheckCircle, Phone, PhoneOff, Receipt, Plus, X,
+  CheckCircle, Phone, PhoneOff, Receipt, Plus, X, Pencil,
 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { toast } from '@/components/ui/toaster';
-import { formatMoney, cn } from '@/lib/utils';
+import { formatMoney, formatNumber, cn } from '@/lib/utils';
 import { normalizePhone } from '@/lib/validate';
 import { api } from '@/lib/api-client';
+import { useAuthStore } from '@/lib/stores/auth-store';
 import { notifyShiftSummaryChanged } from '@/lib/shift-events';
 import { convertAmount, roundToNickel, r2 } from '@/lib/currency';
 
@@ -45,6 +46,14 @@ interface PaySaleModalProps {
   /** En modo deuda de cliente: saldo total pendiente del cliente (en moneda base). */
   customerBalance?: number;
   currencies: PayCurrencyOption[];
+  /**
+   * Detalle de la venta (ítems) para el editor de precios de dueño/admin:
+   * mientras se abona una venta a crédito, pueden corregir el precio de
+   * venta de cada producto (igual que la oferta). Opcional.
+   */
+  saleItems?: AnyRecord[] | null;
+  /** Tras guardar precios (el padre recarga el detalle y el listado). */
+  onPricesSaved?: () => void;
   onClose: () => void;
   /** Tras registrar el abono (el padre recarga el detalle y el listado). */
   onPaid: () => void;
@@ -68,8 +77,9 @@ const STEPS = [
 /** Venta normal vs deuda general de un cliente (sin venta específica). */
 type PayTarget = 'sale' | 'customer';
 
-export default function PaySaleModal({ open, sale, customer = null, customerBalance = 0, currencies, onClose, onPaid }: PaySaleModalProps) {
+export default function PaySaleModal({ open, sale, customer = null, customerBalance = 0, currencies, saleItems = null, onPricesSaved, onClose, onPaid }: PaySaleModalProps) {
   const target: PayTarget = customer ? 'customer' : 'sale';
+  const { user } = useAuthStore();
   const [step, setStep] = useState(1);
   const [method, setMethod] = useState<PayMethod>('cash');
   // '' = moneda base (igual que en el POS)
@@ -82,6 +92,33 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
   const [transferRef, setTransferRef] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // ── Editor de precios (dueño/admin, venta a crédito en curso) ──
+  // Igual que la oferta: mientras el cliente abona su deuda, el dueño/admin
+  // puede corregir el precio de venta de cada producto. Se edita una copia
+  // local y se guarda en el servidor (que recalcula el total y ajusta el
+  // saldo del cliente); después el abono sigue con la deuda actualizada.
+  const canEditPrices = target === 'sale' && (user?.role === 'owner' || user?.role === 'admin')
+    && !!sale && String(sale.status ?? '') !== 'completed' && String(sale.status ?? '') !== 'cancelled'
+    && (saleItems?.length ?? 0) > 0;
+  const [showPriceEditor, setShowPriceEditor] = useState(false);
+  const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
+  const [savingPrices, setSavingPrices] = useState(false);
+  /** Precio unitario editado (string vacío = sin cambiar). */
+  const priceEditsDirty = Object.entries(priceEdits).some(([, v]) => v.trim() !== '');
+  const priceEditsTotalDelta = (saleItems ?? []).reduce((a, it) => {
+    const raw = priceEdits[String(it.product_id ?? '')] ?? '';
+    if (raw.trim() === '') return a;
+    const v = parseFloat(raw);
+    if (!Number.isFinite(v)) return a;
+    return a + (v - Number(it.unit_price ?? 0)) * Number(it.quantity ?? 0);
+  }, 0);
+
+  /** Al abrir (o cambiar de venta): el editor arranca cerrado y sin cambios. */
+  useEffect(() => {
+    setShowPriceEditor(false);
+    setPriceEdits({});
+  }, [open, sale?.id]);
 
   // ── Abono en varias monedas ─────────────────────────────────────
   // Igual que el POS táctil: con el método mixto y más de una moneda activa,
@@ -306,6 +343,39 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
     onClose();
   }
 
+  /** Guarda los precios modificados y refresca la deuda mostrada. */
+  async function handleSavePrices() {
+    if (target !== 'sale' || !sale) return;
+    const prices = Object.entries(priceEdits)
+      .filter(([, v]) => v.trim() !== '')
+      .map(([product_id, v]) => ({ product_id, unit_price: parseFloat(v) }))
+      .filter(p => Number.isFinite(p.unit_price) && p.unit_price > 0);
+    if (prices.length === 0) {
+      toast.error('No hay precios modificados');
+      return;
+    }
+    if (prices.some(p => p.unit_price <= 0)) {
+      toast.error('Cada precio debe ser mayor que 0');
+      return;
+    }
+    setSavingPrices(true);
+    try {
+      const res = await api.updateSalePrices(String(sale.id), { prices }) as AnyRecord;
+      toast.success(
+        `Precios actualizados — nuevo total: ${formatMoney(Number(res.total ?? 0), saleCurrency?.symbol, saleCurrency?.code)}`
+      );
+      setPriceEdits({});
+      setShowPriceEditor(false);
+      // El padre recarga el detalle y el listado: la deuda del paso a paso
+      // se refresca con el total nuevo (y el saldo ya ajustado).
+      onPricesSaved?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al actualizar los precios');
+    } finally {
+      setSavingPrices(false);
+    }
+  }
+
   async function handleConfirm() {
     if (target === 'sale' ? !sale : !customer) return;
     // Defensa extra: sin efectivo suficiente no se registra el abono.
@@ -424,6 +494,94 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
               <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
                 ≈ {formatMoney(amountDue, payOption?.symbol, payOption?.code)} en {payOption?.code ?? 'base'}
               </p>
+            )}
+          </div>
+        )}
+
+        {/* ── Editor de precios (dueño/admin) ──
+            Como la oferta: mientras la venta a crédito se abona, el dueño o
+            un administrador puede corregir el precio de venta de cada
+            producto. El servidor recalcula el total y ajusta el saldo. */}
+        {canEditPrices && step === 1 && (
+          <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
+            <button
+              type="button"
+              onClick={() => setShowPriceEditor(v => !v)}
+              className="w-full flex items-center justify-between gap-2 text-left"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                <Pencil className="w-4 h-4 text-brand-400" />
+                Modificar precios de la venta
+                {priceEditsDirty && <span className="text-[10px] font-medium text-yellow-400">· cambios sin guardar</span>}
+              </span>
+              <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                {showPriceEditor ? 'Ocultar' : 'Editar'}
+              </span>
+            </button>
+            {showPriceEditor && (
+              <>
+                <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                  Ajusta el precio de venta de cada producto (en {saleCurrency?.code ?? 'moneda base'}), igual que en una oferta. Guardar recalcula el total y la deuda pendiente; los cambios quedan en auditoría.
+                </p>
+                <div className="space-y-2">
+                  {(saleItems ?? []).map(it => {
+                    const pid = String(it.product_id ?? '');
+                    const edited = priceEdits[pid] ?? '';
+                    const current = Number(it.unit_price ?? 0);
+                    const qty = Number(it.quantity ?? 0);
+                    const changed = edited.trim() !== '' && parseFloat(edited) !== current;
+                    return (
+                      <div key={pid} className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                            {String(it.product_name ?? 'Producto')}
+                          </p>
+                          <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                            {formatNumber(qty, 2)} × {formatMoney(current, saleCurrency?.symbol, saleCurrency?.code)}
+                            {changed && <span className="text-yellow-400"> → {formatMoney(parseFloat(edited), saleCurrency?.symbol, saleCurrency?.code)}</span>}
+                          </p>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className={cn('input w-28 text-right', changed && 'border-yellow-500/60')}
+                          placeholder={current.toFixed(2)}
+                          value={edited}
+                          onChange={e => setPriceEdits(prev => ({ ...prev, [pid]: e.target.value }))}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {priceEditsDirty && (
+                  <p className={cn('text-xs font-semibold', priceEditsTotalDelta < 0 ? 'text-green-400' : 'text-yellow-400')}>
+                    Nuevo total ≈ {formatMoney(r2(Number(sale?.total ?? 0) + priceEditsTotalDelta), saleCurrency?.symbol, saleCurrency?.code)}
+                    {priceEditsTotalDelta < 0
+                      ? ` (baja ${formatMoney(Math.abs(priceEditsTotalDelta), saleCurrency?.symbol, saleCurrency?.code)})`
+                      : ` (sube ${formatMoney(priceEditsTotalDelta, saleCurrency?.symbol, saleCurrency?.code)})`}
+                    {priceEditsTotalDelta < 0 && ' · ⚠ si queda por debajo de lo ya abonado, el servidor rechazará el cambio'}
+                  </p>
+                )}
+                <div className="flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setPriceEdits({})}
+                    disabled={!priceEditsDirty || savingPrices}
+                    className="btn-secondary text-sm px-4 py-2 disabled:opacity-50"
+                  >
+                    Descartar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSavePrices}
+                    disabled={!priceEditsDirty || savingPrices}
+                    className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
+                  >
+                    {savingPrices ? 'Guardando...' : 'Guardar precios'}
+                  </button>
+                </div>
+              </>
             )}
           </div>
         )}

@@ -131,6 +131,9 @@ export const api = {
   addPayment: (data: unknown) => apiFetch('/api/customer-payments', { method: 'POST', body: JSON.stringify(data) }),
   getPayments: (customerId?: string) => apiFetch<Record<string,unknown>[]>(`/api/customer-payments${customerId ? '?customer_id=' + customerId : ''}`),
   paySale: (id: string, data: unknown) => apiFetch(`/api/sales/${id}/pay`, { method: 'POST', body: JSON.stringify(data) }),
+  // Modificar precios de una venta a crédito en curso (solo dueño/admin,
+  // igual que la oferta): prices = [{ product_id, unit_price }]
+  updateSalePrices: (id: string, data: { prices: { product_id: string; unit_price: number }[] }) => apiFetch(`/api/sales/${id}/prices`, { method: 'PUT', body: JSON.stringify(data) }),
 
   // Sales
   getSales: (params?: string) => apiFetch<Record<string,unknown>[]>(`/api/sales${params ? '?' + params : ''}`),
