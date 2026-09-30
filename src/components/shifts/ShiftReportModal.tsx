@@ -4,9 +4,11 @@ import Modal from '@/components/ui/Modal';
 import { formatCurrency, formatDateTime, formatDate, formatMoney } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
+import { cn } from '@/lib/utils';
 import {
   FileDown, Loader2, User, Wallet, TrendingUp, TrendingDown,
   PackageSearch, ShoppingCart, History, ArrowUpRight, ArrowDownRight,
+  Coins,
 } from 'lucide-react';
 
 type R = Record<string, unknown>;
@@ -117,6 +119,35 @@ export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReport
         bodyStyles: { fontSize: 9 },
       });
       y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+
+      // Contado declarado por moneda (solo turnos cerrados con desglose)
+      const closeByCur = (report.closing_cash_by_currency ?? null) as R[] | null;
+      if (Array.isArray(closeByCur) && closeByCur.length > 0) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('Efectivo contado por moneda', 14, y);
+        doc.setFont('helvetica', 'normal');
+        autoTable(doc, {
+          startY: y + 2,
+          head: [['Moneda', 'Contado', 'Esperado', 'Diferencia']],
+          body: closeByCur.map(c => {
+            const exp = expByCur.find(e => String(e.code ?? '') === String(c.code ?? ''));
+            const expectedAmt = Number(exp?.amount ?? 0);
+            const counted = Number(c.amount ?? 0);
+            const d = counted - expectedAmt;
+            return [
+              String(c.code ?? '—'),
+              formatMoney(counted, undefined, String(c.code ?? '')),
+              formatMoney(expectedAmt, undefined, String(c.code ?? '')),
+              `${d > 0 ? '+' : ''}${formatMoney(d, undefined, String(c.code ?? ''))}`,
+            ];
+          }),
+          theme: 'grid',
+          headStyles: { fillColor: [22, 163, 74], fontSize: 9 },
+          bodyStyles: { fontSize: 9 },
+        });
+        y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+      }
     }
 
     // Desglose de ventas por método de pago
@@ -392,24 +423,43 @@ export default function ShiftReportModal({ open, shiftId, onClose }: ShiftReport
 
             {/* Efectivo esperado por moneda (solo cuando el turno tiene varias) */}
             {(() => {
-              const byCur = (report.expected_cash_by_currency ?? []) as { code: string; amount: number }[];
+              const byCur = (report.expected_cash_by_currency ?? []) as { code: string; amount: number; rate?: number }[];
               if (byCur.length <= 1) return null;
               const baseCode = String(report.base_currency ?? '');
+              const closeByCur = (report.closing_cash_by_currency ?? null) as { code: string; amount: number }[] | null;
+              const countedOf = (code: string): number | null => {
+                if (!Array.isArray(closeByCur)) return null;
+                const row = closeByCur.find(c => c.code === code);
+                return row ? Number(row.amount) : null;
+              };
               return (
                 <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-4">
                   <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide flex items-center gap-1.5 mb-3">
-                    <Wallet className="w-4 h-4 text-blue-400" /> Efectivo esperado por moneda
+                    <Coins className="w-4 h-4 text-blue-400" /> Efectivo por moneda
                   </h4>
                   <div className="flex flex-wrap gap-2">
-                    {byCur.map(c => (
-                      <span key={c.code} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-muted)] px-3 py-1.5 text-sm">
-                        <span className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">{c.code}</span>
-                        <span className="font-semibold text-[var(--text-primary)]">{formatMoney(c.amount, undefined, c.code)}</span>
-                      </span>
-                    ))}
+                    {byCur.map(c => {
+                      const counted = countedOf(c.code);
+                      const d = counted != null ? counted - Number(c.amount ?? 0) : null;
+                      return (
+                        <span key={c.code} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-muted)] px-3 py-1.5 text-sm">
+                          <span className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">{c.code}</span>
+                          <span className="font-semibold text-[var(--text-primary)]">{formatMoney(c.amount, undefined, c.code)}</span>
+                          {counted != null && (
+                            <span className="text-green-400 font-semibold" title="Contado al cerrar">
+                              · {formatMoney(counted, undefined, c.code)}
+                              <span className={cn('ml-1 text-[10px] font-medium', d != null && d < 0 ? 'text-red-400' : d != null && d > 0 ? 'text-yellow-400' : 'text-green-400')}>
+                                ({d != null && d > 0 ? '+' : ''}{formatMoney(d ?? 0, undefined, c.code)})
+                              </span>
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
                   <p className="text-[10px] text-[var(--text-tertiary)] mt-2">
                     Total en {baseCode || 'moneda base'}: {formatMoney(Number(report.expected_cash_base ?? 0), undefined, baseCode)}
+                    {Array.isArray(closeByCur) && closeByCur.length > 0 && ' · El segundo valor es el contado declarado al cerrar'}
                   </p>
                 </div>
               );

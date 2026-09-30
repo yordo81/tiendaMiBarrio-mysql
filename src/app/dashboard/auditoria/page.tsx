@@ -184,6 +184,16 @@ export default function AuditoriaPage() {
                     else if (details.opening_cash !== undefined) detailsText = `Fondo inicial: $${Number(details.opening_cash).toFixed(2)}`;
                     else if (details.expected_cash !== undefined) {
                       detailsText = `Contado: $${Number(details.closing_cash).toFixed(2)} · Esperado: $${Number(details.expected_cash).toFixed(2)} · Δ $${Number(details.difference).toFixed(2)}`;
+                      // Contado declarado por moneda (registrado en el cierre
+                      // del turno desde /api/shifts/[id]/close)
+                      const cbc = details.closing_cash_by_currency;
+                      if (Array.isArray(cbc) && cbc.length > 0) {
+                        const curParts = cbc.map((c) => {
+                          const row = c as R;
+                          return `${String(row.code ?? '—')}: ${Number(row.amount ?? 0).toFixed(2)}`;
+                        });
+                        detailsText += `\nContado por moneda: ${curParts.join(' · ')}`;
+                      }
                       // Desglose de ventas por método de pago (registrado en
                       // el cierre del turno desde /api/shifts/[id]/close)
                       const pb = details.payment_breakdown;

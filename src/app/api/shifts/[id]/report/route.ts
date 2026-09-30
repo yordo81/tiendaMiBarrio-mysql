@@ -36,6 +36,7 @@ export const GET = handle(async (_req: Request, ctx) => {
     closing_cash: number | null;
     expected_cash: number | null;
     difference: number | null;
+    closing_cash_by_currency: unknown;
     notes: string | null;
     status: string;
     user_name: string | null;
@@ -221,6 +222,16 @@ export const GET = handle(async (_req: Request, ctx) => {
     toUtc,
   });
 
+  // ── Efectivo contado por moneda (declarado al cerrar el turno) ──
+  // En turnos cerrados viene de shifts.closing_cash_by_currency (JSON con
+  // {code, amount, rate}); en turnos abiertos (reporte en vivo) aún no hay
+  // arqueo, así que se muestra el desglose esperado como referencia.
+  const rawClosingByCurrency: unknown = shift.closing_cash_by_currency;
+  const closingByCurrency: { code: string; amount: number; rate: number }[] | null =
+    Array.isArray(rawClosingByCurrency) && rawClosingByCurrency.length > 0
+      ? (rawClosingByCurrency as { code: string; amount: number; rate: number }[])
+      : null;
+
   return ok({
     shift: {
       id: shift.id,
@@ -265,5 +276,7 @@ export const GET = handle(async (_req: Request, ctx) => {
     // Efectivo esperado por moneda (base primero) y su total en moneda base
     expected_cash_by_currency: expectedCash.by_currency,
     expected_cash_base: expectedCash.total_base,
+    // Efectivo contado por moneda (declarado al cerrar; null en abiertos)
+    closing_cash_by_currency: closingByCurrency,
   });
 });

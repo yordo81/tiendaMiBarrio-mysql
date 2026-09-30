@@ -27,7 +27,9 @@ export default function TurnosPage() {
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [closeShift, setCloseShift] = useState<R | null>(null);
-  const [closeForm, setCloseForm] = useState({ closing_cash: 0, notes: '' });
+  // closingByCurrency: monto contado por moneda ('' = sin declarar).
+  // Al cerrar se declara el efectivo de CADA moneda física con la que se cobró.
+  const [closeForm, setCloseForm] = useState({ closing_cash: 0, notes: '', closingByCurrency: {} as Record<string, string> });
   const [shiftBusy, setShiftBusy] = useState(false);
   const [reportShiftId, setReportShiftId] = useState<string | null>(null);
 
@@ -69,11 +71,21 @@ export default function TurnosPage() {
     if (!closeShift) return;
     setShiftBusy(true);
     try {
-      await api.closeShift(String(closeShift.id), { closing_cash: closeForm.closing_cash, notes: closeForm.notes });
+      // Desglose del contado por moneda: cada moneda con efectivo esperado
+      // se declara aparte (el servidor convierte a base con la tasa del turno
+      // y valida que estén todas las monedas).
+      const closingByCurrency = Object.entries(closeForm.closingByCurrency)
+        .map(([code, value]) => ({ code, amount: parseFloat(value) }))
+        .filter(p => !isNaN(p.amount) && p.amount >= 0);
+      await api.closeShift(String(closeShift.id), {
+        closing_cash: multiCurrencyClose ? closeDeclaredTotal : closeForm.closing_cash,
+        notes: closeForm.notes,
+        closing_cash_by_currency: closingByCurrency.length > 0 ? closingByCurrency : undefined,
+      });
       toast.success('Turno cerrado con arqueo');
       setShowCloseModal(false);
       setCloseShift(null);
-      setCloseForm({ closing_cash: 0, notes: '' });
+      setCloseForm({ closing_cash: 0, notes: '', closingByCurrency: {} });
       load();
       notifyShiftChanged();
     } catch (e) {
@@ -94,6 +106,30 @@ export default function TurnosPage() {
     if (!list || list.length === 0) return null;
     return list.map(c => `${formatMoney(c.amount, undefined, c.code)}`).join(' · ');
   }
+
+  // ── Validación del cierre ─────────────────────────────────────
+  // Cada moneda con efectivo esperado (> 0) debe declarar su contado.
+  // Si hay varias monedas, el total en base deja de ser editable a mano:
+  // se recalcula con las tasas congeladas y se envía al servidor.
+  const closeSummary = closeShift?.summary as { base_currency?: string; expected_cash?: number; cash_by_currency?: { code: string; amount: number; rate?: number }[] } | null;
+  const closeCountable = (() => {
+    const baseCode = String(closeSummary?.base_currency ?? '');
+    const baseEntry = (closeSummary?.cash_by_currency ?? []).find(c => c.code === baseCode);
+    const others = (closeSummary?.cash_by_currency ?? []).filter(c => c.amount > 0 && c.code !== 'BASE' && c.code !== baseCode);
+    return [
+      ...(baseEntry ? [{ code: baseCode, amount: baseEntry.amount, rate: 1 }] : []),
+      ...others.map(c => ({ code: c.code, amount: c.amount, rate: Number(c.rate ?? 0) })),
+    ];
+  })();
+  const multiCurrencyClose = closeCountable.length > 1;
+  const closeFormValid =
+    closeForm.closing_cash >= 0 &&
+    (!multiCurrencyClose || closeCountable.every(c => !!closeForm.closingByCurrency[c.code]?.trim()));
+  // Total declarado en base (recalculado): solo se envía cuando hay varias monedas.
+  const closeDeclaredTotal = closeCountable.reduce(
+    (a, c) => a + (parseFloat(closeForm.closingByCurrency[c.code] ?? '') || 0) * (c.rate > 0 ? c.rate : 1),
+    0
+  );
 
   if (!settingsLoaded || loading) {
     return (
@@ -189,7 +225,7 @@ export default function TurnosPage() {
                       <FileText className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => { setCloseShift(s); setCloseForm({ closing_cash: 0, notes: '' }); setShowCloseModal(true); }}
+                      onClick={() => { setCloseShift(s); setCloseForm({ closing_cash: 0, notes: '', closingByCurrency: {} }); setShowCloseModal(true); }}
                       className="btn-primary flex items-center gap-1.5 text-xs px-3 py-2"
                     >
                       <Square className="w-3 h-3" />Cerrar turno
@@ -315,33 +351,93 @@ export default function TurnosPage() {
               <p className="font-medium text-[var(--text-primary)] truncate">{closeShift?.opened_at ? formatDateTime(String(closeShift.opened_at)) : '—'}</p>
             </div>
           </div>
-          <div>
-            <label className="label">Efectivo contado en caja *</label>
-            <div className="relative">
-              <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
-              <input type="number" min="0" step="1" className="input pl-9"
-                value={closeForm.closing_cash || ''}
-                onChange={e => setCloseForm(f => ({ ...f, closing_cash: parseFloat(e.target.value) || 0 }))}
-              />
-            </div>
-            {(() => {
-              // Ayuda para el arqueo por moneda: cuánto se espera de cada moneda
-              // además del efectivo en moneda base (el total esperado está en base).
-              const summary = closeShift?.summary as { base_currency?: string; cash_by_currency?: { code: string; amount: number }[] } | null;
-              const byCur = summary?.cash_by_currency ?? [];
-              const baseCode = String(summary?.base_currency ?? '');
-              const others = byCur.filter(c => c.amount !== 0 && c.code !== 'BASE' && (!baseCode || c.code !== baseCode));
-              if (others.length === 0) return null;
-              return (
-                <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5">
-                  Además del efectivo en {baseCode || 'moneda base'}, se espera en caja:{' '}
-                  <span className="font-medium text-[var(--text-secondary)]">
-                    {others.map(c => `${formatMoney(c.amount, undefined, c.code)}`).join(' · ')}
-                  </span>{' '}(convertido con la tasa del turno)
-                </p>
-              );
-            })()}
-          </div>
+          {(() => {
+            // ── Arqueo por moneda ────────────────────────────
+            // El desglose del resumen en vivo trae el efectivo esperado por
+            // moneda con su tasa congelada. Cada moneda con efectivo esperado
+            // (> 0) es una moneda física en la que se cobró en efectivo: se
+            // DECLARA aparte al cerrar. El total (base) se calcula con las
+            // tasas congeladas, igual que el servidor.
+            const summary = closeShift?.summary as { base_currency?: string; cash_by_currency?: { code: string; amount: number; rate?: number }[] } | null;
+            const byCur = (summary?.cash_by_currency ?? []).filter(c => c.amount > 0 && c.code !== 'BASE' && c.code !== String(summary?.base_currency ?? ''));
+            const baseCode = String(summary?.base_currency ?? '');
+            const baseEntry = (summary?.cash_by_currency ?? []).find(c => c.code === baseCode);
+            const countable = [
+              ...(baseEntry ? [{ code: baseCode, amount: baseEntry.amount, rate: 1 }] : []),
+              ...byCur.map(c => ({ code: c.code, amount: c.amount, rate: Number(c.rate ?? 0) })),
+            ];
+
+            const declaredAmount = (code: string) => parseFloat(closeForm.closingByCurrency[code] ?? '') || 0;
+            // Total del contado en moneda base: cada moneda × su tasa congelada
+            // (la base usa 1; si una tasa no llegó, usa 1 como referencia segura).
+            const declaredTotal = countable.reduce((a, c) => a + declaredAmount(c.code) * (c.rate > 0 ? c.rate : 1), 0);
+            const diffTotal = declaredTotal - Number(closeSummary?.expected_cash ?? 0);
+
+            const setAmount = (code: string, value: string) =>
+              setCloseForm(f => ({ ...f, closingByCurrency: { ...f.closingByCurrency, [code]: value } }));
+
+            // Con una sola moneda el total en base ya la cubre: se captura
+            // en el campo de total (comportamiento previo). El desglose por
+            // moneda se pide cuando hay DOS o más monedas en caja.
+            if (countable.length <= 1) return null;
+
+            return (
+              <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide">Efectivo contado por moneda *</p>
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+                    Declara cuánto hay de cada moneda física con la que se cobró en efectivo (según la tasa del turno).
+                  </p>
+                </div>
+                {countable.length > 1 && (
+                  <div className="text-xs flex items-center justify-between gap-2">
+                    <span className="text-[var(--text-tertiary)]">Esperado: {formatMoney(Number(closeSummary?.expected_cash ?? 0), undefined, baseCode || undefined)}</span>
+                    <span className={cn('font-semibold', Math.abs(diffTotal) < 0.005 ? 'text-green-400' : diffTotal >= 0 ? 'text-yellow-400' : 'text-red-400')}>
+                      Declarado: {formatMoney(declaredTotal, undefined, baseCode || undefined)} · Dif: {diffTotal > 0 ? '+' : ''}{formatMoney(diffTotal, undefined, baseCode || undefined)}
+                    </span>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {countable.map(c => {
+                    const rate = c.rate > 0 ? c.rate : 1;
+                    const isBase = c.code === baseCode;
+                    return (
+                      <div key={c.code}>
+                        <div className="flex items-center gap-2">
+                          <span className="w-16 shrink-0 text-sm font-semibold text-[var(--text-primary)]">{c.code}</span>
+                          <div className="relative flex-1">
+                            <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="input pl-9"
+                              placeholder="0"
+                              value={closeForm.closingByCurrency[c.code] ?? ''}
+                              onChange={e => setAmount(c.code, e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+                          Esperado: {formatMoney(c.amount, undefined, c.code)}
+                          {!isBase && <> · ≈ {formatMoney(c.amount * rate, undefined, baseCode || undefined)} en {baseCode || 'base'}</>}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                {(() => {
+                  const missing = countable.filter(c => !closeForm.closingByCurrency[c.code]?.trim());
+                  if (missing.length === 0) return null;
+                  return (
+                    <p className="text-[10px] text-yellow-400">
+                      Falta declarar: {missing.map(c => c.code).join(', ')}
+                    </p>
+                  );
+                })()}
+              </div>
+            );
+          })()}
           <div>
             <label className="label">Nota (opcional)</label>
             <input type="text" className="input" placeholder="Ej: Turno cerrado sin novedades"
@@ -353,7 +449,7 @@ export default function TurnosPage() {
             <button onClick={() => setShowCloseModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
             <button
               onClick={handleCloseShift}
-              disabled={shiftBusy || closeForm.closing_cash < 0}
+              disabled={shiftBusy || !closeFormValid}
               className="btn-primary flex-1 xs:flex-none disabled:opacity-50"
             >
               {shiftBusy ? 'Cerrando...' : 'Cerrar turno'}

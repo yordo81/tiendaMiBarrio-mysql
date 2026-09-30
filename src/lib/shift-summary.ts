@@ -19,6 +19,16 @@ import { utcToLocal, utcToDb, nowLocal, nowUtc } from '@/lib/shift-time';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Un elemento del desglose de efectivo por moneda (amount + tasa congelada). */
+export interface CashByCurrencyEntry {
+  /** Código de la moneda ('' o 'BASE' = moneda base) */
+  code: string;
+  /** Monto de efectivo en esa moneda */
+  amount: number;
+  /** Tasa congelada para convertir a base: 1 moneda = X base */
+  rate: number;
+}
+
 export interface ShiftLiveSummary {
   total_sales: number;
   /** Cantidad de ventas (tickets) completados en el turno */
@@ -27,9 +37,9 @@ export interface ShiftLiveSummary {
   total_cash: number;
   expected_cash: number;
   /** Efectivo esperado desglosado por moneda: cuánto hay de cada una en caja */
-  cash_by_currency: { code: string; amount: number }[];
+  cash_by_currency: CashByCurrencyEntry[];
   /** Igual que expected_cash, en moneda base (compatibilidad con clientes previos) */
-  expected_cash_by_currency: { code: string; amount: number }[];
+  expected_cash_by_currency: CashByCurrencyEntry[];
   /** Código de la moneda base del negocio */
   base_currency: string;
 }
@@ -68,7 +78,7 @@ function summarizeCashByCurrency(
   amounts: Record<string, number>,
   rates: Record<string, number>,
   baseCode: string
-): { byCurrency: { code: string; amount: number }[]; totalBase: number } {
+): { byCurrency: CashByCurrencyEntry[]; totalBase: number } {
   const byCurrency = Object.entries(amounts)
     .filter(([, amount]) => amount !== 0)
     .map(([code, amount]) => ({
@@ -89,7 +99,9 @@ function summarizeCashByCurrency(
   );
 
   return {
-    byCurrency: byCurrency.map(({ code, amount }) => ({ code, amount: r2(amount) })),
+    // La tasa se incluye para que el cierre pueda convertir el contado de
+    // cada moneda a base con la MISMA referencia que el efectivo esperado.
+    byCurrency: byCurrency.map(({ code, amount, rate }) => ({ code, amount: r2(amount), rate: r2(rate) })),
     totalBase,
   };
 }
@@ -99,8 +111,8 @@ export interface ExpectedCashBreakdown {
   base_currency: string;
   /** Efectivo esperado total, expresado en moneda base */
   total_base: number;
-  /** Efectivo esperado por moneda (la base primero) */
-  by_currency: { code: string; amount: number }[];
+  /** Efectivo esperado por moneda (la base primero), con la tasa congelada */
+  by_currency: CashByCurrencyEntry[];
 }
 
 /**

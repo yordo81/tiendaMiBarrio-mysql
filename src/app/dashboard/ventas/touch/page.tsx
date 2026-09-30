@@ -226,7 +226,9 @@ export default function TouchPosPage() {
   const [showOpenShift, setShowOpenShift] = useState(false);
   const [showCloseShift, setShowCloseShift] = useState(false);
   const [closeShift, setCloseShift] = useState<AnyRecord | null>(null);
-  const [closeForm, setCloseForm] = useState({ closing_cash: 0, notes: '' });
+  // closingByCurrency: monto contado por moneda ('' = sin declarar).
+  // Al cerrar se declara el efectivo de CADA moneda física con la que se cobró.
+  const [closeForm, setCloseForm] = useState({ closing_cash: 0, notes: '', closingByCurrency: {} as Record<string, string> });
   const [shiftBusy, setShiftBusy] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -258,8 +260,30 @@ export default function TouchPosPage() {
   const myOpenShift = workMode === 'shifts'
     ? (openShifts.find(s => String(s.pos_id) === String(assignedPosId ?? '')) ?? openShifts.find(s => String(s.user_id) === user?.id) ?? null)
     : null;
-  const myShiftSummary = (myOpenShift?.summary ?? null) as { total_sales: number; sales_count?: number; total_cash: number; expected_cash: number } | null;
+  const myShiftSummary = (myOpenShift?.summary ?? null) as { total_sales: number; sales_count?: number; total_cash: number; expected_cash: number; base_currency?: string; cash_by_currency?: { code: string; amount: number; rate?: number }[] } | null;
   const openPosIds = new Set(openShifts.map(s => String(s.pos_id)));
+
+  // ── Arqueo por moneda del turno propio (modal de cierre) ──────
+  // Cada moneda con efectivo esperado (> 0) es una moneda física con la que
+  // se cobró en efectivo: al cerrar se declara cuánto se contó de cada una.
+  // El total en base se recalcula con las tasas congeladas del resumen.
+  const myCloseBaseCode = String(myShiftSummary?.base_currency ?? '');
+  const myCloseCountable = (() => {
+    const byCur = myShiftSummary?.cash_by_currency ?? [];
+    const baseEntry = byCur.find(c => c.code === myCloseBaseCode);
+    const others = byCur.filter(c => c.amount > 0 && c.code !== 'BASE' && c.code !== myCloseBaseCode);
+    return [
+      ...(baseEntry ? [{ code: myCloseBaseCode, amount: baseEntry.amount, rate: 1 }] : []),
+      ...others.map(c => ({ code: c.code, amount: c.amount, rate: Number(c.rate ?? 0) })),
+    ];
+  })();
+  const multiCurrencyClose = myCloseCountable.length > 1;
+  const closeFormValid =
+    myCloseCountable.length === 0 || myCloseCountable.every(c => !!closeForm.closingByCurrency[c.code]?.trim());
+  const closeDeclaredTotal = myCloseCountable.reduce(
+    (a, c) => a + (parseFloat(closeForm.closingByCurrency[c.code] ?? '') || 0) * (c.rate > 0 ? c.rate : 1),
+    0
+  );
 
   // Abre el modal de cobro (siempre en el paso 1). En modo turnos refresca el
   // estado de las cajas para que el bloqueo por turno cerrado esté al día.
@@ -361,7 +385,7 @@ export default function TouchPosPage() {
   function openCloseShift() {
     if (!myOpenShift) return;
     setCloseShift(myOpenShift);
-    setCloseForm({ closing_cash: 0, notes: '' });
+    setCloseForm({ closing_cash: 0, notes: '', closingByCurrency: {} });
     setShowCloseShift(true);
   }
 
@@ -369,11 +393,21 @@ export default function TouchPosPage() {
     if (!closeShift) return;
     setShiftBusy(true);
     try {
-      await api.closeShift(String(closeShift.id), { closing_cash: closeForm.closing_cash, notes: closeForm.notes });
+      // Desglose del contado por moneda: cada moneda con efectivo esperado
+      // se declara aparte (el servidor convierte a base con la tasa del turno
+      // y valida que estén todas las monedas).
+      const closingByCurrency = Object.entries(closeForm.closingByCurrency)
+        .map(([code, value]) => ({ code, amount: parseFloat(value) }))
+        .filter(p => !isNaN(p.amount) && p.amount >= 0);
+      await api.closeShift(String(closeShift.id), {
+        closing_cash: multiCurrencyClose ? closeDeclaredTotal : closeForm.closing_cash,
+        notes: closeForm.notes,
+        closing_cash_by_currency: closingByCurrency.length > 0 ? closingByCurrency : undefined,
+      });
       toast.success('Turno cerrado con arqueo');
       setShowCloseShift(false);
       setCloseShift(null);
-      setCloseForm({ closing_cash: 0, notes: '' });
+      setCloseForm({ closing_cash: 0, notes: '', closingByCurrency: {} });
       refreshPos();
       notifyShiftChanged();
     } catch (e) {
@@ -2658,31 +2692,93 @@ export default function TouchPosPage() {
               <p className="font-medium text-[var(--text-primary)] truncate">{closeShift?.opened_at ? formatDateTime(String(closeShift.opened_at)) : '—'}</p>
             </div>
           </div>
-          <div>
-            <label className="label">Efectivo contado en caja *</label>
-            <div className="relative">
-              <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
-              <input type="number" min="0" step="1" className="input pl-9"
-                value={closeForm.closing_cash || ''}
-                onChange={e => setCloseForm(f => ({ ...f, closing_cash: parseFloat(e.target.value) || 0 }))}
-              />
+          {(() => {
+            // ── Arqueo por moneda ────────────────────────────
+            // Igual que en /dashboard/turnos: cada moneda con efectivo
+            // esperado (> 0) se declara aparte. Con varias monedas, el total
+            // en base se recalcula con las tasas congeladas (no se captura).
+            const baseCode = myCloseBaseCode;
+            const countable = myCloseCountable;
+            const declaredAmount = (code: string) => parseFloat(closeForm.closingByCurrency[code] ?? '') || 0;
+            const declaredTotal = countable.reduce((a, c) => a + declaredAmount(c.code) * (c.rate > 0 ? c.rate : 1), 0);
+            const diffTotal = declaredTotal - Number(myShiftSummary?.expected_cash ?? 0);
+            const setAmount = (code: string, value: string) =>
+              setCloseForm(f => ({ ...f, closingByCurrency: { ...f.closingByCurrency, [code]: value } }));
+
+            // Con una sola moneda el total en base ya la cubre: se captura
+            // en el campo de total (comportamiento previo). El desglose por
+            // moneda se pide cuando hay DOS o más monedas en caja.
+            if (countable.length <= 1) return null;
+
+            return (
+              <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide">Efectivo contado por moneda *</p>
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+                    Declara cuánto hay de cada moneda física con la que se cobró en efectivo (según la tasa del turno).
+                  </p>
+                </div>
+                {countable.length > 1 && (
+                  <div className="text-xs flex items-center justify-between gap-2">
+                    <span className="text-[var(--text-tertiary)]">Esperado: {formatMoney(Number(myShiftSummary?.expected_cash ?? 0), undefined, baseCode || undefined)}</span>
+                    <span className={cn('font-semibold', Math.abs(diffTotal) < 0.005 ? 'text-green-400' : diffTotal >= 0 ? 'text-yellow-400' : 'text-red-400')}>
+                      Declarado: {formatMoney(declaredTotal, undefined, baseCode || undefined)} · Dif: {diffTotal > 0 ? '+' : ''}{formatMoney(diffTotal, undefined, baseCode || undefined)}
+                    </span>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {countable.map(c => {
+                    const rate = c.rate > 0 ? c.rate : 1;
+                    const isBase = c.code === baseCode;
+                    return (
+                      <div key={c.code}>
+                        <div className="flex items-center gap-2">
+                          <span className="w-16 shrink-0 text-sm font-semibold text-[var(--text-primary)]">{c.code}</span>
+                          <div className="relative flex-1">
+                            <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="input pl-9"
+                              placeholder="0"
+                              value={closeForm.closingByCurrency[c.code] ?? ''}
+                              onChange={e => setAmount(c.code, e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+                          Esperado: {formatMoney(c.amount, undefined, c.code)}
+                          {!isBase && <> · ≈ {formatMoney(c.amount * rate, undefined, baseCode || undefined)} en {baseCode || 'base'}</>}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                {(() => {
+                  const missing = countable.filter(c => !closeForm.closingByCurrency[c.code]?.trim());
+                  if (missing.length === 0) return null;
+                  return (
+                    <p className="text-[10px] text-yellow-400">
+                      Falta declarar: {missing.map(c => c.code).join(', ')}
+                    </p>
+                  );
+                })()}
+              </div>
+            );
+          })()}
+          {!multiCurrencyClose && (
+            <div>
+              <label className="label">Efectivo contado en caja *</label>
+              <div className="relative">
+                <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+                <input type="number" min="0" step="1" className="input pl-9"
+                  value={closeForm.closing_cash || ''}
+                  onChange={e => setCloseForm(f => ({ ...f, closing_cash: parseFloat(e.target.value) || 0 }))}
+                />
+              </div>
             </div>
-            {(() => {
-              // Ayuda para el arqueo por moneda: cuánto se espera de cada moneda.
-              // El total esperado está en moneda base; las otras monedas se listan aparte.
-              const byCur = ((myShiftSummary as unknown as { cash_by_currency?: { code: string; amount: number }[] } | null)?.cash_by_currency ?? []);
-              const others = byCur.filter(c => c.amount !== 0 && (!baseCurrency || c.code !== baseCurrency.code) && c.code !== 'BASE');
-              if (others.length === 0) return null;
-              return (
-                <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5">
-                  Además del efectivo en {baseCurrency?.code ?? 'moneda base'}, se espera en caja:{' '}
-                  <span className="font-medium text-[var(--text-secondary)]">
-                    {others.map(c => `${formatMoney(c.amount, undefined, c.code)}`).join(' · ')}
-                  </span>{' '}(convertido con la tasa del turno)
-                </p>
-              );
-            })()}
-          </div>
+          )}
           <div>
             <label className="label">Nota (opcional)</label>
             <input type="text" className="input" placeholder="Ej: Turno cerrado sin novedades"
@@ -2692,7 +2788,7 @@ export default function TouchPosPage() {
           </div>
           <div className="flex flex-col xs:flex-row gap-2 justify-end pt-2">
             <button onClick={() => setShowCloseShift(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
-            <button onClick={handleCloseShift} disabled={shiftBusy} className="btn-primary flex-1 xs:flex-none disabled:opacity-50">
+            <button onClick={handleCloseShift} disabled={shiftBusy || !closeFormValid} className="btn-primary flex-1 xs:flex-none disabled:opacity-50">
               {shiftBusy ? 'Cerrando...' : 'Cerrar turno'}
             </button>
           </div>

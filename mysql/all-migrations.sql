@@ -451,7 +451,8 @@ CREATE TABLE IF NOT EXISTS shifts (
   opened_at     DATETIME NOT NULL,
   closed_at     DATETIME DEFAULT NULL,
   opening_cash  DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT 'Fondo inicial en caja',
-  closing_cash  DECIMAL(12,2) DEFAULT NULL COMMENT 'Efectivo contado al cerrar',
+  closing_cash  DECIMAL(12,2) DEFAULT NULL COMMENT 'Efectivo contado al cerrar (total en moneda base)',
+  closing_cash_by_currency JSON NULL COMMENT 'Desglose del contado por moneda: [{code, amount, rate}] (rate: 1 moneda = X base)',
   expected_cash DECIMAL(12,2) DEFAULT NULL COMMENT 'Efectivo esperado según movimientos',
   difference    DECIMAL(12,2) DEFAULT NULL COMMENT 'Diferencia: contado - esperado',
   notes         VARCHAR(500) DEFAULT NULL,
@@ -610,7 +611,8 @@ INSERT IGNORE INTO schema_migrations (filename) VALUES
   ('migration-030-currency-type.sql'),
   ('migration-031-payment-method-oferta.sql'),
   ('migration-032-sales-list-total.sql'),
-  ('migration-033-sales-payment-method.sql');
+  ('migration-033-sales-payment-method.sql'),
+  ('migration-034-shift-closing-by-currency.sql');
 
 -- ============================================================
 -- ÉXITO
