@@ -2,20 +2,23 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatCurrency, formatMoney, formatNumber, cn } from '@/lib/utils';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse, Calendar, Landmark, FileDown, Filter } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Package, Users, Download, RefreshCw, Warehouse, Calendar, Landmark, FileDown, Filter, Clock3 } from 'lucide-react';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 import InfoTooltip from '@/components/ui/Tooltip';
-import { exportToCSV } from '@/lib/export';
+import { exportToCSV, exportToXLSX } from '@/lib/export';
+import { useWorkMode } from '@/lib/stores/settings-store';
 import { api, apiFetch } from '@/lib/api-client';
 import { toast } from '@/components/ui/toaster';
 
 function exportCSV(data: R[], filename: string) { exportToCSV(data as Record<string, unknown>[], filename); }
 
-type TabKey = 'ventas'|'rentabilidad'|'precios'|'reabastecimiento'|'cuentas'|'vencimientos'|'transferencias';
+type TabKey = 'ventas'|'top'|'dia'|'rentabilidad'|'precios'|'reabastecimiento'|'cuentas'|'vencimientos'|'transferencias';
 type R = Record<string,unknown>;
 
 const tabs: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key:'ventas', label:'Ventas', icon:TrendingUp },
+  { key:'top', label:'Más vendidos', icon:BarChart3 },
+  { key:'dia', label:'Vendidos hoy', icon:Package },
   { key:'rentabilidad', label:'Rentabilidad', icon:BarChart3 },
   { key:'transferencias', label:'Transferencias', icon:Landmark },
   { key:'precios', label:'Variación Precios', icon:TrendingDown },
@@ -57,6 +60,14 @@ export default function ReportesPage() {
   // Filtro por moneda del reporte de transferencias ('' = todas)
   const [currencies, setCurrencies] = useState<R[]>([]);
   const [currencyFilter, setCurrencyFilter] = useState('');
+  // Modo de operación: el resumen de Ventas se agrupa por TURNO en modo turnos
+  const workMode = useWorkMode();
+  const isShiftsMode = workMode === 'shifts';
+  // Día del reporte "Vendidos hoy" ('' = hoy)
+  const [dayProductsDate, setDayProductsDate] = useState('');
+  // Datos de los reportes de productos
+  const [topProducts, setTopProducts] = useState<R[]>([]);
+  const [dayProducts, setDayProducts] = useState<R[]>([]);
 
   const days = range==='7d'?7:range==='30d'?30:range==='90d'?90:30;
   const isCustomRange = range === 'custom';
@@ -191,6 +202,30 @@ export default function ReportesPage() {
     finally { setLoading(false); }
   }, []);
 
+  const loadTopProducts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
+      const fromDate = dateFrom ?? new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+      const toDate = dateTo ?? new Date().toISOString().slice(0,10);
+      const dateQ = dateFrom ? `&from=${fromDate}&to=${toDate}` : '';
+      const d = await apiFetch<R[]>(`/api/reports?type=top_products&days=${days}${locQ}${dateQ}`);
+      setTopProducts(Array.isArray(d) ? d : []);
+    } catch(e) { console.error('[loadTopProducts]', e); toast.error('Error al cargar los productos más vendidos'); }
+    finally { setLoading(false); }
+  }, [days, locationFilter, dateFrom, dateTo]);
+
+  const loadDayProducts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
+      const dayQ = dayProductsDate ? `&day=${dayProductsDate}` : '';
+      const d = await apiFetch<R[]>(`/api/reports?type=day_products&days=1${locQ}${dayQ}`);
+      setDayProducts(Array.isArray(d) ? d : []);
+    } catch(e) { console.error('[loadDayProducts]', e); toast.error('Error al cargar los productos vendidos en el día'); }
+    finally { setLoading(false); }
+  }, [locationFilter, dayProductsDate]);
+
   const loadTransfers = useCallback(async () => {
     setLoading(true);
     try {
@@ -216,13 +251,15 @@ export default function ReportesPage() {
 
   useEffect(() => {
     if (tab==='ventas') loadSales();
+    else if (tab==='top') loadTopProducts();
+    else if (tab==='dia') loadDayProducts();
     else if (tab==='rentabilidad') loadMargins();
     else if (tab==='transferencias') loadTransfers();
     else if (tab==='precios') loadProducts();
     else if (tab==='reabastecimiento') loadForecasts();
     else if (tab==='vencimientos') loadExpirations();
     else if (tab==='cuentas') loadDebts();
-  }, [tab, range, locationFilter, customFrom, customTo, currencyFilter]);
+  }, [tab, range, locationFilter, customFrom, customTo, currencyFilter, dayProductsDate, loadTopProducts, loadDayProducts]);
 
   const urgencyBadge = (u: string) => u==='critical'?<span className="badge-danger">Crítico</span>:u==='soon'?<span className="badge-warning">Pronto</span>:<span className="badge-success">OK</span>;
 
@@ -319,9 +356,9 @@ export default function ReportesPage() {
       {/* Barra de filtros: rango de fechas, almacén y moneda. Los controles
           se agrupan y envuelven para no desbordar el diseño en pantallas
           estrechas. */}
-      {(tab==='ventas'||tab==='rentabilidad'||tab==='transferencias'||tab==='reabastecimiento')&&(
+      {(tab==='ventas'||tab==='top'||tab==='dia'||tab==='rentabilidad'||tab==='transferencias'||tab==='reabastecimiento')&&(
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          {(tab==='ventas'||tab==='rentabilidad'||tab==='transferencias')&&(
+          {(tab==='ventas'||tab==='top'||tab==='rentabilidad'||tab==='transferencias')&&(
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
               <div className="flex gap-2">
                 {(['7d','30d','90d','custom'] as const).map(r=>(
@@ -344,8 +381,15 @@ export default function ReportesPage() {
               )}
             </div>
           )}
+          {/* Filtro de fecha del reporte "Vendidos hoy" ('' = hoy) */}
+          {tab==='dia'&&(
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-[var(--text-tertiary)]">Día:</label>
+              <input type="date" className="input py-1.5 text-xs" value={dayProductsDate} onChange={e=>setDayProductsDate(e.target.value)} />
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:ml-auto">
-            {locations.length>0&&(
+            {locations.length>0&&(tab==='ventas'||tab==='top'||tab==='dia'||tab==='rentabilidad'||tab==='transferencias'||tab==='reabastecimiento')&&(
               <div className="flex items-center gap-2 min-w-0">
                 <Warehouse size={14} className="text-[var(--text-tertiary)] shrink-0" />
                 <div className="w-[180px] max-w-full">
@@ -620,6 +664,215 @@ export default function ReportesPage() {
                     </tfoot>
                   </table>
                 </div>
+              </div>
+            );
+          })()}
+
+          {/* ── Modo por turnos: ventas agrupadas por TURNO de caja ──
+              Una fila por turno, ordenado por fecha de inicio (abertura). */}
+          {isShiftsMode && <ShiftsTable days={days} dateFrom={dateFrom} dateTo={dateTo} locationFilter={locationFilter} locations={locations} />}
+        </div>
+      )}
+
+      {!loading&&tab==='top'&&(
+        <div className="space-y-5">
+          {(() => {
+            const totalQty = topProducts.reduce((a,r)=>a+Number(r.quantity??0),0);
+            const totalBase = topProducts.reduce((a,r)=>a+Number(r.total_base??0),0);
+            const totalProfit = topProducts.reduce((a,r)=>a+Number(r.profit_base??0),0);
+            const locName = locationFilter ? String(locations.find(l => String(l.id)===locationFilter)?.name ?? '—') : 'Todos los almacenes';
+            const rangeLabel = isCustomRange ? `${dateFrom??''} a ${dateTo??''}` : days===7?'Últimos 7 días':days===30?'Últimos 30 días':days===90?'Últimos 90 días':`Últimos ${days} días`;
+
+            const rowsForExport = topProducts.map((r,i)=>({
+              'Posición': i+1,
+              'Producto': String(r.product_name??'—'),
+              'Categoría': String(r.category_name??'—'),
+              'Cantidad vendida': Number(r.quantity??0),
+              'Ventas': Number(r.sales_count??0),
+              'Importe (base)': Number(r.total_base??0),
+              'Ganancia (base)': Number(r.profit_base??0),
+            }));
+
+            async function exportExcel() {
+              if (rowsForExport.length===0) return;
+              await exportToXLSX(rowsForExport, `mas-vendidos-${days}d`, 'Más vendidos');
+              toast.success('Excel descargado');
+            }
+
+            async function exportPDF() {
+              if (topProducts.length===0) return;
+              const { jsPDF } = await import('jspdf');
+              const autoTable = (await import('jspdf-autotable')).default;
+              const doc = new jsPDF();
+              doc.setFontSize(14); doc.setFont('helvetica','bold');
+              doc.text('Productos más vendidos', 14, 16);
+              doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(80);
+              doc.text(`Período: ${rangeLabel} · Almacén: ${locName}`, 14, 23);
+              doc.text(`Generado: ${new Date().toLocaleString('es')}`, 14, 28);
+              doc.setTextColor(0);
+              autoTable(doc, {
+                startY: 34,
+                head: [['#','Producto','Categoría','Cant.','Ventas','Importe','Ganancia']],
+                body: topProducts.map((r,i)=>[
+                  String(i+1),
+                  String(r.product_name??'—'),
+                  String(r.category_name??'—'),
+                  formatNumber(Number(r.quantity??0),2),
+                  String(Number(r.sales_count??0)),
+                  formatCurrency(Number(r.total_base??0)),
+                  formatCurrency(Number(r.profit_base??0)),
+                ]),
+                foot: [['','Total','','',String(topProducts.length),formatCurrency(totalBase),formatCurrency(totalProfit)]],
+                showFoot: 'lastPage',
+                theme: 'striped',
+                styles: { fontSize: 8 },
+                headStyles: { fillColor: [38, 101, 245], fontSize: 8 },
+                columnStyles: { 0: { cellWidth: 10 } },
+              });
+              doc.save(`mas-vendidos-${days}d.pdf`);
+            }
+
+            return (
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                  {[{label:'Unidades vendidas',value:formatNumber(totalQty,2),color:'text-blue-400'},{label:'Importe total (base)',value:formatCurrency(totalBase),color:'text-brand-400'},{label:'Ganancia (base)',value:formatCurrency(totalProfit),color:'text-green-400'}].map(c=>(
+                    <div key={c.label} className="card p-4"><p className="text-xs text-[var(--text-tertiary)] mb-1">{c.label}</p><p className={cn('text-lg font-semibold',c.color)}>{c.value}</p></div>
+                  ))}
+                </div>
+                <div className="card p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[var(--text-primary)]">Ranking de productos más vendidos</h3>
+                      <p className="text-xs text-[var(--text-tertiary)] mt-0.5">{rangeLabel} · {locName} · ordenado por cantidad vendida</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={exportExcel} disabled={topProducts.length===0} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>Excel</button>
+                      <button onClick={exportPDF} disabled={topProducts.length===0} className="btn-secondary flex items-center gap-1.5 text-xs"><FileDown size={13}/>PDF</button>
+                    </div>
+                  </div>
+                  {topProducts.length===0?<p className="text-center text-[var(--text-tertiary)] py-8 text-sm">Sin ventas en este período</p>:(
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="border-b border-[var(--border-primary)]">{['#','Producto','Categoría','Cant. vendida','Ventas','Importe (base)','Ganancia (base)'].map(h=><th key={h} className={cn('px-3 py-2 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide', h==='#'||h==='Producto'||h==='Categoría'?'text-left':'text-right')}>{h}</th>)}</tr></thead>
+                        <tbody>{topProducts.map((r,i)=>{
+                          const qty = Number(r.quantity??0);
+                          const maxQty = Math.max(...topProducts.map(x=>Number(x.quantity??0)),1);
+                          return (
+                            <tr key={String(r.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                              <td className="px-3 py-2.5 text-[var(--text-tertiary)] font-medium">{i+1}</td>
+                              <td className="px-3 py-2.5 text-[var(--text-primary)] font-medium">{String(r.product_name??'—')}{String(r.unit??'')?<span className="text-[10px] text-[var(--text-tertiary)] ml-1">({String(r.unit)})</span>:null}</td>
+                              <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{String(r.category_name??'—')}</td>
+                              <td className="px-3 py-2.5 text-right"><div className="flex items-center justify-end gap-2"><div className="bg-[var(--bg-muted)] rounded-full h-1.5 w-16 hidden sm:block"><div className="h-1.5 rounded-full bg-brand-500" style={{width:`${Math.min(100,(qty/maxQty)*100)}%`}}/></div><span className="text-[var(--text-primary)] font-medium">{formatNumber(qty,2)}</span></div></td>
+                              <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{String(r.sales_count??0)}</td>
+                              <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{formatCurrency(Number(r.total_base??0))}</td>
+                              <td className={cn('px-3 py-2.5 text-right font-medium',Number(r.profit_base??0)>=0?'text-green-400':'text-red-400')}>{formatCurrency(Number(r.profit_base??0))}</td>
+                            </tr>
+                          );
+                        })}</tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {!loading&&tab==='dia'&&(
+        <div className="space-y-5">
+          {(() => {
+            const totalQty = dayProducts.reduce((a,r)=>a+Number(r.quantity??0),0);
+            const totalBase = dayProducts.reduce((a,r)=>a+Number(r.total_base??0),0);
+            const locName = locationFilter ? String(locations.find(l => String(l.id)===locationFilter)?.name ?? '—') : 'Todos los almacenes';
+            const dayLabel = dayProductsDate ? dayProductsDate.split('-').reverse().join('/') : 'Hoy';
+
+            const rowsForExport = dayProducts.map((r,i)=>({
+              'Posición': i+1,
+              'Producto': String(r.product_name??'—'),
+              'Categoría': String(r.category_name??'—'),
+              'Cantidad total': Number(r.quantity??0),
+              'Ventas': Number(r.sales_count??0),
+              'Importe (base)': Number(r.total_base??0),
+            }));
+
+            async function exportExcel() {
+              if (rowsForExport.length===0) return;
+              await exportToXLSX(rowsForExport, `vendidos-${dayProductsDate||'hoy'}`, 'Vendidos en el día');
+              toast.success('Excel descargado');
+            }
+
+            async function exportPDF() {
+              if (dayProducts.length===0) return;
+              const { jsPDF } = await import('jspdf');
+              const autoTable = (await import('jspdf-autotable')).default;
+              const doc = new jsPDF();
+              doc.setFontSize(14); doc.setFont('helvetica','bold');
+              doc.text('Productos vendidos en el día', 14, 16);
+              doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(80);
+              doc.text(`Día: ${dayLabel} · Almacén: ${locName}`, 14, 23);
+              doc.text(`Generado: ${new Date().toLocaleString('es')}`, 14, 28);
+              doc.setTextColor(0);
+              autoTable(doc, {
+                startY: 34,
+                head: [['#','Producto','Categoría','Cantidad total','Ventas','Importe (base)']],
+                body: dayProducts.map((r,i)=>[
+                  String(i+1),
+                  String(r.product_name??'—'),
+                  String(r.category_name??'—'),
+                  formatNumber(Number(r.quantity??0),2),
+                  String(Number(r.sales_count??0)),
+                  formatCurrency(Number(r.total_base??0)),
+                ]),
+                foot: [['','Total','',formatNumber(totalQty,2),String(dayProducts.length),formatCurrency(totalBase)]],
+                showFoot: 'lastPage',
+                theme: 'striped',
+                styles: { fontSize: 8 },
+                headStyles: { fillColor: [16, 185, 129], fontSize: 8 },
+                columnStyles: { 0: { cellWidth: 10 } },
+              });
+              doc.save(`vendidos-${dayProductsDate||'hoy'}.pdf`);
+            }
+
+            return (
+              <div className="card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">Productos vendidos en el día</h3>
+                    <p className="text-xs text-[var(--text-tertiary)] mt-0.5">{dayLabel} · {locName} · {formatNumber(totalQty,2)} unidades en {dayProducts.length} producto(s)</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={exportExcel} disabled={dayProducts.length===0} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>Excel</button>
+                    <button onClick={exportPDF} disabled={dayProducts.length===0} className="btn-secondary flex items-center gap-1.5 text-xs"><FileDown size={13}/>PDF</button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3 mb-4">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-500/30 bg-brand-600/10">
+                    <span className="text-xs text-[var(--text-tertiary)]">Importe del día (base)</span>
+                    <span className="text-sm font-bold text-brand-400">{formatCurrency(totalBase)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+                    <span className="text-xs text-[var(--text-tertiary)]">Unidades</span>
+                    <span className="text-sm font-bold text-[var(--text-primary)]">{formatNumber(totalQty,2)}</span>
+                  </div>
+                </div>
+                {dayProducts.length===0?<p className="text-center text-[var(--text-tertiary)] py-8 text-sm">Sin ventas en este día</p>:(
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="border-b border-[var(--border-primary)]">{['#','Producto','Categoría','Cantidad total','Ventas','Importe (base)'].map(h=><th key={h} className={cn('px-3 py-2 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide', h==='#'||h==='Producto'||h==='Categoría'?'text-left':'text-right')}>{h}</th>)}</tr></thead>
+                      <tbody>{dayProducts.map((r,i)=>(
+                        <tr key={String(r.id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                          <td className="px-3 py-2.5 text-[var(--text-tertiary)] font-medium">{i+1}</td>
+                          <td className="px-3 py-2.5 text-[var(--text-primary)] font-medium">{String(r.product_name??'—')}{String(r.unit??'')?<span className="text-[10px] text-[var(--text-tertiary)] ml-1">({String(r.unit)})</span>:null}</td>
+                          <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{String(r.category_name??'—')}</td>
+                          <td className="px-3 py-2.5 text-right text-[var(--text-primary)] font-medium">{formatNumber(Number(r.quantity??0),2)}</td>
+                          <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{String(r.sales_count??0)}</td>
+                          <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{formatCurrency(Number(r.total_base??0))}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -944,6 +1197,176 @@ export default function ReportesPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tabla de ventas agrupadas por TURNO (modo por turnos) ─────────
+// Una fila por turno de caja del período, ORDENADO POR LA FECHA DE INICIO
+// del turno (la devuelve la API con ORDER BY opened_at ASC). Muestra la
+// ventana del turno, el vendedor, el arqueo (si cerró) y sus ventas.
+function ShiftsTable({ days, dateFrom, dateTo, locationFilter, locations }: { days: number; dateFrom?: string; dateTo?: string; locationFilter: string; locations: R[] }) {
+  const [shifts, setShifts] = useState<R[]>([]);
+  const [loadingShifts, setLoadingShifts] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoadingShifts(true);
+    const locQ = locationFilter ? `&location_id=${locationFilter}` : '';
+    const dateQ = dateFrom && dateTo ? `&from=${dateFrom}&to=${dateTo}` : '';
+    apiFetch<R[]>(`/api/reports?type=sales_detail&days=${days}&group_by=shift${locQ}${dateQ}`)
+      .then(d => { if (alive) setShifts(Array.isArray(d) ? d : []); })
+      .catch(() => { if (alive) setShifts([]); })
+      .finally(() => { if (alive) setLoadingShifts(false); });
+    return () => { alive = false; };
+  }, [days, dateFrom, dateTo, locationFilter]);
+
+  const locName = locationFilter ? String(locations.find(l => String(l.id)===locationFilter)?.name ?? '—') : 'Todas las cajas';
+  const rangeLabel = dateFrom && dateTo ? `${dateFrom} a ${dateTo}` : days===7?'Últimos 7 días':days===30?'Últimos 30 días':`Últimos ${days} días`;
+
+  const totalSales = shifts.reduce((a,r)=>a+Number(r.total??0),0);
+  const totalCount = shifts.reduce((a,r)=>a+Number(r.count??0),0);
+  const totalDiff = shifts.reduce((a,r)=>a+Number(r.difference??0),0);
+  const closedCount = shifts.filter(r=>r.closed_at).length;
+
+  const fmtTs = (s: unknown) => {
+    const raw = String(s ?? '');
+    return raw ? raw.slice(0,16).replace('T',' ') : '—';
+  };
+
+  async function exportExcel() {
+    if (shifts.length===0) return;
+    await exportToXLSX(shifts.map(r=>({
+      'Inicio del turno': fmtTs(r.opened_at_local),
+      'Cierre': r.closed_at ? fmtTs(r.closed_at_local) : 'Abierto',
+      'Caja': String(r.pos_name??'—'),
+      'Abierto por': String(r.user_name??'—'),
+      'Estado': r.closed_at ? 'Cerrado' : 'Abierto',
+      'Fondo inicial': Number(r.opening_cash??0),
+      'Ventas': Number(r.total??0),
+      'Nº ventas': Number(r.count??0),
+      'Abonos': Number(r.customer_payments??0),
+      'Gastos': Number(r.expenses??0),
+      'Esperado': r.expected_cash!=null?Number(r.expected_cash):null,
+      'Contado': r.closing_cash!=null?Number(r.closing_cash):null,
+      'Diferencia': r.difference!=null?Number(r.difference):null,
+    })), 'ventas-por-turno', 'Ventas por turno');
+    toast.success('Excel descargado');
+  }
+
+  async function exportPDF() {
+    if (shifts.length===0) return;
+    const { jsPDF } = await import('jspdf');
+    const autoTable = (await import('jspdf-autotable')).default;
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text('Ventas por turno de caja', 14, 16);
+    doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(80);
+    doc.text(`Período: ${rangeLabel} · ${locName} · ordenado por fecha de inicio`, 14, 23);
+    doc.text(`Generado: ${new Date().toLocaleString('es')}`, 14, 28);
+    doc.setTextColor(0);
+    autoTable(doc, {
+      startY: 34,
+      head: [['Inicio','Cierre','Caja','Vendedor','Estado','Ventas','Nº','Abonos','Gastos','Esperado','Contado','Dif.']],
+      body: shifts.map(r=>[
+        fmtTs(r.opened_at_local),
+        r.closed_at ? fmtTs(r.closed_at_local) : '—',
+        String(r.pos_name??'—'),
+        String(r.user_name??'—'),
+        r.closed_at ? 'Cerrado' : 'Abierto',
+        formatCurrency(Number(r.total??0)),
+        String(Number(r.count??0)),
+        formatCurrency(Number(r.customer_payments??0)),
+        formatCurrency(Number(r.expenses??0)),
+        r.expected_cash!=null?formatCurrency(Number(r.expected_cash)):'—',
+        r.closing_cash!=null?formatCurrency(Number(r.closing_cash)):'—',
+        r.difference!=null?formatCurrency(Number(r.difference)):'—',
+      ]),
+      foot: [['Total','','','',String(shifts.length),formatCurrency(totalSales),String(totalCount),'','','','',formatCurrency(totalDiff)]],
+      showFoot: 'lastPage',
+      theme: 'striped',
+      styles: { fontSize: 7 },
+      headStyles: { fillColor: [38, 101, 245], fontSize: 7 },
+    });
+    doc.save('ventas-por-turno.pdf');
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2"><Clock3 size={15} className="text-brand-400"/> Ventas por turno de caja</h3>
+          <p className="text-xs text-[var(--text-tertiary)] mt-0.5">{rangeLabel} · {locName} · ordenados por fecha de inicio del turno</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={exportExcel} disabled={shifts.length===0} className="btn-secondary flex items-center gap-1.5 text-xs"><Download size={13}/>Excel</button>
+          <button onClick={exportPDF} disabled={shifts.length===0} className="btn-secondary flex items-center gap-1.5 text-xs"><FileDown size={13}/>PDF</button>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-500/30 bg-brand-600/10">
+          <span className="text-xs text-[var(--text-tertiary)]">Ventas del período</span>
+          <span className="text-sm font-bold text-brand-400">{formatCurrency(totalSales)}</span>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+          <span className="text-xs text-[var(--text-tertiary)]">Turnos</span>
+          <span className="text-sm font-bold text-[var(--text-primary)]">{shifts.length} ({closedCount} cerrados)</span>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+          <span className="text-xs text-[var(--text-tertiary)]">Tickets</span>
+          <span className="text-sm font-bold text-[var(--text-primary)]">{totalCount}</span>
+        </div>
+        {closedCount > 0 && (
+          <div className={cn('flex items-center gap-2 px-3 py-2 rounded-lg border', Math.abs(totalDiff) < 0.005 ? 'border-green-500/30 bg-green-500/10' : 'border-yellow-500/30 bg-yellow-500/10')}>
+            <span className="text-xs text-[var(--text-tertiary)]">Diferencia acumulada</span>
+            <span className={cn('text-sm font-bold', totalDiff<0?'text-red-400':totalDiff>0?'text-yellow-400':'text-green-400')}>{totalDiff>0?'+':''}{formatCurrency(totalDiff)}</span>
+          </div>
+        )}
+      </div>
+      {loadingShifts ? (
+        <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"/></div>
+      ) : shifts.length===0 ? (
+        <p className="text-center text-[var(--text-tertiary)] py-8 text-sm">Sin turnos en este período</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-[var(--border-primary)]">{['Inicio del turno','Cierre','Caja','Vendedor','Estado','Ventas','Nº','Esperado','Contado','Dif.'].map(h=><th key={h} className={cn('px-3 py-2 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide', ['Inicio del turno','Cierre','Caja','Vendedor','Estado'].includes(h)?'text-left':'text-right')}>{h}</th>)}</tr></thead>
+            <tbody>{shifts.map(r=>{
+              const diff = r.difference!=null?Number(r.difference):null;
+              return (
+                <tr key={String(r.shift_id)} className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-tertiary)]">
+                  <td className="px-3 py-2.5 text-[var(--text-primary)] whitespace-nowrap">{fmtTs(r.opened_at_local)}</td>
+                  <td className="px-3 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">{r.closed_at?fmtTs(r.closed_at_local):'—'}</td>
+                  <td className="px-3 py-2.5 text-[var(--text-primary)] font-medium">{String(r.pos_name??'—')}</td>
+                  <td className="px-3 py-2.5 text-[var(--text-secondary)]">{String(r.user_name??'—')}</td>
+                  <td className="px-3 py-2.5">
+                    {r.closed_at
+                      ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[var(--bg-muted)] text-[var(--text-tertiary)] border border-[var(--border-primary)]">Cerrado</span>
+                      : <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20"><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"/>Abierto</span>}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-brand-400 font-medium">{formatCurrency(Number(r.total??0))}</td>
+                  <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{String(r.count??0)}</td>
+                  <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{r.expected_cash!=null?formatCurrency(Number(r.expected_cash)):'—'}</td>
+                  <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{r.closing_cash!=null?formatCurrency(Number(r.closing_cash)):'—'}</td>
+                  <td className={cn('px-3 py-2.5 text-right font-medium',diff==null?'text-[var(--text-tertiary)]':diff<0?'text-red-400':diff>0?'text-yellow-400':'text-green-400')}>
+                    {diff!=null?`${diff>0?'+':''}${formatCurrency(diff)}`:'—'}
+                  </td>
+                </tr>
+              );
+            })}</tbody>
+            <tfoot>
+              <tr className="border-t-2 border-[var(--border-primary)] bg-[var(--bg-secondary)] font-semibold">
+                <td className="px-3 py-2.5 text-[var(--text-primary)]">Total ({shifts.length} turnos)</td>
+                <td colSpan={4}/>
+                <td className="px-3 py-2.5 text-right text-brand-400">{formatCurrency(totalSales)}</td>
+                <td className="px-3 py-2.5 text-right text-[var(--text-primary)]">{totalCount}</td>
+                <td colSpan={2}/>
+                <td className={cn('px-3 py-2.5 text-right',totalDiff<0?'text-red-400':totalDiff>0?'text-yellow-400':'text-green-400')}>{totalDiff>0?'+':''}{formatCurrency(totalDiff)}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
     </div>

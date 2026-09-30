@@ -3,6 +3,36 @@ import { requireAuth } from '@/lib/auth/session';
 import { query } from '@/lib/db/mysql';
 import { handle, ok, err, forbidden, requireRole } from '@/lib/api-helpers';
 import { cachedReport } from '@/lib/report-cache';
+import { localToUtcDb } from '@/lib/shift-time';
+
+// ── Helpers de hora para el agrupado por turnos ─────────────────
+// 'YYYY-MM-DD HH:MM:SS' (UTC) → 'YYYY-MM-DD HH:MM:SS' en hora local del
+// negocio. Los timestamps de shifts se leen crudos de la BD en UTC.
+function utcishToLocal(utcStr: string): string {
+  if (!utcStr) return '';
+  const d = new Date(utcStr.replace(' ', 'T') + 'Z');
+  if (isNaN(d.getTime())) return utcStr;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TIMEZONE ?? 'America/Havana',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).format(d).replace(', ', ' ');
+}
+function nowLocalStr(): string {
+  return utcishToLocal(new Date().toISOString().slice(0, 19).replace('T', ' '));
+}
+function nowUtcStr(): string {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}
+
+/** Lee los parámetros from/to de la URL para la clave de caché. */
+function fromDateCacheKey(searchParams: URLSearchParams): string {
+  return searchParams.get('from') ?? '';
+}
+function toDateCacheKey(searchParams: URLSearchParams): string {
+  return searchParams.get('to') ?? '';
+}
 
 export const GET = handle(async (req: Request) => {
   const user = await requireAuth();
@@ -215,7 +245,112 @@ export const GET = handle(async (req: Request) => {
     const toDate = searchParams.get('to');
     // Filtro opcional por moneda: deja solo las ventas de esa moneda.
     const currency = (searchParams.get('currency') ?? '').trim().toUpperCase();
+    // Modo por turnos: agrupar las ventas del período por TURNO de caja
+    // (ordenado por la fecha de inicio del turno).
+    const groupBy = (searchParams.get('group_by') ?? '').trim();
     const data = await cachedReport('sales_detail', user.id, locationId, days, async () => {
+      // ── Agrupado por TURNOS (modo por turnos) ──────────────────
+      // Cada fila es un turno de caja con su ventana real (apertura → cierre
+      // o "ahora" si sigue abierto) y sus ventas/ingresos/egresos calculados
+      // con las mismas convenciones que el arqueo: sales/payments en HORA
+      // LOCAL y shifts/expenses/customer_payments/cash_register en UTC.
+      if (groupBy === 'shift') {
+        // Ventana local→UTC del período pedido (para no listar turnos de
+        // hace meses cuando el usuario pide "últimos 7 días").
+        const winFromLocal = fromDate && toDate ? `${fromDate} 00:00:00` : '';
+        const winToLocal = fromDate && toDate ? `${toDate} 23:59:59` : '';
+        const winFromUtc = winFromLocal ? localToUtcDb(winFromLocal) : '';
+        const winToUtc = winToLocal ? localToUtcDb(winToLocal) : '';
+
+        const shiftWin = winFromUtc
+          ? ` AND s.opened_at <= ? AND (s.closed_at IS NULL OR s.closed_at >= ?)`
+          : '';
+        const shiftWinParams = winFromUtc ? [winToUtc, winFromUtc] : [];
+
+        const shifts = await query<Record<string, unknown>>(
+          `SELECT s.id, s.opened_at, s.closed_at, s.opening_cash, s.closing_cash,
+                  s.expected_cash, s.difference, s.status,
+                  DATE_FORMAT(s.opened_at, '%Y-%m-%d %H:%i:%s') AS opened_at_utc,
+                  DATE_FORMAT(s.closed_at, '%Y-%m-%d %H:%i:%s') AS closed_at_utc,
+                  p.name AS pos_name, u.name AS user_name, cu.name AS closed_by_name
+           FROM shifts s
+           LEFT JOIN pos p ON p.id = s.pos_id
+           LEFT JOIN users u ON u.id = s.user_id
+           LEFT JOIN users cu ON cu.id = s.closed_by
+           WHERE 1=1${locationId ? ' AND s.pos_id = ?' : ''}${shiftWin}
+           ORDER BY s.opened_at ASC`,
+          [...(locationId ? [locationId] : []), ...shiftWinParams]
+        );
+
+        const result: Record<string, unknown>[] = [];
+        for (const sh of shifts) {
+          const openedUtc = String(sh.opened_at_utc ?? '');
+          const closedUtc = sh.closed_at_utc ? String(sh.closed_at_utc) : null;
+          // Ventanas en ambas convenciones (igual que el arqueo del turno):
+          // se recortan con la ventana pedida para que las ventas de otros
+          // días del turno (turnos largos) no se cuenten dos veces.
+          const openedLocal = utcishToLocal(openedUtc);
+          const closedLocal = closedUtc ? utcishToLocal(closedUtc) : '';
+          const fromLocal = winFromLocal && winFromLocal > openedLocal ? winFromLocal : openedLocal;
+          const toLocal = winToLocal
+            ? (closedLocal ? (winToLocal < closedLocal ? winToLocal : closedLocal) : winToLocal)
+            : (closedLocal || nowLocalStr());
+          const fromUtc = winFromUtc && winFromUtc > openedUtc ? winFromUtc : openedUtc;
+          const toUtc = winToUtc
+            ? (closedUtc ? (winToUtc < closedUtc ? winToUtc : closedUtc) : winToUtc)
+            : (closedUtc || nowUtcStr());
+
+          const [saleAgg, cpAgg, expAgg, regAgg] = await Promise.all([
+            query<{ total: number; count: number }>(
+              `SELECT COALESCE(SUM(${baseExpr('total')}),0) AS total, COUNT(*) AS count
+               FROM sales s WHERE s.date BETWEEN ? AND ? AND s.status!='cancelled'${locationId ? ' AND s.pos_id = ?' : ''}`,
+              locationId ? [fromLocal, toLocal, locationId] : [fromLocal, toLocal]
+            ),
+            query<{ total: number }>(
+              `SELECT COALESCE(SUM(cp.amount*COALESCE(cp.exchange_rate,1)),0) AS total
+               FROM customer_payments cp LEFT JOIN sales s2 ON s2.id = cp.sale_id
+               WHERE cp.date BETWEEN ? AND ? AND (cp.sale_id IS NULL OR s2.pos_id = ?)`,
+              [fromUtc, toUtc, locationId]
+            ),
+            query<{ total: number }>(
+              `SELECT COALESCE(SUM(e.amount),0) AS total FROM expenses e
+               WHERE e.date BETWEEN ? AND ?${locationId ? ' AND e.pos_id = ?' : ''}`,
+              locationId ? [fromUtc, toUtc, locationId] : [fromUtc, toUtc]
+            ),
+            query<{ total: number }>(
+              `SELECT COALESCE(SUM(cr.cash_amount + cr.transfer_amount),0) AS total
+               FROM cash_register cr WHERE cr.date BETWEEN ? AND ? AND (cr.shift_id IS NULL OR cr.shift_id = ?)`,
+              [fromUtc, toUtc, String(sh.id)]
+            ),
+          ]);
+
+          const total = Number(saleAgg[0]?.total ?? 0);
+          result.push({
+            date: openedLocal.slice(0, 10),
+            shift_id: sh.id,
+            pos_name: sh.pos_name ?? 'Caja',
+            user_name: sh.user_name ?? '—',
+            closed_by_name: sh.closed_by_name ?? null,
+            status: String(sh.status ?? ''),
+            opened_at: openedUtc,
+            closed_at: closedUtc,
+            opened_at_local: openedLocal,
+            closed_at_local: closedLocal || null,
+            opening_cash: Number(sh.opening_cash ?? 0),
+            closing_cash: sh.closing_cash != null ? Number(sh.closing_cash) : null,
+            expected_cash: sh.expected_cash != null ? Number(sh.expected_cash) : null,
+            difference: sh.difference != null ? Number(sh.difference) : null,
+            count: Number(saleAgg[0]?.count ?? 0),
+            total,
+            customer_payments: Number(cpAgg[0]?.total ?? 0),
+            expenses: Number(expAgg[0]?.total ?? 0),
+            register_net: Number(regAgg[0]?.total ?? 0),
+            currency_breakdown: {},
+          });
+        }
+        return result;
+      }
+
       // Cada venta se registra en UNA sola moneda (sales.currency_code): el
       // resumen diario se desglosa por esa moneda mostrando el monto NATIVO de
       // la venta, sin convertir. La moneda base se guarda como NULL/'' y se
@@ -431,6 +566,79 @@ export const GET = handle(async (req: Request) => {
           : 'future',
       }));
     });
+    return ok(data);
+  }
+
+  // ── Productos más vendidos (ranking por cantidad) ──────────────
+  // Filtros: almacén (location_id), rango de fechas (from/to) o días
+  // (7/30/90). Ordena por cantidad descendente y incluye el importe vendido
+  // convertido a moneda base con la tasa congelada de cada venta.
+  if (type === 'top_products') {
+    await requireRole('owner', 'admin');
+    const fromDate = searchParams.get('from');
+    const toDate = searchParams.get('to');
+    const data = await cachedReport('top_products', user.id, locationId, days, async () => {
+      let sql = `
+        SELECT p.id, p.name AS product_name, p.unit,
+               c.name AS category_name,
+               SUM(si.quantity) AS quantity,
+               COUNT(DISTINCT s.id) AS sales_count,
+               SUM(si.quantity * ${baseExpr('unit_price', 'si')}) AS total_base,
+               SUM(si.quantity * ${baseExpr('cost', 'si')}) AS cost_base,
+               SUM(si.quantity * (${baseExpr('unit_price', 'si')} - ${baseExpr('cost', 'si')})) AS profit_base
+        FROM sale_items si
+        JOIN sales s ON s.id = si.sale_id
+        JOIN products p ON p.id = si.product_id
+        LEFT JOIN categories c ON c.id = p.category_id`;
+      const tp: unknown[] = [];
+      if (locationId) {
+        sql += ` JOIN location_movements lm ON lm.reference_id = s.id AND lm.type='venta' AND lm.location_id = ?`;
+        tp.push(locationId);
+      }
+      sql += fromDate && toDate
+        ? ` WHERE s.date BETWEEN ? AND ? AND s.status != 'cancelled'`
+        : ` WHERE s.date >= DATE_SUB(NOW(), INTERVAL ? DAY) AND s.status != 'cancelled'`;
+      tp.push(...(fromDate && toDate ? [fromDate, toDate + ' 23:59:59'] : [days]));
+      sql += ` GROUP BY p.id, p.name, p.unit, c.name
+               ORDER BY quantity DESC, total_base DESC`;
+      return query(sql, tp);
+    }, `${fromDateCacheKey(searchParams)}|${toDateCacheKey(searchParams)}`);
+    return ok(data);
+  }
+
+  // ── Productos vendidos en el día (con cantidades totales) ─────
+  // Igual que top_products pero limitado a UNA fecha (por defecto hoy).
+  // La fecha se interpreta en HORA LOCAL del negocio (sales se guarda local).
+  if (type === 'day_products') {
+    await requireRole('owner', 'admin');
+    const day = (searchParams.get('day') ?? '').trim();
+    const dayMatch = /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : '';
+    const data = await cachedReport('day_products', user.id, locationId, days, async () => {
+      let sql = `
+        SELECT p.id, p.name AS product_name, p.unit,
+               c.name AS category_name,
+               SUM(si.quantity) AS quantity,
+               COUNT(DISTINCT s.id) AS sales_count,
+               SUM(si.quantity * ${baseExpr('unit_price', 'si')}) AS total_base
+        FROM sale_items si
+        JOIN sales s ON s.id = si.sale_id
+        JOIN products p ON p.id = si.product_id
+        LEFT JOIN categories c ON c.id = p.category_id`;
+      const dp: unknown[] = [];
+      if (locationId) {
+        sql += ` JOIN location_movements lm ON lm.reference_id = s.id AND lm.type='venta' AND lm.location_id = ?`;
+        dp.push(locationId);
+      }
+      if (dayMatch) {
+        sql += ` WHERE s.date >= ? AND s.date <= ? AND s.status != 'cancelled'`;
+        dp.push(`${dayMatch} 00:00:00`, `${dayMatch} 23:59:59`);
+      } else {
+        sql += ` WHERE DATE(s.date) = CURDATE() AND s.status != 'cancelled'`;
+      }
+      sql += ` GROUP BY p.id, p.name, p.unit, c.name
+               ORDER BY quantity DESC, total_base DESC`;
+      return query(sql, dp);
+    }, dayMatch);
     return ok(data);
   }
 

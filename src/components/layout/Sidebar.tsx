@@ -55,10 +55,18 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    // Sección independiente de reportes y análisis (más vendidos, vendidos
+    // en el día, rentabilidad, transferencias, etc.)
+    title: 'Reportes',
+    icon: BarChart2,
+    items: [
+      { href: '/dashboard/reportes', icon: BarChart2, label: 'Reportes', roles: ['owner','admin'] },
+    ],
+  },
+  {
     title: 'Administración',
     icon: Shield,
     items: [
-      { href: '/dashboard/reportes', icon: BarChart2, label: 'Reportes', roles: ['owner','admin'] },
       { href: '/dashboard/auditoria', icon: Shield, label: 'Auditoría', roles: ['owner','admin'] },
       { href: '/dashboard/notificaciones', icon: Bell, label: 'Notificaciones', roles: ['owner','admin','warehouse','seller'] },
       { href: '/dashboard/usuarios', icon: UserCog, label: 'Usuarios', roles: ['owner','admin'] },

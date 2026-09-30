@@ -23,6 +23,8 @@ const TTL = {
   sales_detail: 300, // 5 min
   transfers: 300,    // 5 min
   expiration: 120,   // 2 min
+  top_products: 300, // 5 min
+  day_products: 120, // 2 min (cambia con cada venta del día)
 } as const;
 
 type ReportType = keyof typeof TTL;
@@ -133,7 +135,7 @@ export async function invalidateAllReportCaches(userId: string): Promise<void> {
   if (!valkey) return;
 
   const date = todayKey();
-  const types: ReportType[] = ['dashboard', 'seller', 'margins', 'restock', 'sales_detail', 'transfers', 'expiration'];
+  const types: ReportType[] = ['dashboard', 'seller', 'margins', 'restock', 'sales_detail', 'transfers', 'expiration', 'top_products', 'day_products'];
 
   for (const type of types) {
     try {
