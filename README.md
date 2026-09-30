@@ -30,14 +30,14 @@ Sistema de gestión integral para tienda retail. **Sin Supabase.** Todo corre en
 | **Compras** 📦 | Histórico de compras a proveedores con filtros por producto, proveedor y rango de fechas. Tarjetas de resumen con costos totales |
 | **Almacenes** | Múltiples almacenes/puntos de venta, stock por ubicación, traslados entre ubicaciones |
 | **Movimientos** 🔄 | Vista unificada de todos los movimientos de stock (entradas, salidas, ventas, ajustes, gastos) con filtros por tipo, almacén, producto y fecha |
-| **Ventas** | POS con pagos mixtos (efectivo, transferencia, crédito), cancelaciones, detalle por venta, filtro de fechas, abonos vinculados |
+| **Ventas** | POS con pagos mixtos (efectivo, transferencia, crédito, oferta), cancelaciones, detalle por venta, filtro de fechas, abonos vinculados y **modificación de precios durante el abono** de ventas a crédito (Dueño/Admin, como la oferta) |
 | **Clientes** | Cuentas por cobrar, historial de abonos vinculados a ventas específicas |
 | **Proveedores** | CRUD + historial de precios por producto/proveedor |
 | **Gastos** | Consumo interno, gastos operativos con método de pago (efectivo/transferencia), categorías personalizables |
 | **Reservaciones** 📋 | Gestión de pedidos de clientes (pendiente/confirmada/cancelada), edición inline de cantidad y notas, estadísticas por estado |
 | **Contabilidad** 💰 | Libro de caja completo: saldos en efectivo y transferencia, flujo del día, aportes de capital, ajustes manuales, gráfico de evolución histórica, filtro por periodo (todo/semana/mes/90 días/personalizado) |
-| **Turnos** ⏱️ | Módulo independiente de turnos de caja por punto de venta: apertura, cierre y arqueo (efectivo esperado vs. contado). Se activa con el modo por turnos en Configuración |
-| **Reportes** | Ventas, rentabilidad, variación de precios, proyección de reabastecimiento, cuentas por cobrar |
+| **Turnos** ⏱️ | Módulo independiente de turnos de caja por punto de venta: apertura, cierre y arqueo por moneda (efectivo esperado vs. contado declarado en cada moneda física). Se activa con el modo por turnos en Configuración |
+| **Reportes** 📊 | Sección independiente del menú: ventas por día (desglose por moneda) y **por turno** (ordenados por fecha de inicio), productos más vendidos (filtros de almacén y 7/30/90 días o personalizado), vendidos en el día con cantidades, rentabilidad, variación de precios, reabastecimiento, transferencias, vencimientos y cuentas. Exportación a CSV, Excel y PDF |
 | **Auditoría** 🛡️ | Registro detallado de eliminaciones y ajustes críticos: quién, qué, cuándo y detalles del cambio |
 | **Usuarios** | Roles (Dueño, Admin, Vendedor, Bodeguero) + permisos granulares por módulo |
 | **Configuración** ⚙️ | Módulo por pestañas (Negocio, Operación, Impresión): identidad del negocio, modo de operación (días/turnos) y gestión de impresoras de tickets (57/80 mm, WebUSB, impresora predeterminada) |
@@ -47,7 +47,7 @@ Sistema de gestión integral para tienda retail. **Sin Supabase.** Todo corre en
 | Rol | Módulos accesibles |
 |-----|-------------------|
 | **Dueño** | Todos los módulos |
-| **Administrador** | Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Turnos, Reportes, Auditoría |
+| **Administrador** | Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Turnos, Reportes, Auditoría (los grupos Reportes y Finanzas son secciones independientes del menú) |
 | **Vendedor** | Dashboard, Ventas, Reservaciones, Clientes |
 | **Bodeguero** | Dashboard, Inventario, Compras, Movimientos, Almacenes, Proveedores |
 
@@ -367,11 +367,12 @@ src/
 │   │   ├── purchase-prices/    # Histórico de precios
 │   │   ├── customers/          # CRUD
 │   │   ├── customer-payments/  # Abonos
-│   │   ├── sales/              # POS + [id] + cancel + pay
+│   │   ├── sales/              # POS + [id] + cancel + pay + prices (modif. precios)
 │   │   ├── expenses/           # CRUD
 │   │   ├── expense-categories/ # Categorías de gastos
 │   │   ├── users/              # CRUD + [id]
-│   │   ├── reports/            # dashboard, margins, restock, debts, price_history
+│   │   ├── reports/            # dashboard, sales_detail (día/turno), top_products,
+│   │   │                       # day_products, margins, restock, debts, transfers...
 │   │   ├── locations/          # Almacenes + stock + stock-summary
 │   │   ├── location-movements/ # Movimientos por ubicación
 │   │   ├── stock-movements/    # Movimientos de stock
@@ -446,7 +447,7 @@ scripts/
 | Rol | Módulos |
 |-----|---------|
 | **Dueño** | Todos (Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Reportes, Auditoría, Usuarios) |
-| **Administrador** | Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Turnos, Reportes, Auditoría |
+| **Administrador** | Dashboard, Ventas, Reservaciones, Inventario, Compras, Movimientos, Almacenes, Clientes, Proveedores, Gastos, Contabilidad, Turnos, Reportes, Auditoría (los grupos Reportes y Finanzas son secciones independientes del menú) |
 | **Vendedor** | Dashboard, Ventas, Reservaciones, Clientes |
 | **Bodeguero** | Dashboard, Inventario, Compras, Movimientos, Almacenes, Proveedores |
 

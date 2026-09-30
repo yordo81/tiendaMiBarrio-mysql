@@ -75,7 +75,8 @@ desplegables; solo se muestran las secciones permitidas para tu rol:
 - **Ventas y clientes:** Ventas · Reservaciones · Clientes
 - **Inventario:** Inventario · Compras · Movimientos · Almacenes · Proveedores
 - **Finanzas:** Gastos · Contabilidad · Turnos *(solo en modo por turnos)*
-- **Administración:** Reportes · Auditoría · Notificaciones · Usuarios · Configuración
+- **Reportes:** Reportes *(sección independiente; solo Dueño y Administrador)*
+- **Administración:** Auditoría · Notificaciones · Usuarios · Configuración
 
 Arriba aparecen: el **estado de conexión** (En línea / Sin conexión), el **nombre y
 logo del negocio** y, en modo por turnos, un indicador del turno abierto.
@@ -142,6 +143,7 @@ Existen dos modos de venta:
 | **Efectivo** | Se ingresa el efectivo recibido y el sistema calcula el **cambio**. |
 | **Transferencia** | Pago bancario. Se puede anotar el teléfono del cliente. |
 | **Mixto** | Parte en efectivo y parte por transferencia en una sola venta. |
+| **Oferta** | Cobro en varias monedas con **total negociado editable** (paso 3); puede cobrarse parcial dejando el resto como deuda. Solo Dueño/Admin. |
 | **Crédito** | La venta queda **pendiente** y suma deuda al cliente. Solo Dueño/Admin. |
 
 - El **teléfono del cliente es opcional** en las transferencias, pero si se escribe
@@ -242,7 +244,9 @@ de sus pagos (crédito/mixto/contado) como respaldo.
 En el detalle de una venta **pendiente** o **parcial** aparece el botón **Cobrar**,
 que abre el mismo asistente de cobro del POS táctil (4 pasos):
 
-1. **Método:** Efectivo, Transferencia o Mixto.
+1. **Método:** Efectivo, Transferencia o Mixto. Con **Dueño/Admin** aparece también
+   el bloque **«Modificar precios de la venta»** (ver
+   [Clientes y abonos](#10-clientes-y-abonos)).
 2. **Moneda:** cualquiera de las monedas activas (físicas o digitales). El abono
    se convierte a la moneda de la deuda con la tasa vigente. Con el método
    **Mixto** y varias monedas activas se marca **más de una moneda a la vez** y
@@ -288,6 +292,22 @@ Pedidos anticipados de clientes (catálogo público en la página de entrada).
   - Se puede **vincular a una venta** concreta o dejar como **abono general**.
   - El abono reduce el saldo y queda en el historial.
 - Los abonos afectan el **efectivo esperado del turno** y el **libro de caja**.
+
+### Modificar precios durante el abono de una venta a crédito
+
+Mientras el cliente está abonando una venta pendiente/parcial (crédito u oferta
+parcial), el **Dueño y los Administradores** pueden corregir el **precio de venta
+de cada producto** de esa venta, igual que al registrar una **oferta**:
+
+1. Abre la venta y pulsa **Cobrar** (asistente de abono).
+2. En el **paso 1** aparece el bloque **«Modificar precios de la venta»** — solo
+   visible para Dueño/Admin. Despliégalo y ajusta el precio de cada producto.
+3. Se muestra el **nuevo total ≈** en vivo (sube/baja) y un aviso si el cambio
+   deja el total por debajo de lo ya abonado (el servidor **rechaza** ese caso).
+4. **Guardar precios:** recalcula el total de la venta, ajusta el **saldo del
+   cliente** por la diferencia y actualiza la deuda pendiente del asistente para
+   continuar el abono con el monto correcto. Cada precio cambiado queda en
+   **Auditoría** (action `price_override`, «Precio: X → Y»).
 
 ---
 
@@ -369,15 +389,19 @@ Las categorías de gasto se administran desde este módulo.
 - **Abrir turno:** selecciona la **caja/punto de venta** e indica el **fondo/efectivo
   de apertura**. Sin turno abierto no se pueden registrar ventas.
 - **Cerrar turno (arqueo de caja):**
-  1. Cuenta el efectivo y regístralo en **«Efectivo contado en caja»**.
-  2. El sistema calcula el **Efectivo esperado** a partir de:
+  1. Cuenta el efectivo y decláralo **por cada moneda física** con la que se cobró
+     en efectivo (la moneda base incluida). El sistema muestra un campo por moneda
+     con el efectivo esperado de cada una y su equivalencia en moneda base.
+  2. El botón **«Cerrar turno»** se bloquea hasta declarar todas las monedas con
+     efectivo esperado. Con una sola moneda se captura el total como siempre.
+  3. El sistema calcula el **Efectivo esperado** a partir de:
      fondo de apertura + ventas en efectivo + abonos en efectivo − gastos, con las
-     conversiones a la moneda base.
-  3. Si hay varias monedas activas, verás la ayuda **«Efectivo esperado por moneda»**
-     (cuánto se espera de cada moneda además del total en moneda base).
-  4. Al cerrar se registra la **diferencia** (contado − esperado) en el historial.
-- **Reporte de turno:** desglose de ventas, pagos, **efectivo esperado por moneda** y
-  diferencia, con exportación a **PDF**.
+     conversiones a la moneda base usando la **tasa congelada del turno**.
+  4. El **total contado** (en moneda base) se recalcula sumando cada moneda × su
+     tasa congelada; al cerrar se registra la **diferencia** (contado − esperado)
+     y el desglose por moneda en el historial y en **Auditoría**.
+- **Reporte de turno:** desglose de ventas, pagos, **efectivo esperado y contado
+  por moneda** (con su diferencia) y diferencia total, con exportación a **PDF**.
 
 > ℹ️ **Sobre el redondeo y el vuelto:** el cambio entregado no se registra como salida.
 > Si al cerrar caja ingresas el efectivo físico real (ya sin el vuelto entregado), el
@@ -388,20 +412,25 @@ Las categorías de gasto se administran desde este módulo.
 
 ## 19. Reportes
 
-`Reportes` con selector de rango (**7 / 30 / 90 días o personalizado**) y pestañas:
+Sección independiente del menú (grupo **Reportes**), solo para **Dueño y
+Administrador**. Selector de rango (**7 / 30 / 90 días o personalizado**) y
+pestañas:
 
 | Pestaña | Contenido |
 |---------|-----------|
-| **Ventas** | Totales, cantidad, promedio, gastos y utilidad; listado, **Resumen diario de ventas** (una columna por cada moneda con ventas en el período, **incluida la moneda base**, con el monto **nativo** de cada moneda; solo aparece una moneda si hubo alguna venta en ella, la **cantidad de ventas por día**, más una columna final con el **total equivalente en moneda base**) y exportación. Incluye **filtro por moneda** («Todas las monedas» o una en concreto). La exportación **CSV** del resumen diario incluye fecha, cantidad de ventas, cada moneda y el **total en moneda base** por día. |
+| **Ventas** | Totales, cantidad, promedio, gastos y utilidad; **Resumen diario de ventas** (una columna por cada moneda con ventas en el período, **incluida la moneda base**, con el monto **nativo** de cada moneda, la **cantidad de ventas por día** y el **total equivalente en moneda base**). Incluye **filtro por moneda**. En **modo por turnos** añade la tarjeta **«Ventas por turno de caja»**: una fila por turno, **ordenados por fecha de inicio del turno**, con caja, vendedor, estado (Abierto/Cerrado), ventas, tickets, esperado/contado/diferencia del arqueo y totales del período. Exportación **CSV, Excel y PDF**. |
+| **Más vendidos** | Ranking de **todos los productos por cantidad vendida** (descendente), con categoría, Nº de ventas, importe y ganancia en moneda base. **Filtros: almacén + 7/30/90 días + fecha personalizada.** Exportación **Excel y PDF**. |
+| **Vendidos hoy** | Productos vendidos **en el día** con sus **cantidades totales**, Nº de ventas e importe. Filtro de **día** (por defecto hoy) y **almacén**. Exportación **Excel y PDF**. |
 | **Rentabilidad** | Márgenes: ventas, costo, utilidad bruta, gastos, utilidad neta y margen %. |
-| **Transferencias** | Ventas por transferencia (**monedas digitales**). Incluye **columna de moneda** (con su etiqueta Digital/Efectivo) y **filtro por moneda** («Todas las monedas» o una en concreto). |
+| **Transferencias** | Ventas por transferencia (**monedas digitales**). Incluye **columna de moneda** (con su etiqueta Digital/Efectivo) y **filtro por moneda**. |
 | **Variación Precios** | Historial de cambios de precio por producto. |
 | **Reabastecimiento** | Pronóstico de reposición según consumo. |
 | **Vencimientos** | Productos próximos a vencer / vencidos. |
 | **Cuentas** | Deudas de clientes y antigüedad de saldos. |
 
 - Filtro por **almacén** donde aplica.
-- Exportación a **CSV** y **PDF** (encabezado incluye la moneda cuando se filtra por ella).
+- Exportación a **CSV**, **Excel (xlsx)** y **PDF** (encabezado incluye el almacén,
+  el rango y la moneda cuando se filtra por ella).
 
 ---
 
@@ -519,9 +548,19 @@ Configuración → Monedas.
 El crédito se registra en moneda base; el cobro parcial es solo para efectivo/
 transferencia.
 
+**El cierre de caja me pide declarar el efectivo por moneda.**
+Es el arqueo por moneda: si el turno cobró en efectivo en varias monedas físicas,
+debes declarar cuánto contaste de cada una. El botón se desbloquea al completarlas.
+
 **El cierre de caja muestra una diferencia.**
 Revisa el efectivo contado (incluye el vuelto entregado) y que las tasas estén al día.
 El sistema calcula el esperado con las conversiones a moneda base.
+
+**¿Puedo cambiar el precio de una venta a crédito que el cliente ya está pagando?**
+Sí: Dueño/Admin pueden modificar los precios desde el asistente de abono
+(Cobrar → «Modificar precios de la venta»), igual que en una oferta. No se permite
+si el nuevo total queda por debajo de lo ya abonado, ni en ventas ya pagadas o
+canceladas.
 
 **Quiero ocultar Reservaciones / Contabilidad / POS táctil.**
 Configuración → Operación → Módulos del sistema.
@@ -540,8 +579,10 @@ integridad. Es irreversible.
 | **Tasa USD** | Cuántas unidades de una moneda equivalen a 1 USD. |
 | **Redondeo a 0.05** | Ajuste hacia arriba al múltiplo de 0.05 más cercano. |
 | **Cobro parcial** | Pago repartido en varias monedas; un comprobante por moneda. |
-| **Arqueo** | Cierre de turno comparando efectivo contado vs. esperado. |
+| **Arqueo** | Cierre de turno comparando efectivo contado vs. esperado, **declarado por cada moneda física**. |
 | **Efectivo esperado** | Efectivo que debería haber en caja según los movimientos. |
 | **Tasa congelada** | Tasa USD guardada en el pago al momento de la venta. |
 | **POS táctil** | Punto de venta optimizado para pantallas táctiles. |
 | **Turno** | Jornada de caja con apertura y cierre controlados. |
+| **Oferta** | Venta a precio negociado en varias monedas (exclusiva de Dueño/Admin). |
+| **price_override** | Registro de auditoría de un precio de venta modificado (X → Y). |

@@ -32,14 +32,14 @@
 | **Compras** | Histórico de compras a proveedores con filtros por producto, proveedor y fechas |
 | **Almacenes** | Múltiples almacenes/puntos de venta, traslados entre ubicaciones |
 | **Movimientos** | Vista unificada de movimientos de stock con filtros por tipo, ubicación, producto y fecha |
-| **Ventas** | POS con pagos mixtos (efectivo, transferencia, crédito), cancelaciones, abonos vinculados |
+| **Ventas** | POS con pagos mixtos (efectivo, transferencia, crédito, oferta), cancelaciones, abonos vinculados y modificación de precios durante el abono de ventas a crédito (Dueño/Admin) |
 | **Clientes** | Cuentas por cobrar, historial de abonos vinculados a ventas |
 | **Proveedores** | CRUD + historial de precios por producto/proveedor |
 | **Gastos** | Gastos operativos con método de pago (efectivo/transferencia), categorías personalizables |
 | **Reservaciones** | Gestión de pedidos de clientes (pendiente/confirmada/cancelada) |
 | **Contabilidad** | Libro de caja: saldos efectivo/transferencia, aportes de capital, ajustes, gráfico de evolución, filtro por periodo |
-| **Turnos** | Turnos de caja por punto de venta con arqueo; módulo independiente que se activa con el modo por turnos en Configuración |
-| **Reportes** | Ventas, rentabilidad, variación de precios, proyección de reabastecimiento, cuentas |
+| **Turnos** | Turnos de caja por punto de venta con arqueo por moneda (contado declarado en cada moneda física); módulo independiente que se activa con el modo por turnos en Configuración |
+| **Reportes** | Sección independiente del menú: ventas por día y por turno, más vendidos (7/30/90 días o personalizado), vendidos en el día, rentabilidad, variación de precios, reabastecimiento, transferencias, vencimientos y cuentas. Exportación a CSV, Excel y PDF |
 | **Auditoría** | Registro de eliminaciones y ajustes críticos con detalles de quién, qué y cuándo |
 | **Usuarios** | Roles (Dueño, Admin, Vendedor, Bodeguero) + permisos granulares |
 | **Configuración** | Módulo por pestañas (Negocio, Operación, Impresión): identidad del negocio, modo de operación (días/turnos), activar/desactivar los módulos de Reservaciones y del POS táctil para vendedores, y gestión de impresoras de tickets (57/80 mm, WebUSB, impresora predeterminada) |
@@ -147,10 +147,20 @@ mysql -u root -p < mysql/migration-019-printers.sql
 mysql -u root -p < mysql/migration-020-reservations-toggle.sql
 mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
 mysql -u root -p < mysql/migration-022-users-pos.sql
-mysql -u root -p < mysql/migration-020-reservations-toggle.sql
-mysql -u root -p < mysql/migration-021-pos-touch-toggle.sql
+mysql -u root -p < mysql/migration-026-payments-currency.sql
+mysql -u root -p < mysql/migration-027-product-currencies.sql
+mysql -u root -p < mysql/migration-028-enable-accounting.sql
 mysql -u root -p < mysql/migration-029-usd-reference-rates.sql
+mysql -u root -p < mysql/migration-030-currency-type.sql
+mysql -u root -p < mysql/migration-031-payment-method-oferta.sql
+mysql -u root -p < mysql/migration-032-sales-list-total.sql
+mysql -u root -p < mysql/migration-033-sales-payment-method.sql
+mysql -u root -p < mysql/migration-034-shift-closing-by-currency.sql
 ```
+
+> 💡 Las migraciones 023–025 (multi-moneda base) ya vienen integradas en
+> `mysql/all-migrations.sql`; si tu BD es anterior a la 026, aplícalo primero
+> (`mysql -u root -p < mysql/all-migrations.sql`).
 
 > 💡 **Aplicación automática:** `node scripts/apply-migration-012.js` a `node scripts/apply-migration-020.js` aplican las migraciones 012-020 de forma idempotente leyendo las credenciales de `.env` (útil si no tienes el cliente `mysql` en el PATH o para no teclear la contraseña).
 
@@ -178,7 +188,16 @@ mysql -u root -p < mysql/migration-029-usd-reference-rates.sql
 | `migration-019-printers.sql` | Crea la tabla `printers` para registrar varias impresoras térmicas (vendor/product/serial, clave única `device_key`) y marcar cuál imprime los tickets de venta (`is_default`). |
 | `migration-020-reservations-toggle.sql` | Agrega a `settings` la columna `show_reservations`: permite mostrar u ocultar el módulo de Reservaciones (catálogo público en la página de entrada + menú del dashboard) desde Configuración → Operación. |
 | `migration-021-pos-touch-toggle.sql` | Agrega a `settings` la columna `enable_touch_pos`: permite activar o desactivar el punto de venta táctil para vendedores (al desactivarlo, los vendedores vuelven a la página de Ventas con la ventana modal) desde Configuración → Operación. |
-| `migration-029-usd-reference-rates.sql` | Pasa las tasas de cambio a referencia USD (`currency_rates` solo guarda `1 USD = X moneda`, derivando las existentes y borrando los pares antiguos sin crear inversas) y agrega `sales.usd_rate` (tasa contra el dólar congelada por venta, rellenada en las ventas antiguas). |
+| `migration-022-users-pos.sql` | Agrega `users.pos_id` para fijar la caja de un vendedor en modo por turnos. |
+| `migration-026-payments-currency.sql` | Agrega `currency_code` y `exchange_rate` a `payments` y `customer_payments`: cada pago guarda la moneda cobrada y su tasa congelada para el arqueo por moneda. |
+| `migration-027-product-currencies.sql` | Moneda de venta nativa por producto (`products.sale_currency`). |
+| `migration-028-enable-accounting.sql` | Agrega a `settings` la columna `enable_accounting` (mostrar/ocultar Contabilidad). |
+| `migration-029-usd-reference-rates.sql` | Pasa las tasas de cambio a referencia USD (`currency_rates` solo guarda `1 USD = X moneda`) y agrega `sales.usd_rate`. |
+| `migration-030-currency-type.sql` | Agrega `currencies.currency_type` (`cash` = moneda física → efectivo; `digital` → transferencia). |
+| `migration-031-payment-method-oferta.sql` | Amplía el ENUM de métodos de pago con `oferta` (venta negociada en varias monedas). |
+| `migration-032-sales-list-total.sql` | Agrega `sales.list_total`: total al precio de lista en ofertas, para mostrar el descuento en el ticket. |
+| `migration-033-sales-payment-method.sql` | Agrega `sales.payment_method` (método general de la venta: cash/transfer/mixed/credit/oferta) para la columna «Tipo» del listado. |
+| `migration-034-shift-closing-by-currency.sql` | Agrega `shifts.closing_cash_by_currency` (JSON): desglose del efectivo contado declarado por moneda al cerrar el turno (arqueo por moneda). |
 
 > **Nota:** Si usaste `node scripts/setup-db.js` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo ejecútalas manualmente si actualizas una BD existente.
 
