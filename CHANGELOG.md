@@ -5,6 +5,15 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 Basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y [Semantic Versioning](https://semver.org/lang/es/).
 
 
+# [1.2.0](https://github.com/yordo81/tiendaMiBarrio-mysql/compare/v1.1.0...v1.2.0) (2026-09-30)
+
+
+### Features
+
+* **reportes:** ventas por turno, más vendidos y vendidos en el día con exports ([5eafb02](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/5eafb020092442ef1b7b81ef161f5c1c91729412))
+* **turnos:** arqueo de cierre por moneda con el contado declarado en cada moneda física ([832572a](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/832572a79ab3f95e688cca37ae787767fc3a172a))
+* **ventas:** modificar precios de una venta a crédito mientras se abona ([5939eab](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/5939eaba6126b6f380b5349cdff145f6ea8d8bdd))
+
 # [1.1.0](https://github.com/yordo81/tiendaMiBarrio-mysql/compare/v1.0.0...v1.1.0) (2026-09-29)
 
 
