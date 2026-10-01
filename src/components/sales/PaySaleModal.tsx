@@ -92,6 +92,10 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
   const [transferRef, setTransferRef] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  // El "Efectivo recibido" sigue automáticamente la parte en efectivo del
+  // abono (el dinero entra tal cual, sin cambio). Solo se desacopla cuando el
+  // usuario lo edita a mano (p. ej. billete grande para calcular el cambio).
+  const [cashTouched, setCashTouched] = useState(false);
 
   // ── Editor de precios (dueño/admin, venta a crédito en curso) ──
   // Igual que la oferta: mientras el cliente abona su deuda, el dueño/admin
@@ -183,6 +187,7 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
     setPayCurrency(target === 'sale' && sale?.currency_code ? String(sale.currency_code).toUpperCase() : '');
     setAmountInput(null);
     setCashReceived(0);
+    setCashTouched(false);
     setAmountTransfer(0);
     setTransferPhone('');
     setTransferRef('');
@@ -195,13 +200,19 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
   const transferPhoneValid = !!transferPhoneNormalized && /^(\+?53)?5\d{7}$/.test(transferPhoneNormalized);
   const hasTransfer = method === 'transfer' || method === 'mixed';
 
-  // Parte en efectivo del cobro (efectivo: todo; mixto: el resto tras la transferencia).
-  const cashPart = method === 'cash' ? chargeAmount : r2(Math.max(0, chargeAmount - amountTransfer));
-  const change = r2(cashReceived - cashPart);
-  // El efectivo recibido debe cubrir la parte en efectivo del cobro (±0.01):
-  // se exige siempre que el método incluya efectivo. Sin registrarlo (0) no
-  // se puede confirmar el abono.
-  const cashCovers = method === 'transfer' || r2(cashReceived + 0.01) >= cashPart;
+  // Parte en efectivo del abono (efectivo: todo; mixto: el resto tras la
+  // transferencia). El abono puede ser de CUALQUIER monto (total o parcial,
+  // nunca negativo): lo que no cubra la deuda sigue pendiente.
+  const chargeAmountPos = r2(Math.max(0, chargeAmount));
+  const cashPart = method === 'cash' ? chargeAmountPos : r2(Math.max(0, chargeAmountPos - Math.max(0, amountTransfer)));
+  /** Efectivo recibido efectivo: el editado a mano o el que cubre el abono. */
+  const effectiveCashReceived = cashTouched ? cashReceived : cashPart;
+  const change = r2(effectiveCashReceived - cashPart);
+  // El efectivo recibido debe cubrir la parte en efectivo del abono (±0.01):
+  // igual que en el POS, si falta dinero físico no se puede confirmar. Sin
+  // editarlo a mano, el recibido SIEMPRE cubre (el abono entra tal cual, sin
+  // cambio); solo se bloquea cuando el usuario edita el efectivo y no alcanza.
+  const cashCovers = method === 'transfer' || r2(effectiveCashReceived + 0.01) >= cashPart;
   const insufficientCash = (method === 'cash' || method === 'mixed') && !cashCovers;
 
   // ── Abono en varias monedas: cobertura por moneda ──
@@ -257,6 +268,7 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
     setMethod(next);
     setAmountInput(null);
     setCashReceived(0);
+    setCashTouched(false);
     setAmountTransfer(0);
     // Mixto con varias monedas activas: el abono se cobra en varias monedas,
     // igual que el POS táctil.
@@ -279,6 +291,8 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
   function pickCurrency(value: string) {
     setPayCurrency(value);
     setAmountInput(null);
+    setCashReceived(0);
+    setCashTouched(false);
   }
 
   /** Valida lo imprescindible antes de avanzar de paso. */
@@ -295,7 +309,9 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
           toast.error('Selecciona una moneda válida para el método de pago');
           return;
         }
-        if (chargeAmount <= 0) { toast.error('El monto a cobrar debe ser mayor a 0'); return; }
+        // El abono puede ser de cualquier monto no negativo (parcial o
+        // total); solo se exige que sea mayor que 0 y que no supere la deuda.
+        if (!(chargeAmount > 0)) { toast.error('El monto del abono debe ser mayor a 0'); return; }
         if (chargeAmount > amountDue + 0.01) {
           toast.error(`El monto supera la deuda pendiente (${fmtMoney(amountDue)})`);
           return;
@@ -323,14 +339,14 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
           return;
         }
       } else {
-        if (method === 'mixed' && (amountTransfer <= 0 || amountTransfer >= chargeAmount)) {
+        if (method === 'mixed' && (amountTransfer <= 0 || amountTransfer >= chargeAmountPos)) {
           toast.error('Indica un monto de transferencia menor que el monto a cobrar');
           return;
         }
         // El efectivo recibido debe cubrir la parte en efectivo: sin dinero
         // suficiente no se avanza al resumen ni se confirma el abono.
         if (insufficientCash) {
-          toast.error(`El efectivo recibido no cubre lo debido. Faltan ${fmtMoney(Math.max(0, r2(cashPart - cashReceived)))}`);
+          toast.error(`El efectivo recibido no cubre lo debido. Faltan ${fmtMoney(Math.max(0, r2(cashPart - effectiveCashReceived)))}`);
           return;
         }
       }
@@ -378,9 +394,13 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
 
   async function handleConfirm() {
     if (target === 'sale' ? !sale : !customer) return;
-    // Defensa extra: sin efectivo suficiente no se registra el abono.
+    // Defensa extra: montos válidos (no negativos) y sin efectivo insuficiente.
+    if (!(chargeAmount > 0)) {
+      toast.error('El monto del abono debe ser mayor a 0');
+      return;
+    }
     if (!multiCurrency && insufficientCash) {
-      toast.error(`El efectivo recibido no cubre lo debido. Faltan ${fmtMoney(Math.max(0, r2(cashPart - cashReceived)))}`);
+      toast.error(`El efectivo recibido no cubre lo debido. Faltan ${fmtMoney(Math.max(0, r2(cashPart - effectiveCashReceived)))}`);
       return;
     }
     if (multiCurrency && partialCoveredBase <= 0) {
@@ -410,11 +430,12 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
           currency_code: p.currency || (baseCurrency?.code ?? ''),
         }));
       } else {
+        // Abono de cualquier monto no negativo (parcial o total).
         let cash = 0;
         let transfer = 0;
-        if (method === 'cash') cash = chargeAmount;
-        else if (method === 'transfer') transfer = chargeAmount;
-        else { transfer = amountTransfer; cash = cashPart; }
+        if (method === 'cash') cash = chargeAmountPos;
+        else if (method === 'transfer') transfer = chargeAmountPos;
+        else { transfer = Math.max(0, amountTransfer); cash = cashPart; }
         parts = [{
           method,
           amount_cash: cash,
@@ -777,7 +798,7 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
                             className="input text-lg font-semibold"
                             placeholder="0.00"
                             value={part.amount || ''}
-                            onChange={e => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, amount: parseFloat(e.target.value) || 0 } : p))}
+                            onChange={e => setPayParts(prev => prev.map((p, i) => i === idx ? { ...p, amount: Math.max(0, parseFloat(e.target.value) || 0) } : p))}
                           />
                           {remainCur > 0 && (
                             <button
@@ -832,15 +853,25 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
               <>
             <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}>
               <div className="flex items-center justify-between">
-                <label className="label mb-0">Monto a cobrar en {payOption?.code ?? 'base'}</label>
-                <button
-                  type="button"
-                  onClick={() => setAmountInput(null)}
-                  className="text-xs font-medium px-2.5 py-1.5 rounded-lg text-white transition-transform active:scale-95"
-                  style={{ backgroundColor: 'var(--brand-600)' }}
-                >
-                  Resto pendiente
-                </button>
+                <label className="label mb-0">Monto del abono en {payOption?.code ?? 'base'}</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setAmountInput(0.05); }}
+                    className="text-xs font-medium px-2.5 py-1.5 rounded-lg transition-transform active:scale-95"
+                    style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }}
+                  >
+                    Abonar mínimo (0.05)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAmountInput(null); setCashTouched(false); }}
+                    className="text-xs font-medium px-2.5 py-1.5 rounded-lg text-white transition-transform active:scale-95"
+                    style={{ backgroundColor: 'var(--brand-600)' }}
+                  >
+                    Resto pendiente
+                  </button>
+                </div>
               </div>
               <input
                 type="number"
@@ -849,11 +880,18 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
                 className="input text-2xl font-bold text-center"
                 placeholder="0.00"
                 value={chargeAmount || ''}
-                onChange={e => setAmountInput(parseFloat(e.target.value) || 0)}
+                onChange={e => {
+                  // El abono nunca es negativo: parcial o total, cualquier monto.
+                  setAmountInput(Math.max(0, parseFloat(e.target.value) || 0));
+                }}
               />
+              {/* Pista: el abono puede ser de cualquier monto */}
+              <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                El cliente puede abonar cualquier monto (parcial o total); lo que falte sigue pendiente.
+              </p>
               {payCode !== saleCurrencyCode && (
                 <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
-                  ≈ {formatMoney(r2(convertAmount(chargeAmount, payCode, saleCurrencyCode, currencies)), saleCurrency?.symbol, saleCurrency?.code)} de la deuda
+                  ≈ {formatMoney(r2(convertAmount(chargeAmountPos, payCode, saleCurrencyCode, currencies)), saleCurrency?.symbol, saleCurrency?.code)} de la deuda
                 </p>
               )}
             </div>
@@ -864,7 +902,7 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
                   <label className="label mb-0">Efectivo recibido ({payOption?.code ?? 'base'})</label>
                   <button
                     type="button"
-                    onClick={() => setCashReceived(cashPart)}
+                    onClick={() => { setCashReceived(cashPart); setCashTouched(true); }}
                     className="text-xs font-medium px-2.5 py-1.5 rounded-lg text-white transition-transform active:scale-95"
                     style={{ backgroundColor: 'var(--brand-600)' }}
                   >
@@ -877,8 +915,13 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
                   step="1"
                   className="input text-2xl font-bold text-center"
                   placeholder="0.00"
-                  value={cashReceived || ''}
-                  onChange={e => setCashReceived(parseFloat(e.target.value) || 0)}
+                  value={cashTouched ? cashReceived : ''}
+                  onChange={e => {
+                    // Nunca negativo. Al editar a mano (p. ej. billete grande
+                    // para calcular cambio) deja de seguir al monto del abono.
+                    setCashReceived(Math.max(0, parseFloat(e.target.value) || 0));
+                    setCashTouched(true);
+                  }}
                 />
                 <div className="flex flex-wrap gap-2">
                   {(() => {
@@ -899,7 +942,7 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
                     ));
                   })()}
                 </div>
-                {(cashReceived > 0 || insufficientCash) && (
+                {(cashTouched || insufficientCash) && (
                   <p className={cn('text-sm font-semibold', change >= 0 ? 'text-green-400' : 'text-red-400')}>
                     {change >= 0 ? `Cambio: ${fmtMoney(change)}` : `Faltan: ${fmtMoney(-change)}`}
                   </p>
@@ -917,14 +960,14 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
                   className="input text-2xl font-bold text-center"
                   placeholder="0.00"
                   value={amountTransfer || ''}
-                  onChange={e => setAmountTransfer(parseFloat(e.target.value) || 0)}
+                  onChange={e => setAmountTransfer(Math.max(0, parseFloat(e.target.value) || 0))}
                 />
-                {amountTransfer > 0 && amountTransfer < chargeAmount && (
+                {amountTransfer > 0 && amountTransfer < chargeAmountPos && (
                   <p className="text-sm font-semibold" style={{ color: 'var(--text-tertiary)' }}>
                     El resto ({fmtMoney(cashPart)}) se cobra en efectivo.
                   </p>
                 )}
-                {amountTransfer >= chargeAmount && (
+                {amountTransfer >= chargeAmountPos && (
                   <p className="text-sm font-semibold text-yellow-400">⚠ La transferencia no puede cubrir más del monto a cobrar.</p>
                 )}
               </div>
@@ -1020,15 +1063,15 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
                   <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{payOption?.symbol} {payOption?.code}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span style={{ color: 'var(--text-tertiary)' }}>Monto a cobrar</span>
+                  <span style={{ color: 'var(--text-tertiary)' }}>Monto del abono</span>
                   <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{fmtMoney(chargeAmount)}</span>
                 </div>
               </>
             )}
-            {!multiCurrency && (method === 'cash' || method === 'mixed') && cashReceived > 0 && (
+            {!multiCurrency && (method === 'cash' || method === 'mixed') && effectiveCashReceived > 0 && (
               <div className="flex items-center justify-between text-sm">
                 <span style={{ color: 'var(--text-tertiary)' }}>Efectivo recibido</span>
-                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{fmtMoney(cashReceived)}</span>
+                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{fmtMoney(effectiveCashReceived)}</span>
               </div>
             )}
             {!multiCurrency && method === 'mixed' && amountTransfer > 0 && (
@@ -1037,7 +1080,7 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
                 <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{fmtMoney(amountTransfer)}</span>
               </div>
             )}
-            {!multiCurrency && (method === 'cash' || method === 'mixed') && (cashReceived > 0 || insufficientCash) && (
+            {!multiCurrency && (method === 'cash' || method === 'mixed') && (cashTouched || insufficientCash) && (
               <p className={cn('text-sm font-semibold', change >= 0 ? 'text-green-400' : 'text-red-400')}>
                 {change >= 0 ? `Cambio: ${fmtMoney(change)}` : `Faltan: ${fmtMoney(-change)}`}
               </p>
@@ -1074,7 +1117,7 @@ export default function PaySaleModal({ open, sale, customer = null, customerBala
           ) : (
             <button
               onClick={handleConfirm}
-              disabled={saving || (multiCurrency ? !partialValid : (chargeAmount <= 0 || insufficientCash))}
+              disabled={saving || (multiCurrency ? !partialValid : (!(chargeAmount > 0) || insufficientCash))}
               className="btn-primary flex-1 py-3.5 text-base disabled:opacity-50"
             >
               {saving

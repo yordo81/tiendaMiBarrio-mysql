@@ -251,11 +251,15 @@ que abre el mismo asistente de cobro del POS táctil (4 pasos):
    se convierte a la moneda de la deuda con la tasa vigente. Con el método
    **Mixto** y varias monedas activas se marca **más de una moneda a la vez** y
    el abono se reparte entre ellas (una parte por moneda).
-3. **Recibido:** **monto a cobrar** (arranca con el **resto pendiente** y se puede
-   editar para un abono parcial), efectivo recibido y cambio, monto por
-   transferencia y datos de la transferencia. En el cobro en varias monedas se
-   declara el monto de cada parte y el abono **también puede ser parcial**: lo
-   que quede sigue pendiente y la venta queda **Parcial**.
+3. **Recibido:** **monto del abono** (arranca con el **resto pendiente** y se puede
+   editar para un abono parcial: el cliente puede abonar **cualquier monto**, total
+   o parcial, siempre mayor que 0 y sin superar la deuda), efectivo recibido y
+   cambio, monto por transferencia y datos de la transferencia. El "Efectivo
+   recibido" sigue automáticamente el monto del abono (el dinero entra tal
+   cual, sin cambio); solo se desacopla si se edita a mano para calcular
+   cambio con un billete mayor. En el cobro en varias monedas se declara el
+   monto de cada parte y el abono **también puede ser parcial**: lo que quede
+   sigue pendiente y la venta queda **Parcial**.
 4. **Resumen:** revisa el abono y confirma. La venta pasa a **Parcial** o **Pagada**
    según lo abonado y el saldo del cliente se reduce.
 
@@ -263,9 +267,16 @@ que abre el mismo asistente de cobro del POS táctil (4 pasos):
 > "Efectivo recibido" debe cubrir la parte en efectivo del cobro (±0.01).
 > Si falta dinero no se puede avanzar al resumen ni confirmar: la UI muestra
 > "Faltan: X" en rojo y el botón queda deshabilitado. El botón **Exacto**
-> rellena el campo con el monto debido. Esta regla se aplica igual en el
-> POS táctil al registrar una venta (en modo turnos y en el asistente de
-> cobro de abonos).
+> rellena el campo con el monto debido. En el asistente de abonos el efectivo
+> recibido sigue automáticamente al monto del abono, así que solo se activa
+> este bloqueo cuando se edita a mano y no alcanza. Esta regla se aplica igual
+> en el POS táctil al registrar una venta (en modo turnos y en el asistente
+> de cobro de abonos).
+>
+> **Abonos parciales:** un abono a una venta a crédito (o al saldo del
+> cliente) puede ser de **cualquier monto** mayor que 0, nunca negativo y sin
+> superar la deuda pendiente; el resto queda como deuda y la venta pasa a
+> **Parcial** hasta saldarse.
 
 > En el **listado de ventas**, bajo el total se muestra **Pagado** con el desglose
 > por moneda y, debajo, una línea por **abono parcial** recibido (fecha · monedas y
