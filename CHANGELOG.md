@@ -5,6 +5,13 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 Basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y [Semantic Versioning](https://semver.org/lang/es/).
 
 
+## [1.2.1](https://github.com/yordo81/tiendaMiBarrio-mysql/compare/v1.2.0...v1.2.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **ventas:** permitir abonos parciales de cualquier monto en ventas a crédito ([1a2488a](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/1a2488a353b02b349594700be990f65b52275b22))
+
 # [1.2.0](https://github.com/yordo81/tiendaMiBarrio-mysql/compare/v1.1.0...v1.2.0) (2026-09-30)
 
 
