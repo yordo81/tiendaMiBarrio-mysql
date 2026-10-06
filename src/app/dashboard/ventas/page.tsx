@@ -99,8 +99,9 @@ function parseSaleAbonos(s: AnyRecord): SaleAbono[] {
 // Etiqueta compacta de la moneda de una venta (badge de la tabla/detalle).
 // Prioriza las monedas REALES en que se cobró (pagos de la venta + abonos
 // vinculados): una venta multi-moneda (oferta/mixto) o con abonos en otra
-// moneda se marca con esas monedas. Si todo quedó en la moneda base, cae a
-// la moneda de la venta (sin moneda = base: no se marca).
+// moneda se marca con esas monedas. Si todo quedó en una sola moneda, cae a
+// la moneda de la venta; sin currency_code = venta en la moneda base y
+// también se marca con ella, para que TODAS las ventas muestren su moneda.
 function saleCurrencyBadge(
   s: AnyRecord,
   currencies: CurrencyLite[] = []
@@ -117,7 +118,14 @@ function saleCurrencyBadge(
     return { label, title };
   }
   const code = String(s.currency_code ?? '').trim();
-  if (!code) return null; // sin moneda = moneda base: no se marca
+  if (!code) {
+    // Venta en la moneda base (currency_code NULL en la BD): se marca con la
+    // moneda base para que el listado sea consistente y toda venta muestre
+    // su moneda, no solo las de monedas extranjeras.
+    const base = currencies.find(c => c.is_base);
+    if (!base?.code) return null; // monedas aún sin cargar o sin base definida
+    return { label: base.symbol ? `${base.symbol} ${base.code}` : base.code, title: base.name ?? base.code };
+  }
   const symbol = String(s.currency_symbol ?? '').trim();
   return { label: symbol ? `${symbol} ${code}` : code, title: String(s.currency_name ?? code) };
 }
