@@ -5,6 +5,18 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 Basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y [Semantic Versioning](https://semver.org/lang/es/).
 
 
+# [1.3.0](https://github.com/yordo81/tiendaMiBarrio-mysql/compare/v1.2.1...v1.3.0) (2026-10-06)
+
+
+### Bug Fixes
+
+* **auth:** unificar TTL de sesión entre la cookie y el sello de iron-session ([bcd9c3e](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/bcd9c3e6e9b0c153db379f0bb7dedf7466393681))
+
+
+### Features
+
+* **ventas:** mostrar la moneda base en el badge de todas las ventas ([a1ae81b](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/a1ae81b9c1aaaa8d1beeeb509de1d04f71f56c7d))
+
 ## [1.2.1](https://github.com/yordo81/tiendaMiBarrio-mysql/compare/v1.2.0...v1.2.1) (2026-10-01)
 
 
