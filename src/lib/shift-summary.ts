@@ -19,6 +19,30 @@ import { utcToLocal, utcToDb, nowLocal, nowUtc } from '@/lib/shift-time';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Parte del desglose multi-moneda de un gasto mixto (ver migration-036). */
+interface ExpenseMixedPart { code: string; amount: number; rate: number; method: 'cash' | 'transfer'; }
+
+/**
+ * Parsea el desglose JSON del gasto mixto (`expenses.mixed_parts`).
+ * mysql2 puede devolver la columna JSON ya parseada (array) o como
+ * string; se aceptan ambas formas. Devuelve [] si no hay desglose.
+ */
+function parseExpenseMixedParts(raw: unknown): ExpenseMixedPart[] {
+  let arr: unknown = raw;
+  if (typeof raw === 'string') {
+    try { arr = JSON.parse(raw); } catch { return []; }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
+    .map(p => ({
+      code: String(p.code ?? ''),
+      amount: Number(p.amount ?? 0),
+      rate: Number(p.rate ?? 0),
+      method: p.method === 'transfer' ? 'transfer' as const : 'cash' as const,
+    }));
+}
+
 /** Un elemento del desglose de efectivo por moneda (amount + tasa congelada). */
 export interface CashByCurrencyEntry {
   /** Código de la moneda ('' o 'BASE' = moneda base) */
@@ -160,10 +184,14 @@ export async function computeExpectedCash(opts: {
        GROUP BY cp.currency_code`,
       [fromUtc, toUtc, posId]
     ),
-    // Egresos en efectivo (gastos, mixtos 50/50). Los gastos no registran
-    // moneda: se asumen en la moneda base (como siempre se hicieron).
-    query<{ total: number }>(
-      `SELECT COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount WHEN payment_method='mixed' THEN amount/2 ELSE 0 END),0) AS total
+    // Egresos en efectivo (gastos): fila a fila, porque el mixto puede ser
+    // multi-moneda (desglose en mixed_parts). Cada gasto guarda la moneda
+    // del pago (currency_code), el monto original en ESA moneda
+    // (currency_amount) y su tasa congelada (exchange_rate). Los gastos
+    // sin moneda (registros anteriores a la migración 035) se asumen en
+    // la moneda base, como siempre se hicieron.
+    query<{ payment_method: string | null; currency_code: string | null; currency_amount: number | null; exchange_rate: number | null; amount: number; mixed_parts: unknown }>(
+      `SELECT payment_method, currency_code, currency_amount, exchange_rate, amount, mixed_parts
        FROM expenses WHERE date BETWEEN ? AND ? AND pos_id=?`,
       [fromUtc, toUtc, posId]
     ),
@@ -193,8 +221,40 @@ export async function computeExpectedCash(opts: {
       rates[row.currency_code] = row.avg_rate != null && Number(row.avg_rate) > 0 ? Number(row.avg_rate) : 1;
     }
   }
-  // Los egresos en efectivo (gastos) restan de la moneda base
-  addToCurrencyMap(amounts, null, -Number(expCash[0]?.total ?? 0));
+  // Los egresos en efectivo (gastos) restan de la moneda en que se pagó cada
+  // gasto: efectivo completo, y el mixto según su desglose (cada parte sale
+  // de su propia moneda; solo las partes en moneda física son efectivo,
+  // las digitales son transferencia y no tocan el arqueo). El mixto de una
+  // sola moneda (legado, sin desglose) se divide 50/50 como aproximación.
+  for (const row of expCash) {
+    const parts = parseExpenseMixedParts(row.mixed_parts);
+    if (parts.length > 0) {
+      for (const part of parts) {
+        // Solo la parte en EFECTIVO sale de la caja física; parte transfer no.
+        if (part.method !== 'cash' || !part.code || !(part.amount > 0)) continue;
+        addToCurrencyMap(amounts, part.code, -part.amount);
+        if (rates[part.code] === undefined) {
+          rates[part.code] = part.rate > 0 ? part.rate : 1;
+        }
+      }
+      continue;
+    }
+    const code = row.currency_code ?? null;
+    // El monto original en la moneda del gasto; para filas sin moneda (legado)
+    // es `amount` en la moneda base.
+    const full = code
+      ? Number(row.currency_amount ?? 0)
+      : Number(row.amount ?? 0);
+    const rate = row.exchange_rate != null && Number(row.exchange_rate) > 0 ? Number(row.exchange_rate) : 1;
+    if (row.payment_method === 'cash') {
+      if (full > 0) addToCurrencyMap(amounts, code, -full);
+    } else if (row.payment_method === 'mixed') {
+      if (full > 0) addToCurrencyMap(amounts, code, -full / 2);
+    }
+    if (code && (row.payment_method === 'cash' || row.payment_method === 'mixed') && rates[code] === undefined) {
+      rates[code] = rate;
+    }
+  }
 
   const { byCurrency, totalBase } = summarizeCashByCurrency(amounts, rates, baseCode);
   return { base_currency: baseCode, total_base: totalBase, by_currency: byCurrency };

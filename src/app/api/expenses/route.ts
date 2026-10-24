@@ -5,6 +5,7 @@ import { logAudit } from '@/lib/db/audit';
 import { handle, ok, err, notFound, forbidden, requireRole } from '@/lib/api-helpers';
 import { localToUtcDb } from '@/lib/shift-time';
 import { validateExpensePaymentMethodOrDefault, requirePositiveNumber } from '@/lib/validate';
+import { r2 } from '@/lib/currency';
 import { invalidateAllReportCaches } from '@/lib/report-cache';
 const randomUUID = () => crypto.randomUUID();
 
@@ -43,13 +44,103 @@ export const POST = handle(async (req: Request) => {
     if (!pos) return err('La caja seleccionada no existe o está desactivada');
   }
 
+  // ── Moneda del gasto ──────────────────────────────────────────
+  // El usuario declara el gasto en la moneda en que lo pagó. El método
+  // (ya validado arriba) define qué tipo de moneda admite:
+  //   - cash (efectivo): solo monedas físicas (currency_type='cash')
+  //   - transfer: solo monedas digitales (currency_type='digital')
+  //   - mixed: cualquiera
+  // El servidor congela la tasa vigente (1 moneda = X base) y convierte
+  // el monto a la MONEDA BASE, que es lo que guarda `amount`: así los
+  // reportes, la contabilidad y las tarjetas del módulo siguen sumando
+  // en base sin cambios. El monto original en SU moneda se conserva en
+  // `currency_amount` para el arqueo por moneda del turno.
+  const paymentMethod = body.payment_method
+    ? validateExpensePaymentMethodOrDefault(body.payment_method)
+    : null;
+  const currenciesRows = await query<{
+    code: string; is_base: number; currency_type: string;
+  }>("SELECT code, is_base, currency_type FROM currencies WHERE active = 1");
+  const ratesRows = await query<{ to_currency: string; rate: number }>(
+    "SELECT to_currency, rate FROM currency_rates WHERE from_currency = 'USD'"
+  );
+  const baseCode = currenciesRows.find(c => Number(c.is_base) === 1)?.code ?? '';
+  if (!baseCode) return err('No hay moneda base configurada');
+  const usdOf = (code: string): number | null =>
+    code === 'USD' ? 1 : (ratesRows.find(r => r.to_currency === code && Number(r.rate) > 0)?.rate ?? null);
+  const usdInBase = usdOf(baseCode);
+  const rateToBase = (code: string): number | null => {
+    if (code === baseCode) return 1;
+    const usd = usdOf(code);
+    return usdInBase != null && usd ? usdInBase / usd : null;
+  };
+  const typeOf = new Map<string, string>();
+  for (const c of currenciesRows) typeOf.set(c.code, c.currency_type === 'digital' ? 'digital' : 'cash');
+
+  // ── Mixto multi-moneda: una parte por moneda ─────────────────────
+  // El gasto mixto admite la MEZCLA entre monedas físicas (efectivo) y
+  // digitales (transferencia): cada parte declara una moneda y un monto
+  // en ESA moneda. El servidor congela la tasa de cada parte y su método
+  // lo fija el TIPO de la moneda (como en el POS): físicas → 'cash',
+  // digitales → 'transfer'. Sin partes, el mixto sigue admitiendo una
+  // sola moneda (el arqueo la divide 50/50 como aproximación histórica).
+  interface MixedPart { code: string | null; amount: number; rate: number; method: 'cash' | 'transfer'; }
+  const mixedPartsRows: MixedPart[] = [];
+  if (paymentMethod === 'mixed' && Array.isArray(body.parts) && body.parts.length > 0) {
+    for (const part of body.parts) {
+      const partAmount = requirePositiveNumber(part?.amount, 'Monto de cada parte del gasto mixto');
+      const partCodeRaw = part?.currency ? String(part.currency).trim().toUpperCase() : baseCode;
+      const cur = currenciesRows.find(c => c.code === partCodeRaw);
+      if (!cur) return err(`La moneda "${partCodeRaw}" no existe o está inactiva`);
+      const partRate = partCodeRaw === baseCode ? 1 : (rateToBase(partCodeRaw) ?? 0);
+      if (!(partRate > 0)) return err(`La moneda ${partCodeRaw} no tiene una tasa de cambio registrada`);
+      const type = typeOf.get(partCodeRaw) ?? 'cash';
+      mixedPartsRows.push({
+        code: partCodeRaw === baseCode ? null : partCodeRaw,
+        amount: r2(partAmount),
+        rate: partRate,
+        method: type === 'digital' ? 'transfer' : 'cash',
+      });
+    }
+  }
+
+  // Moneda elegida: '' o null = moneda base (no aplica al mixto con partes)
+  const rawCurrency = body.currency ? String(body.currency).trim().toUpperCase() : '';
+  const currencyCode = rawCurrency && rawCurrency !== baseCode ? rawCurrency : null;
+  if (currencyCode && !currenciesRows.some(c => c.code === currencyCode)) {
+    return err(`La moneda "${currencyCode}" no existe o está inactiva`);
+  }
+  // Tipo de moneda vs método de pago: físicas solo en efectivo y digitales
+  // solo por transferencia; el mixto admite cualquiera.
+  if (currencyCode && paymentMethod) {
+    const type = typeOf.get(currencyCode) ?? 'cash';
+    if (paymentMethod === 'cash' && type !== 'cash') {
+      return err(`La moneda ${currencyCode} es digital: solo se puede pagar por transferencia`);
+    }
+    if (paymentMethod === 'transfer' && type !== 'digital') {
+      return err(`La moneda ${currencyCode} es física: solo se puede pagar en efectivo`);
+    }
+  }
+  const exchangeRate = currencyCode ? (rateToBase(currencyCode) ?? 0) : 1;
+  if (currencyCode && !(exchangeRate > 0)) {
+    return err(`La moneda ${currencyCode} no tiene una tasa de cambio registrada`);
+  }
+  // Monto en moneda base (lo que se guarda en `amount`, como siempre):
+  // mixto con partes → suma de cada parte × su tasa congelada;
+  // resto → monto × tasa de la moneda elegida.
+  const amountBase = mixedPartsRows.length > 0
+    ? r2(mixedPartsRows.reduce((a, p) => a + p.amount * p.rate, 0))
+    : r2(amount * exchangeRate);
+  // Desglose JSON del mixto solo cuando se pagan partes multi-moneda
+  const mixedPartsJson = mixedPartsRows.length > 0
+    ? JSON.stringify(mixedPartsRows.map(p => ({ code: p.code, amount: p.amount, rate: p.rate, method: p.method })))
+    : null;
+
+
   await transaction(async (conn) => {
-    const paymentMethod = body.payment_method
-      ? validateExpensePaymentMethodOrDefault(body.payment_method)
-      : null;
     await conn.execute(
-      'INSERT INTO expenses (id,category_id,description,amount,payment_method,product_id,product_quantity,pos_id,date,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      [id,body.category_id??null,String(body.description).trim(),amount,paymentMethod,body.product_id??null,body.product_quantity??null,posId||null,date,sessionUser.id,ts,ts]
+      'INSERT INTO expenses (id,category_id,description,amount,payment_method,currency_code,currency_amount,exchange_rate,mixed_parts,product_id,product_quantity,pos_id,date,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [id,body.category_id??null,String(body.description).trim(),amountBase,paymentMethod,currencyCode,currencyCode?r2(amount):null,currencyCode?exchangeRate:null,mixedPartsJson,body.product_id??null,body.product_quantity??null,posId||null,date,sessionUser.id,ts,ts]
     );
     if (body.product_id && body.product_quantity) {
       const productId = body.product_id;
