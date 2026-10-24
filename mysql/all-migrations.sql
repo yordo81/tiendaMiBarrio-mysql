@@ -268,6 +268,10 @@ CREATE TABLE IF NOT EXISTS expenses (
   description      VARCHAR(500)  NOT NULL,
   amount           DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   payment_method   ENUM('cash','transfer','mixed') NULL DEFAULT NULL,
+  currency_code    VARCHAR(10)   NULL COMMENT 'Moneda del pago del gasto (NULL = moneda base)',
+  currency_amount  DECIMAL(12,2) NULL COMMENT 'Monto original declarado en la moneda del gasto',
+  exchange_rate    DECIMAL(12,6) NULL COMMENT 'Tasa congelada al registrar: 1 moneda = X base',
+  mixed_parts      JSON          NULL COMMENT 'Desglose del gasto mixto por moneda: [{code, amount, rate, method}]',
   product_id       CHAR(36)      NULL,
   product_quantity DECIMAL(12,3) NULL,
   date             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -612,7 +616,9 @@ INSERT IGNORE INTO schema_migrations (filename) VALUES
   ('migration-031-payment-method-oferta.sql'),
   ('migration-032-sales-list-total.sql'),
   ('migration-033-sales-payment-method.sql'),
-  ('migration-034-shift-closing-by-currency.sql');
+  ('migration-034-shift-closing-by-currency.sql'),
+  ('migration-035-expense-currency.sql'),
+  ('migration-036-expense-mixed-parts.sql');
 
 -- ============================================================
 -- ÉXITO

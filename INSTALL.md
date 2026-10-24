@@ -198,6 +198,8 @@ mysql -u root -p < mysql/migration-034-shift-closing-by-currency.sql
 | `migration-032-sales-list-total.sql` | Agrega `sales.list_total`: total al precio de lista en ofertas, para mostrar el descuento en el ticket. |
 | `migration-033-sales-payment-method.sql` | Agrega `sales.payment_method` (método general de la venta: cash/transfer/mixed/credit/oferta) para la columna «Tipo» del listado. |
 | `migration-034-shift-closing-by-currency.sql` | Agrega `shifts.closing_cash_by_currency` (JSON): desglose del efectivo contado declarado por moneda al cerrar el turno (arqueo por moneda). |
+| `migration-035-expense-currency.sql` | Agrega `currency_code`, `currency_amount` y `exchange_rate` a `expenses`: el gasto se declara en la moneda elegida según el método (efectivo → físicas, transferencia → digitales, mixto → ambas). `amount` sigue en moneda base. |
+| `migration-036-expense-mixed-parts.sql` | Agrega `expenses.mixed_parts` (JSON): desglose del gasto mixto multi-moneda por parte (`[{code, amount, rate, method}]`); cada parte sale de su propia moneda en el arqueo. |
 
 > **Nota:** Si usaste `node scripts/setup-db.js` en una instalación nueva, las migraciones ya se aplican automáticamente. Solo ejecútalas manualmente si actualizas una BD existente.
 
