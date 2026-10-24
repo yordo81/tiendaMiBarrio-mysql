@@ -2624,7 +2624,13 @@ export default function TouchPosPage() {
                 type="date"
                 className="input"
                 value={saleDate || todayLocal}
-                onChange={e => setSaleDate(e.target.value === todayLocal ? '' : e.target.value)}
+                onChange={e => {
+                  // Editar segmento a segmento emite valores transitorios vacíos;
+                  // solo se confirma una fecha completa para no devolver el valor
+                  // a “hoy” (y borrar el día tecleado) a mitad de la edición.
+                  if (!e.target.value) return;
+                  setSaleDate(e.target.value === todayLocal ? '' : e.target.value);
+                }}
                 max={todayLocal}
               />
               <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>
