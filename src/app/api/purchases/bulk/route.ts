@@ -164,7 +164,7 @@ export const POST = handle(async (req: Request) => {
       // unidad de captura; `purchases.unit` deja inequívoco el histórico)
       const purchaseId = randomUUID();
       await conn.execute(
-        'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,unit,total_cost,location_id,notes,user_id,pos_id,invoice_number,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,unit,total_cost,location_id,notes,user_id,pos_id,invoice_number,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [purchaseId, line.product_id, supplier_id, purchaseQty, purchasePrice, captureUnit, lineTotal, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, String(invoice_number).trim(), ts]
       );
 

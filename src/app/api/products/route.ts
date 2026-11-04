@@ -129,7 +129,7 @@ export const POST = handle(async (request: Request) => {
   // Insertar producto
   await execute(
     `INSERT INTO products (id,barcode,name,description,category_id,sale_price,sale_currency,cost,cost_currency,stock,min_stock,unit,purchase_unit,purchase_factor,expiration_date,is_perishable,image_url,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
     [id, barcode, String(body.name).trim(), body.description??null, body.category_id??null,
      salePrice, body.sale_currency || null, cost, body.cost_currency || null,
      stock, minStock, body.unit??'unidad', purchaseUnit, purchaseFactor, expirationDate, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, ts]
