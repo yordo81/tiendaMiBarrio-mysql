@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { formatCurrency, formatNumber, findProductByBarcode } from '@/lib/utils';
+import { resolvePurchaseFactor } from '@/lib/purchase-unit';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
@@ -36,6 +37,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
     supplier_id: '',
     quantity: 0,
     price: 0,
+    unit: '',
     location_id: '',
     notes: '',
     invoice_number: '',
@@ -81,7 +83,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
   }, [form.location_id]);
 
   function handleClose() {
-    setForm({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', invoice_number: '', is_capital: false, expiration_date: '' });
+    setForm({ product_id: '', supplier_id: '', quantity: 0, price: 0, unit: '', location_id: '', notes: '', invoice_number: '', is_capital: false, expiration_date: '' });
     setBarcodeSearch('');
     resetPos();
     onClose();
@@ -104,6 +106,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
       ...f,
       product_id: String(found.id),
       expiration_date: found.expiration_date ? String(found.expiration_date) : '',
+      unit: found.purchase_unit ? String(found.purchase_unit) : (found.unit ? String(found.unit) : ''),
     }));
     setBarcodeSearch('');
     playScanBeep();
@@ -117,6 +120,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
       ...f,
       product_id: String(p.id),
       expiration_date: p.expiration_date ? String(p.expiration_date) : '',
+      unit: p.purchase_unit ? String(p.purchase_unit) : (p.unit ? String(p.unit) : ''),
     }));
     setBarcodeSearch('');
     quantityInputRef.current?.focus();
@@ -134,6 +138,7 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
         supplier_id: form.supplier_id,
         quantity: form.quantity,
         price: form.price,
+        unit: form.unit || null,
         location_id: form.location_id,
         notes: form.notes,
         invoice_number: form.invoice_number.trim() || null,
@@ -224,6 +229,8 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
                 ...f,
                 product_id: v,
                 expiration_date: prod?.expiration_date ? String(prod.expiration_date) : '',
+                // Precargar la unidad de compra del producto (o su unidad de venta)
+                unit: prod?.purchase_unit ? String(prod.purchase_unit) : (prod?.unit ? String(prod.unit) : ''),
               }));
             }}
             placeholder="Buscar producto…"
@@ -295,6 +302,22 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
             />
           </div>
         </div>
+        {/* Unidad de compra — solo si el producto tiene una unidad de compra distinta a la de venta */}
+        {(() => {
+          if (!selectedProduct || !selectedProduct.purchase_unit || !(Number(selectedProduct.purchase_factor) > 0)) return null;
+          return (
+            <div>
+              <label className="label">Capturar en</label>
+              <select className="input" value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}>
+                <option value={String(selectedProduct.purchase_unit)}>{String(selectedProduct.purchase_unit)} — unidad de compra del producto</option>
+                <option value={String(selectedProduct.unit)}>{String(selectedProduct.unit)} — unidad de venta</option>
+              </select>
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                El stock se incrementa en {String(selectedProduct.unit)}: {formatNumber(1, 1)} {String(selectedProduct.purchase_unit)} = {formatNumber(Number(selectedProduct.purchase_factor), 3)} {String(selectedProduct.unit)}
+              </p>
+            </div>
+          );
+        })()}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Número de factura</label>
@@ -345,13 +368,25 @@ export default function PurchaseModal({ open, onClose, onSuccess }: PurchaseModa
           if (!prod) return null;
           const currentStock = Number(prod.stock ?? 0);
           const currentCost = Number(prod.cost ?? 0);
-          const newStock = currentStock + form.quantity;
-          const newCost = ((currentStock * currentCost) + (form.quantity * form.price)) / newStock;
+          // Conversión compra → venta (migración 037)
+          const factor = resolvePurchaseFactor(prod, form.unit || null);
+          const stockQty = form.quantity * factor;
+          const saleUnitPrice = factor !== 1 ? form.price / factor : form.price;
+          const newStock = currentStock + stockQty;
+          const newCost = newStock > 0 ? ((currentStock * currentCost) + (stockQty * saleUnitPrice)) / newStock : 0;
           const totalCost = form.quantity * form.price;
           return (
             <div className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] p-3 text-sm space-y-1.5">
               <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Resumen de la compra</p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                {factor !== 1 && (
+                  <>
+                    <p className="text-[var(--text-tertiary)]">Equivalencia:</p>
+                    <p className="text-[var(--text-primary)] text-right">{formatNumber(form.quantity, 2)} {form.unit || String(prod.purchase_unit ?? '')} = {formatNumber(stockQty, 2)} {String(prod.unit ?? '')}</p>
+                    <p className="text-[var(--text-tertiary)]">Precio por {String(prod.unit ?? '')}:</p>
+                    <p className="text-[var(--text-primary)] text-right">{formatCurrency(saleUnitPrice)}</p>
+                  </>
+                )}
                 <p className="text-[var(--text-tertiary)]">Stock actual (global):</p>
                 <p className="text-[var(--text-primary)] text-right">{formatNumber(currentStock, 1)}</p>
                 {form.location_id && <p className="text-[var(--text-tertiary)]">Stock en este almacén:</p>}

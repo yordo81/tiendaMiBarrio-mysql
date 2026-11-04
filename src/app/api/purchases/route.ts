@@ -3,6 +3,7 @@ import { pool, query, queryOne, transaction, execute } from '@/lib/db/mysql';
 import { handle, ok, err, notFound, requireRole } from '@/lib/api-helpers';
 import { requirePositiveNumber, requireNonNegativeNumber } from '@/lib/validate';
 import { getOpenShiftId } from '@/lib/settings-server';
+import { resolvePurchaseFactor, resolveCaptureUnit } from '@/lib/purchase-unit';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Compras a Proveedores ───────────────────────────────────
@@ -82,7 +83,9 @@ async function getExchangeRate(from: string, to: string): Promise<number> {
 // ── POST: Registrar nueva compra ──
 export const POST = handle(async (req: Request) => {
   const sessionUser = await requireRole('owner', 'admin', 'warehouse');
-  const { product_id, supplier_id, quantity, price, location_id, notes, is_capital, expiration_date, pos_id, invoice_number, currency_code, exchange_rate } = await req.json();
+  // `unit` (opcional): unidad en que se captura la cantidad/precio. NULL/
+  // ausente = unidad de compra configurada del producto (o su unidad de venta).
+  const { product_id, supplier_id, quantity, price, unit, location_id, notes, is_capital, expiration_date, pos_id, invoice_number, currency_code, exchange_rate } = await req.json();
 
   if (!product_id || !supplier_id) {
     return err('Faltan datos: producto y proveedor requeridos');
@@ -131,49 +134,66 @@ export const POST = handle(async (req: Request) => {
 
   // Ejecutar toda la operación en una transacción
   const result = await transaction(async (conn) => {
-    // Obtener datos actuales del producto (con bloqueo de fila)
+    // Obtener datos actuales del producto (con bloqueo de fila), incluyendo
+    // la unidad de venta y la configuración de compra (migración 037)
     const product = await conn.execute(
-      'SELECT stock, cost FROM products WHERE id=? AND active=1',
+      'SELECT stock, cost, unit, purchase_unit, purchase_factor FROM products WHERE id=? AND active=1',
       [product_id]
-    ) as unknown as [{ stock: number; cost: number }[], unknown];
+    ) as unknown as [{ stock: number; cost: number; unit: string; purchase_unit: string | null; purchase_factor: number | null }[], unknown];
     const current = product[0][0];
 
     const currentStock = Number(current.stock ?? 0);
     const currentCost = Number(current.cost ?? 0);
-    const purchaseQty = qty;
+
+    // ── Conversión compra → venta (migración 037) ──
+    // La compra se captura en `unit` (por defecto la unidad de compra del
+    // producto). Si esa unidad difiere de la unidad de venta y el producto
+    // tiene factor configurado:
+    //   stock a incrementar         = cantidad × factor
+    //   precio por unidad de venta  = precio de compra ÷ factor
+    //   (el total en dinero no cambia)
+    const captureUnit = resolveCaptureUnit(current, unit ? String(unit) : null);
+    const factor = resolvePurchaseFactor(current, captureUnit);
+    const purchaseQty = qty;                                        // unidades de captura
+    const stockQty = Math.round(qty * factor * 1000) / 1000;        // unidades de venta/stock
+    const saleUnitPrice = Math.round((unitPrice / factor) * 100) / 100; // precio por unidad de venta
     const purchasePrice = unitPrice;
-    // Convertir precio a moneda base para el costo promedio
-    const basePrice = Math.round(purchasePrice * (purchaseExchangeRate ?? 1) * 100) / 100;
+    // Convertir precio (por unidad de venta) a moneda base para el costo promedio
+    const basePrice = Math.round(saleUnitPrice * (purchaseExchangeRate ?? 1) * 100) / 100;
 
     // Calcular nuevo stock y costo promedio ponderado (en moneda base)
-    const newStock = currentStock + purchaseQty;
-    const newCost = ((currentStock * currentCost) + (purchaseQty * basePrice)) / newStock;
+    const newStock = currentStock + stockQty;
+    const newCost = ((currentStock * currentCost) + (stockQty * basePrice)) / newStock;
 
-    // Actualizar producto (stock, costo y opcionalmente fecha de caducidad)
+    // Actualizar producto (stock en unidades de venta, costo y opcionalmente fecha de caducidad)
     if (expiration_date) {
       await conn.execute(
         'UPDATE products SET stock=stock+?, cost=?, expiration_date=?, updated_at=? WHERE id=?',
-        [purchaseQty, Math.round(newCost * 100) / 100, expiration_date, ts, product_id]
+        [stockQty, Math.round(newCost * 100) / 100, expiration_date, ts, product_id]
       );
     } else {
       await conn.execute(
         'UPDATE products SET stock=stock+?, cost=?, updated_at=? WHERE id=?',
-        [purchaseQty, Math.round(newCost * 100) / 100, ts, product_id]
+        [stockQty, Math.round(newCost * 100) / 100, ts, product_id]
       );
     }
 
-    // Registrar movimiento de stock de entrada
+    // Registrar movimiento de stock de entrada (en unidades de venta; se
+    // anota la equivalencia cuando hubo conversión)
     const smId = randomUUID();
+    const stockMovReason = factor !== 1 && current.unit
+      ? `${purchaseNotes ? `Compra: ${purchaseNotes}` : 'Compra'} — ${purchaseQty} ${captureUnit} = ${stockQty} ${current.unit}`
+      : (purchaseNotes ? `Compra: ${purchaseNotes}` : 'Compra');
     await conn.execute(
       "INSERT INTO stock_movements (id,product_id,type,quantity,reason,reference_id,user_id,date,created_at) VALUES (?,?,'in',?,?,?,?,?,?)",
-      [smId, product_id, purchaseQty, purchaseNotes ? `Compra: ${purchaseNotes}` : 'Compra', null, sessionUser.id, ts, ts]
+      [smId, product_id, stockQty, stockMovReason, null, sessionUser.id, ts, ts]
     );
 
-    // Registrar precio de compra histórico
+    // Registrar precio de compra histórico (precio en su unidad de captura)
     const ppId = randomUUID();
     await conn.execute(
-      'INSERT INTO purchase_prices (id,product_id,supplier_id,price,date,notes,created_at) VALUES (?,?,?,?,?,?,?)',
-      [ppId, product_id, supplier_id, purchasePrice, ts, purchaseNotes, ts]
+      'INSERT INTO purchase_prices (id,product_id,supplier_id,price,unit,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?)',
+      [ppId, product_id, supplier_id, purchasePrice, captureUnit, ts, purchaseNotes, ts]
     );
 
     // Vincular producto con proveedor si no existe
@@ -201,36 +221,44 @@ export const POST = handle(async (req: Request) => {
     const productName = prodRes[0][0]?.name ?? 'Producto';
     const supplierName = suppRes[0][0]?.name ?? 'Proveedor';
 
-    // Insertar registro en historial de compras
+    // Insertar registro en historial de compras (cantidad y precio en la
+    // unidad de captura; `purchases.unit` deja inequívoco el histórico).
+    // El total del dinero sí o sí es cantidad × precio de captura: 50 kg × $100.
     const purchaseId = randomUUID();
-    const totalCost = Math.round(purchaseQty * basePrice * 100) / 100;
+    const totalCost = Math.round(purchaseQty * purchasePrice * (purchaseExchangeRate ?? 1) * 100) / 100;
     await conn.execute(
-      'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,pos_id,invoice_number,currency_code,exchange_rate,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      [purchaseId, product_id, supplier_id, purchaseQty, purchasePrice, totalCost, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, invoice_number ? String(invoice_number).trim() : null, purchaseCurrency, purchaseExchangeRate, ts]
+      'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit,total_cost,unit_price,location_id,notes,user_id,pos_id,invoice_number,currency_code,exchange_rate,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [purchaseId, product_id, supplier_id, purchaseQty, captureUnit, totalCost, purchasePrice, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, invoice_number ? String(invoice_number).trim() : null, purchaseCurrency, purchaseExchangeRate, ts]
     );
 
     // ── Registrar en contabilidad ──
+    // Descripción legible de la cantidad: en unidades de venta, con la
+    // unidad de captura entre paréntesis si difiere
+    const qtyDescription = factor !== 1 && current.unit
+      ? `${stockQty} ${current.unit} (${purchaseQty} ${captureUnit ?? ''})`
+      : `${purchaseQty}`;
+
     if (is_capital) {
       // Aporte de capital nuevo: ingresa dinero a la caja
       await conn.execute(
         `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, shift_id, created_at)
          VALUES (?, 'capital', ?, 0, ?, ?, ?, ?, ?)`,
-        [randomUUID(), totalCost, `Aporte de capital para compra: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, shiftId, ts]
+        [randomUUID(), totalCost, `Aporte de capital para compra: ${qtyDescription} de ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, shiftId, ts]
       );
     } else {
       // Reinversión: egreso de caja por compra de inventario
       await conn.execute(
         `INSERT INTO cash_register (id, type, cash_amount, transfer_amount, notes, date, user_id, shift_id, created_at)
          VALUES (?, 'purchase', ?, 0, ?, ?, ?, ?, ?)`,
-        [randomUUID(), -totalCost, `Compra de inventario: ${purchaseQty} × ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, shiftId, ts]
+        [randomUUID(), -totalCost, `Compra de inventario: ${qtyDescription} de ${productName} (proveedor: ${supplierName})`, ts, sessionUser.id, shiftId, ts]
       );
     }
 
-    // Actualizar stock del almacén
+    // Actualizar stock del almacén (en unidades de venta)
     if (targetLocationId) {
       await conn.execute(
         'INSERT INTO location_stock (id,location_id,product_id,quantity,updated_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+?,updated_at=?',
-        [randomUUID(), targetLocationId, product_id, purchaseQty, ts, purchaseQty, ts]
+        [randomUUID(), targetLocationId, product_id, stockQty, ts, stockQty, ts]
       );
       // Nota con la referencia de factura para que el filtro "Número de
       // factura" del módulo de Movimientos encuentre el movimiento.
@@ -239,17 +267,21 @@ export const POST = handle(async (req: Request) => {
         : (purchaseNotes ? `Compra: ${purchaseNotes}` : 'Compra');
       await conn.execute(
         "INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,reference_id,user_id,created_at) VALUES (?,?,?,'entrada',?,?,?,?,?)",
-        [randomUUID(), targetLocationId, product_id, purchaseQty, moveNote, null, sessionUser.id, ts]
+        [randomUUID(), targetLocationId, product_id, stockQty, moveNote, null, sessionUser.id, ts]
       );
     }
 
     return {
       id: purchaseId,
       stock_before: currentStock,
-      stock_after: newStock,
+      stock_after: Math.round(newStock * 1000) / 1000,
       cost_before: currentCost,
       cost_after: Math.round(newCost * 100) / 100,
       purchase_price: purchasePrice,
+      unit: captureUnit,
+      purchase_factor: factor,
+      stock_qty: stockQty,
+      unit_price_sale_unit: saleUnitPrice,
       currency_code: purchaseCurrency,
       exchange_rate: purchaseExchangeRate,
       base_price: basePrice,

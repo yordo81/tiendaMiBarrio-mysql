@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { formatCurrency, formatNumber, findProductByBarcode } from '@/lib/utils';
+import { resolvePurchaseFactor } from '@/lib/purchase-unit';
 import { api } from '@/lib/api-client';
 import Modal from '@/components/ui/Modal';
 import SearchableSelect from '@/components/ui/SearchableSelect';
@@ -17,6 +18,7 @@ interface InvoiceLine {
   product_id: string;
   quantity: number;
   price: number;
+  unit: string;
   expiration_date: string;
 }
 
@@ -40,7 +42,7 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
   const [saving, setSaving] = useState(false);
   const [lines, setLines] = useState<InvoiceLine[]>([]);
   const [form, setForm] = useState({ invoice_number: '', supplier_id: '', location_id: '', notes: '', is_capital: false });
-  const [draft, setDraft] = useState({ product_id: '', quantity: 0, price: 0, expiration_date: '' });
+  const [draft, setDraft] = useState({ product_id: '', quantity: 0, price: 0, unit: '', expiration_date: '' });
   const [barcodeSearch, setBarcodeSearch] = useState('');
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(open);
@@ -84,7 +86,7 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
 
   function resetAll() {
     setLines([]);
-    setDraft({ product_id: '', quantity: 0, price: 0, expiration_date: '' });
+    setDraft({ product_id: '', quantity: 0, price: 0, unit: '', expiration_date: '' });
     setBarcodeSearch('');
     setForm({ invoice_number: '', supplier_id: '', location_id: '', notes: '', is_capital: false });
     resetPos();
@@ -112,6 +114,7 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
       ...d,
       product_id: String(found.id),
       expiration_date: found.expiration_date ? String(found.expiration_date) : '',
+      unit: found.purchase_unit ? String(found.purchase_unit) : (found.unit ? String(found.unit) : ''),
     }));
     setBarcodeSearch('');
     playScanBeep();
@@ -124,6 +127,7 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
       ...d,
       product_id: String(p.id),
       expiration_date: p.expiration_date ? String(p.expiration_date) : '',
+      unit: p.purchase_unit ? String(p.purchase_unit) : (p.unit ? String(p.unit) : ''),
     }));
     setBarcodeSearch('');
   }
@@ -132,10 +136,16 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
     if (!draft.product_id) { toast.error('Selecciona un producto'); return; }
     if (draft.quantity <= 0) { toast.error('La cantidad debe ser mayor a 0'); return; }
     if (draft.price < 0) { toast.error('El precio no puede ser negativo'); return; }
-    // Si el producto ya está en la lista, se suma la cantidad y se promedia el precio
+    // Si el producto ya está en la lista en la misma unidad, se suma la
+    // cantidad y se promedia el precio. En unidad distinta no se mezclan.
+    const existing = lines.find(l => l.product_id === draft.product_id);
+    if (existing && existing.unit !== draft.unit) {
+      toast.error(`Ya hay una línea de este producto en ${existing.unit || 'otra unidad'} — quitála si deseas registrarlo en ${draft.unit || 'otra unidad'}`);
+      return;
+    }
     setLines(prev => {
-      const existing = prev.find(l => l.product_id === draft.product_id);
-      if (existing) {
+      const current = prev.find(l => l.product_id === draft.product_id);
+      if (current && current.unit === draft.unit) {
         return prev.map(l => {
           if (l.product_id !== draft.product_id) return l;
           const qty = l.quantity + draft.quantity;
@@ -143,9 +153,9 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
           return { ...l, quantity: qty, price, expiration_date: draft.expiration_date || l.expiration_date };
         });
       }
-      return [...prev, { product_id: draft.product_id, quantity: draft.quantity, price: draft.price, expiration_date: draft.expiration_date }];
+      return [...prev, { product_id: draft.product_id, quantity: draft.quantity, price: draft.price, unit: draft.unit, expiration_date: draft.expiration_date }];
     });
-    setDraft({ product_id: '', quantity: 0, price: 0, expiration_date: '' });
+    setDraft({ product_id: '', quantity: 0, price: 0, unit: '', expiration_date: '' });
     setBarcodeSearch('');
     barcodeInputRef.current?.focus();
   }
@@ -163,6 +173,7 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
           product_id: l.product_id,
           quantity: l.quantity,
           price: l.price,
+          unit: l.unit || null,
           expiration_date: l.expiration_date || null,
         })),
         supplier_id: form.supplier_id,
@@ -295,6 +306,8 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
                   ...d,
                   product_id: v,
                   expiration_date: prod?.expiration_date ? String(prod.expiration_date) : '',
+                  // Precargar la unidad de compra del producto (o su unidad de venta)
+                  unit: prod?.purchase_unit ? String(prod.purchase_unit) : (prod?.unit ? String(prod.unit) : ''),
                 }));
               }}
               placeholder="Buscar producto…"
@@ -338,6 +351,20 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
               <div className="hidden sm:block" />
             )}
           </div>
+          {draftProduct && !!draftProduct.purchase_unit && Number(draftProduct.purchase_factor) > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 items-end">
+              <div className="sm:col-span-1">
+                <label className="label">Capturar en</label>
+                <select className="input" value={draft.unit} onChange={e => setDraft(d => ({ ...d, unit: e.target.value }))}>
+                  <option value={String(draftProduct.purchase_unit)}>{String(draftProduct.purchase_unit)} — unidad de compra</option>
+                  <option value={String(draftProduct.unit)}>{String(draftProduct.unit)} — unidad de venta</option>
+                </select>
+                <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                  El stock se incrementa en {String(draftProduct.unit)}: {formatNumber(1, 1)} {String(draftProduct.purchase_unit)} = {formatNumber(Number(draftProduct.purchase_factor), 3)} {String(draftProduct.unit)}
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex justify-end">
             <button onClick={addLine} className="btn-primary flex items-center gap-1.5 text-sm px-4 py-2">
               <Plus className="w-4 h-4" />Agregar línea
@@ -354,12 +381,18 @@ export default function InvoicePurchaseModal({ open, onClose, onSuccess }: Invoi
             <div className="divide-y divide-[var(--border-primary)] border border-[var(--border-primary)] rounded-xl overflow-hidden bg-[var(--bg-primary)]">
               {lines.map((l, i) => {
                 const prod = products.find(p => String(p.id) === l.product_id);
+                // Mostrar la equivalencia al comprar en unidad distinta a la de venta
+                const factor = prod ? resolvePurchaseFactor(prod, l.unit || null) : 1;
+                const lineUnit = l.unit || String(prod?.unit ?? '');
                 return (
                   <div key={i} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                     <div className="flex-1 min-w-0">
                       <p className="text-[var(--text-primary)] font-medium truncate">{String(prod?.name ?? 'Producto')}</p>
                       <p className="text-xs text-[var(--text-tertiary)] truncate">
-                        {formatNumber(l.quantity, 2)} × {formatCurrency(l.price)}
+                        {formatNumber(l.quantity, 2)} {lineUnit} × {formatCurrency(l.price)}
+                        {factor !== 1 && prod
+                          ? ` → ${formatNumber(Math.round(l.quantity * factor * 1000) / 1000, 2)} ${prod.unit} (1 ${lineUnit} = ${formatNumber(Number(prod.purchase_factor), 3)} ${prod.unit})`
+                          : ''}
                         {l.expiration_date ? ` · Vence: ${String(l.expiration_date).split('-').reverse().join('/')}` : ''}
                       </p>
                     </div>

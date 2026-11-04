@@ -281,8 +281,12 @@ export default function ComprasPage() {
                             {first.pos_name ? String(first.pos_name) : <span className="text-[var(--text-tertiary)] italic">—</span>}
                           </td>
                         )}
-                        <td className="px-4 py-3 text-[var(--text-primary)] font-medium">
-                          {single ? formatNumber(Number(single.quantity), 2) : formatNumber(totalQty, 2)}
+                        <td className="px-4 py-3 text-[var(--text-primary)] font-medium whitespace-nowrap">
+                          {single ? (
+                            <>{formatNumber(Number(single.quantity), 2)}{single.unit ? <span className="text-[var(--text-tertiary)] font-normal"> {String(single.unit)}</span> : null}</>
+                          ) : (
+                            formatNumber(totalQty, 2)
+                          )}
                         </td>
                         <td className="px-4 py-3 text-[var(--text-secondary)]">
                           {single ? formatCurrency(Number(single.unit_price)) : '—'}
@@ -319,7 +323,9 @@ export default function ComprasPage() {
                                   {g.purchases.map((line, li) => (
                                     <tr key={li} className="border-b border-[var(--border-primary)] last:border-0">
                                       <td className="px-3 py-2 text-[var(--text-primary)] font-medium">{String(line.product_name ?? '—')}</td>
-                                      <td className="px-3 py-2 text-[var(--text-secondary)]">{formatNumber(Number(line.quantity), 2)}</td>
+                                      <td className="px-3 py-2 text-[var(--text-secondary)] whitespace-nowrap">
+                                        {formatNumber(Number(line.quantity), 2)}{line.unit ? ` ${String(line.unit)}` : ''}
+                                      </td>
                                       <td className="px-3 py-2 text-[var(--text-secondary)]">{formatCurrency(Number(line.unit_price))}</td>
                                       <td className="px-3 py-2 text-[var(--text-primary)] font-medium">{formatCurrency(Number(line.total_cost))}</td>
                                       <td className="px-3 py-2 text-[var(--text-secondary)] text-xs">{String(line.location_name ?? '—')}</td>

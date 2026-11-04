@@ -66,10 +66,17 @@ export const PUT = handle(async (request: Request, ctx) => {
     return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
   })();
 
+  // Unidad de compra y factor de conversión (migración 037): permiten comprar
+  // en una unidad y vender en otra. NULL = sin conversión (comportamiento
+  // de una sola unidad).
+  const purchaseUnit = body.purchase_unit && String(body.purchase_unit).trim() ? String(body.purchase_unit).trim() : null;
+  const purchaseFactorRaw = Number(body.purchase_factor);
+  const purchaseFactor = Number.isFinite(purchaseFactorRaw) && purchaseFactorRaw > 0 ? purchaseFactorRaw : null;
+
   await execute(
-    `UPDATE products SET name=?,barcode=?,description=?,category_id=?,sale_price=?,sale_currency=?,cost=?,cost_currency=?,stock=?,min_stock=?,unit=?,expiration_date=?,is_perishable=?,image_url=?,updated_at=? WHERE id=?`,
+    `UPDATE products SET name=?,barcode=?,description=?,category_id=?,sale_price=?,sale_currency=?,cost=?,cost_currency=?,stock=?,min_stock=?,unit=?,purchase_unit=?,purchase_factor=?,expiration_date=?,is_perishable=?,image_url=?,updated_at=? WHERE id=?`,
     [String(body.name ?? '').trim() || 'Producto', barcode, body.description??null, body.category_id??null, salePrice, body.sale_currency || null, cost, body.cost_currency || null,
-     newStock, minStock, body.unit??'unidad', expirationDate, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, id]
+     newStock, minStock, body.unit??'unidad', purchaseUnit, purchaseFactor, expirationDate, body.is_perishable ? 1 : 0, body.image_url ?? null, ts, id]
   );
 
   if (diff !== 0) {

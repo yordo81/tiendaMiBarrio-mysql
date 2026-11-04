@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { queryOne, transaction } from '@/lib/db/mysql';
 import { handle, ok, err } from '@/lib/api-helpers';
 import { getOpenShiftId } from '@/lib/settings-server';
+import { normalizeUnit, resolvePurchaseFactor, resolveCaptureUnit } from '@/lib/purchase-unit';
 const randomUUID = () => crypto.randomUUID();
 
 // ── API de Compra por Factura (varios productos a la vez) ──────────
@@ -34,26 +35,30 @@ export const POST = handle(async (req: Request) => {
     if (!pos) return err('La caja seleccionada no existe o está desactivada');
   }
 
-  // Validar y agrupar líneas del mismo producto (cantidad sumada, precio promedio)
-  const merged = new Map<string, { quantity: number; price: number; expiration_date: string | null }>();
+  // Validar y agrupar líneas del mismo producto capturadas en la misma
+  // unidad (cantidad sumada, precio promedio). `unit`, cuando viene,
+  // indica la unidad en que se capturó la línea (migración 037).
+  const merged = new Map<string, { quantity: number; price: number; expiration_date: string | null; unit: string | null }>();
   for (const it of items ?? []) {
     const productId = String(it?.product_id ?? '');
     const quantity = Number(it?.quantity ?? 0);
     const price = Number(it?.price ?? 0);
+    const unit = it?.unit && String(it.unit).trim() ? String(it.unit).trim() : null;
     if (!productId || quantity <= 0 || price < 0) {
       return err('Cada línea debe tener producto, cantidad (>0) y precio válido');
     }
-    const existing = merged.get(productId);
+    const key = `${productId}|${normalizeUnit(unit)}`;
+    const existing = merged.get(key);
     if (existing) {
       const totalQty = existing.quantity + quantity;
       existing.price = Math.round(((existing.price * existing.quantity) + (price * quantity)) / totalQty * 100) / 100;
       existing.quantity = totalQty;
       if (it.expiration_date) existing.expiration_date = String(it.expiration_date);
     } else {
-      merged.set(productId, { quantity, price, expiration_date: it.expiration_date ? String(it.expiration_date) : null });
+      merged.set(key, { quantity, price, expiration_date: it.expiration_date ? String(it.expiration_date) : null, unit });
     }
   }
-  const lines = [...merged.entries()].map(([product_id, v]) => ({ product_id, ...v }));
+  const lines = [...merged.entries()].map(([key, v]) => ({ product_id: key.slice(0, key.lastIndexOf('|')), ...v }));
 
   const supplier = await queryOne<{ name: string }>('SELECT name FROM suppliers WHERE id = ? AND active = 1', [supplier_id]);
   if (!supplier) return err('Proveedor no encontrado o inactivo');
@@ -81,37 +86,46 @@ export const POST = handle(async (req: Request) => {
       if (locs[0].length > 0) targetLocationId = locs[0][0].id;
     }
 
-    const processed: { product_id: string; quantity: number; price: number; cost_after: number; purchase_id: string }[] = [];
+    const processed: { product_id: string; quantity: number; price: number; unit: string | null; stock_qty?: number; cost_after: number; purchase_id: string }[] = [];
     let totalCost = 0;
 
     for (const line of lines) {
-      // Obtener datos actuales del producto (con bloqueo de fila)
+      // Obtener datos actuales del producto (con bloqueo de fila), incluyendo
+      // la unidad de venta y la configuración de compra (migración 037)
       const product = await conn.execute(
-        'SELECT stock, cost FROM products WHERE id=? AND active=1',
+        'SELECT stock, cost, unit, purchase_unit, purchase_factor FROM products WHERE id=? AND active=1',
         [line.product_id]
-      ) as unknown as [{ stock: number; cost: number }[], unknown];
+      ) as unknown as [{ stock: number; cost: number; unit: string; purchase_unit: string | null; purchase_factor: number | null }[], unknown];
       const current = product[0][0];
       if (!current) throw new Error(`Producto no encontrado o inactivo: ${line.product_id}`);
 
       const currentStock = Number(current.stock ?? 0);
       const currentCost = Number(current.cost ?? 0);
+
+      // ── Conversión compra → venta (migración 037) ──
+      // cantidad capturada × factor → stock; precio de captura ÷ factor →
+      // precio por unidad de venta (el total en dinero no cambia)
+      const captureUnit = resolveCaptureUnit(current, line.unit);
+      const factor = resolvePurchaseFactor(current, captureUnit);
       const purchaseQty = Number(line.quantity);
       const purchasePrice = Math.round(Number(line.price) * 100) / 100;
-      const newStock = currentStock + purchaseQty;
-      const newCost = ((currentStock * currentCost) + (purchaseQty * purchasePrice)) / newStock;
+      const stockQty = Math.round(purchaseQty * factor * 1000) / 1000;
+      const saleUnitPrice = Math.round((purchasePrice / factor) * 100) / 100;
+      const newStock = currentStock + stockQty;
+      const newCost = ((currentStock * currentCost) + (stockQty * saleUnitPrice)) / newStock;
       const lineTotal = Math.round(purchaseQty * purchasePrice * 100) / 100;
       totalCost += lineTotal;
 
-      // Actualizar producto (stock, costo y opcionalmente fecha de caducidad)
+      // Actualizar producto (stock en unidades de venta, costo y opcionalmente fecha de caducidad)
       if (line.expiration_date) {
         await conn.execute(
           'UPDATE products SET stock=stock+?, cost=?, expiration_date=?, updated_at=? WHERE id=?',
-          [purchaseQty, Math.round(newCost * 100) / 100, line.expiration_date, ts, line.product_id]
+          [stockQty, Math.round(newCost * 100) / 100, line.expiration_date, ts, line.product_id]
         );
       } else {
         await conn.execute(
           'UPDATE products SET stock=stock+?, cost=?, updated_at=? WHERE id=?',
-          [purchaseQty, Math.round(newCost * 100) / 100, ts, line.product_id]
+          [stockQty, Math.round(newCost * 100) / 100, ts, line.product_id]
         );
       }
 
@@ -122,18 +136,22 @@ export const POST = handle(async (req: Request) => {
         line.expiration_date ? `Vence: ${line.expiration_date}` : null,
       ].filter(Boolean).join(' | ');
 
-      // Registrar movimiento de stock de entrada
+      // Registrar movimiento de stock de entrada (en unidades de venta; se
+      // anota la equivalencia cuando hubo conversión)
       const smId = randomUUID();
+      const stockMovReason = factor !== 1 && current.unit
+        ? `${purchaseNotes} — ${purchaseQty} ${captureUnit} = ${stockQty} ${current.unit}`
+        : purchaseNotes;
       await conn.execute(
         "INSERT INTO stock_movements (id,product_id,type,quantity,reason,reference_id,user_id,date,created_at) VALUES (?,?,?,'in',?,?,?,?,?,?)",
-        [smId, line.product_id, purchaseQty, purchaseNotes, null, sessionUser.id, ts, ts]
+        [smId, line.product_id, stockQty, stockMovReason, null, sessionUser.id, ts, ts]
       );
 
-      // Registrar precio de compra histórico
+      // Registrar precio de compra histórico (precio en su unidad de captura)
       const ppId = randomUUID();
       await conn.execute(
-        'INSERT INTO purchase_prices (id,product_id,supplier_id,price,date,notes,created_at) VALUES (?,?,?,?,?,?,?)',
-        [ppId, line.product_id, supplier_id, purchasePrice, ts, purchaseNotes, ts]
+        'INSERT INTO purchase_prices (id,product_id,supplier_id,price,unit,date,notes,created_at) VALUES (?,?,?,?,?,?,?,?)',
+        [ppId, line.product_id, supplier_id, purchasePrice, captureUnit, ts, purchaseNotes, ts]
       );
 
       // Vincular producto con proveedor si no existe
@@ -142,22 +160,23 @@ export const POST = handle(async (req: Request) => {
         [randomUUID(), line.product_id, supplier_id]
       );
 
-      // Insertar registro en historial de compras
+      // Insertar registro en historial de compras (cantidad y precio en la
+      // unidad de captura; `purchases.unit` deja inequívoco el histórico)
       const purchaseId = randomUUID();
       await conn.execute(
-        'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,total_cost,location_id,notes,user_id,pos_id,invoice_number,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-        [purchaseId, line.product_id, supplier_id, purchaseQty, purchasePrice, lineTotal, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, String(invoice_number).trim(), ts]
+        'INSERT INTO purchases (id,product_id,supplier_id,quantity,unit_price,unit,total_cost,location_id,notes,user_id,pos_id,invoice_number,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        [purchaseId, line.product_id, supplier_id, purchaseQty, purchasePrice, captureUnit, lineTotal, targetLocationId ?? null, purchaseNotes, sessionUser.id, posId || null, String(invoice_number).trim(), ts]
       );
 
-      // Actualizar stock del almacén
+      // Actualizar stock del almacén (en unidades de venta)
       if (targetLocationId) {
         await conn.execute(
           'INSERT INTO location_stock (id,location_id,product_id,quantity,updated_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+?,updated_at=?',
-          [randomUUID(), targetLocationId, line.product_id, purchaseQty, ts, purchaseQty, ts]
+          [randomUUID(), targetLocationId, line.product_id, stockQty, ts, stockQty, ts]
         );
         await conn.execute(
           "INSERT INTO location_movements (id,location_id,product_id,type,quantity,notes,reference_id,user_id,created_at) VALUES (?,?,?,'entrada',?,?,?,?,?)",
-          [randomUUID(), targetLocationId, line.product_id, purchaseQty, purchaseNotes, null, sessionUser.id, ts]
+          [randomUUID(), targetLocationId, line.product_id, stockQty, stockMovReason, null, sessionUser.id, ts]
         );
       }
 
@@ -165,6 +184,8 @@ export const POST = handle(async (req: Request) => {
         product_id: line.product_id,
         quantity: purchaseQty,
         price: purchasePrice,
+        unit: captureUnit,
+        stock_qty: factor !== 1 ? stockQty : undefined,
         cost_after: Math.round(newCost * 100) / 100,
         purchase_id: purchaseId,
       });

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { formatCurrency, formatNumber, calcMargin, cn, generateId, formatDateTime } from '@/lib/utils';
+import { resolvePurchaseFactor } from '@/lib/purchase-unit';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usePosSelector } from '@/hooks/use-pos';
 import { api } from '@/lib/api-client';
@@ -37,7 +38,7 @@ export default function InventarioPage() {
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [purchaseForm, setPurchaseForm] = useState({ product_id: '', supplier_id: '', quantity: 0, price: 0, location_id: '', notes: '', invoice_number: '', is_capital: false, expiration_date: '' });
+  const [purchaseForm, setPurchaseForm] = useState({ product_id: '', supplier_id: '', quantity: 0, price: 0, unit: '', location_id: '', notes: '', invoice_number: '', is_capital: false, expiration_date: '' });
   const [purchaseSaving, setPurchaseSaving] = useState(false);
   const { workMode, posId, setPosId, posOptions, hasOpenShift, resetPos } = usePosSelector(showPurchaseModal);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -128,7 +129,7 @@ export default function InventarioPage() {
   // Cargar datos cada vez que cambie el filtro de ubicación o el filtro de agotados
   useEffect(() => { load(locFilter || undefined, showOutOfStock); }, [load, locFilter, showOutOfStock]);
 
-  function openNew() { setEditProduct(null); setForm({ name:'', barcode:'', sale_price:0, cost:0, sale_currency: baseCurrency?.code ?? '', cost_currency: baseCurrency?.code ?? '', stock:0, min_stock:0, unit:'unidad', expiration_date:'', is_perishable: false, supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '', is_capital: false }); setImageFile(null); setImagePreview(null); setShowModal(true); }
+  function openNew() { setEditProduct(null); setForm({ name:'', barcode:'', sale_price:0, cost:0, sale_currency: baseCurrency?.code ?? '', cost_currency: baseCurrency?.code ?? '', stock:0, min_stock:0, unit:'unidad', purchase_unit:null, purchase_factor:null, expiration_date:'', is_perishable: false, supplier_ids:[], location_id: locations.length > 0 ? String(locations[0].id) : '', is_capital: false }); setImageFile(null); setImagePreview(null); setShowModal(true); }
   function openEdit(p: AnyRecord) { setEditProduct(p); setForm({ ...p, is_perishable: Boolean(p.is_perishable), supplier_ids: (p.supplier_ids as string[]|undefined) ?? [] }); setImageFile(null); setImagePreview(String(p.image_url??'')); setShowModal(true); }
 
   async function handleSave() {
@@ -186,6 +187,9 @@ export default function InventarioPage() {
       supplier_id: suppliers.length > 0 ? String(suppliers[0].id) : '',
       quantity: 0,
       price: 0,
+      // Por defecto se captura en la unidad de compra configurada del
+      // producto (si tiene una distinta a la de venta)
+      unit: product?.purchase_unit ? String(product.purchase_unit) : (product?.unit ? String(product.unit) : ''),
       location_id: locations.length > 0 ? String(locations[0].id) : '',
       notes: '',
       invoice_number: '',
@@ -240,6 +244,7 @@ export default function InventarioPage() {
         supplier_id: purchaseForm.supplier_id,
         quantity: purchaseForm.quantity,
         price: purchaseForm.price,
+        unit: purchaseForm.unit || null,
         location_id: purchaseForm.location_id,
         notes: purchaseForm.notes,
         invoice_number: purchaseForm.invoice_number.trim() || null,
@@ -736,7 +741,27 @@ export default function InventarioPage() {
               noResultsMessage="Sin categorías"
             />
           </div>
-          <div><label className="label">Unidad</label><input className="input" value={String(form.unit??'unidad')} onChange={e=>setForm(f=>({...f,unit:e.target.value}))}/></div>
+          <div className="sm:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="label">Unidad de venta</label>
+              <input className="input" value={String(form.unit??'unidad')} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} placeholder="unidad" />
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Cómo se vende y se registra el stock (libras, unidades...)</p>
+            </div>
+            <div>
+              <label className="label">Unidad de compra</label>
+              <input className="input" value={String(form.purchase_unit ?? '')} onChange={e=>setForm(f=>({...f,purchase_unit:e.target.value || null}))} placeholder="Opcional — igual a la de venta" />
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Déjala vacía si compras en la misma unidad</p>
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label className="label">Factor de conversión</label>
+              <input type="number" min="0" step="any" className="input" value={form.purchase_factor != null && form.purchase_factor !== '' ? String(form.purchase_factor) : ''} onChange={e=>setForm(f=>({...f,purchase_factor:e.target.value ? parseFloat(e.target.value) : null}))} disabled={!String(form.purchase_unit ?? '').trim()} />
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                {String(form.purchase_unit ?? '').trim()
+                  ? `Cuántas ${String(form.unit ?? 'unidad')}es equivale 1 ${String(form.purchase_unit)} — ej. 1 kg de arroz = 2.20462 libras`
+                  : 'Solo si defines una unidad de compra distinta'}
+              </p>
+            </div>
+          </div>
           <div className="sm:col-span-2">
             <div className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] p-3">
               <label className="flex items-center gap-3 cursor-pointer">
@@ -1012,6 +1037,8 @@ export default function InventarioPage() {
                   ...f,
                   product_id: v,
                   expiration_date: prod?.expiration_date ? String(prod.expiration_date) : '',
+                  // Precargar la unidad de compra del producto (o su unidad de venta)
+                  unit: prod?.purchase_unit ? String(prod.purchase_unit) : (prod?.unit ? String(prod.unit) : ''),
                 }));
               }}
               placeholder="Buscar producto…"
@@ -1066,6 +1093,25 @@ export default function InventarioPage() {
             <div><label className="label">Cantidad *</label><input type="number" min="1" step="1" className="input" value={purchaseForm.quantity || ''} onChange={e => setPurchaseForm(f => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))} /></div>
             <div><label className="label">Precio unitario *</label><input type="number" min="0" step="1" className="input" value={purchaseForm.price || ''} onChange={e => setPurchaseForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))} /></div>
           </div>
+          {/* Unidad de compra — solo si el producto tiene una unidad de compra distinta a la de venta */}
+          {(() => {
+            const prod = purchaseForm.product_id
+              ? products.find(p => String(p.id) === purchaseForm.product_id)
+              : null;
+            if (!prod || !prod.purchase_unit || !(Number(prod.purchase_factor) > 0)) return null;
+            return (
+              <div>
+                <label className="label">Capturar en</label>
+                <select className="input" value={purchaseForm.unit} onChange={e => setPurchaseForm(f => ({ ...f, unit: e.target.value }))}>
+                  <option value={String(prod.purchase_unit)}>{String(prod.purchase_unit)} — unidad de compra del producto</option>
+                  <option value={String(prod.unit)}>{String(prod.unit)} — unidad de venta</option>
+                </select>
+                <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                  El stock se incrementa en {String(prod.unit)}: {formatNumber(1, 1)} {String(prod.purchase_unit)} = {formatNumber(Number(prod.purchase_factor), 3)} {String(prod.unit)}
+                </p>
+              </div>
+            );
+          })()}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div><label className="label">Número de factura</label><input className="input" placeholder="Ej: F-001234" value={purchaseForm.invoice_number} onChange={e => setPurchaseForm(f => ({ ...f, invoice_number: e.target.value }))} /></div>
             <div><label className="label">Notas</label><input className="input" placeholder="Ej: Lote, observaciones..." value={purchaseForm.notes} onChange={e => setPurchaseForm(f => ({ ...f, notes: e.target.value }))} /></div>
@@ -1100,13 +1146,25 @@ export default function InventarioPage() {
             if (!prod) return null;
             const currentStock = Number(prod.stock ?? 0);
             const currentCost = Number(prod.cost ?? 0);
-            const newStock = currentStock + purchaseForm.quantity;
-            const newCost = ((currentStock * currentCost) + (purchaseForm.quantity * purchaseForm.price)) / newStock;
+            // Conversión compra → venta (migración 037)
+            const factor = resolvePurchaseFactor(prod, purchaseForm.unit || null);
+            const stockQty = purchaseForm.quantity * factor;
+            const saleUnitPrice = factor !== 1 ? purchaseForm.price / factor : purchaseForm.price;
+            const newStock = currentStock + stockQty;
+            const newCost = newStock > 0 ? ((currentStock * currentCost) + (stockQty * saleUnitPrice)) / newStock : 0;
             const totalCost = purchaseForm.quantity * purchaseForm.price;
             return (
               <div className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] p-3 text-sm space-y-1.5">
                 <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Resumen de la compra</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  {factor !== 1 && (
+                    <>
+                      <p className="text-[var(--text-tertiary)]">Equivalencia:</p>
+                      <p className="text-[var(--text-primary)] text-right">{formatNumber(purchaseForm.quantity, 2)} {purchaseForm.unit || String(prod.purchase_unit ?? '')} = {formatNumber(stockQty, 2)} {String(prod.unit ?? '')}</p>
+                      <p className="text-[var(--text-tertiary)]">Precio por {String(prod.unit ?? '')}:</p>
+                      <p className="text-[var(--text-primary)] text-right">{formatCurrency(saleUnitPrice)}</p>
+                    </>
+                  )}
                   <p className="text-[var(--text-tertiary)]">Stock actual (global):</p><p className="text-[var(--text-primary)] text-right">{formatNumber(currentStock, 1)}</p>
                   {purchaseForm.location_id && <p className="text-[var(--text-tertiary)]">Stock en este almacén:</p>}
                   {purchaseForm.location_id && <p className="text-brand-400 text-right font-medium">{formatNumber(purchaseLocStockMap[String(prod.id)]??0, 1)}</p>}

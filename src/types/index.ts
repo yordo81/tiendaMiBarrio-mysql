@@ -43,6 +43,8 @@ export interface Product {
   stock: number;
   min_stock: number;
   unit: string;
+  purchase_unit: string | null;
+  purchase_factor: number | null;
   expiration_date: string | null;
   is_perishable: boolean;
   image_url: string | null;
