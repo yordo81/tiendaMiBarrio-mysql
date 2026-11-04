@@ -17,16 +17,22 @@ import {
 
 type R = Record<string, unknown>;
 
+/** Formatea un monto conservando el signo negativo (formatCurrency deja "$-"). */
+const fmtMoney = (n: number) => `${n < 0 ? '-' : ''}${formatCurrency(Math.abs(n))}`;
+
 export default function ContabilidadPage() {
   const [data, setData] = useState<R | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showInitialModal, setShowInitialModal] = useState(false);
   const [showCapitalModal, setShowCapitalModal] = useState(false);
+  // Los ajustes admiten montos negativos, por eso los importes se guardan
+  // como texto: así el usuario puede escribir el signo "-" sin que el input
+  // controlado lo borre al convertirlo a número.
   const [adjustForm, setAdjustForm] = useState({
     type: 'adjustment' as 'initial' | 'adjustment',
-    cash_amount: 0,
-    transfer_amount: 0,
+    cash_amount: '',
+    transfer_amount: '',
     notes: '',
   });
   const [initialForm, setInitialForm] = useState({
@@ -35,8 +41,8 @@ export default function ContabilidadPage() {
     notes: '',
   });
   const [capitalForm, setCapitalForm] = useState({
-    cash_amount: 0,
-    transfer_amount: 0,
+    cash_amount: '',
+    transfer_amount: '',
     notes: '',
   });
   const [entries, setEntries] = useState<R[]>([]);
@@ -98,25 +104,23 @@ export default function ContabilidadPage() {
   }
 
   async function handleCapitalInjection() {
-    if (!capitalForm.cash_amount && !capitalForm.transfer_amount) {
+    const cashAmount = Number(capitalForm.cash_amount) || 0;
+    const transferAmount = Number(capitalForm.transfer_amount) || 0;
+    if (!cashAmount && !transferAmount) {
       toast.error('Debes ingresar al menos un monto');
-      return;
-    }
-    if (capitalForm.cash_amount < 0 || capitalForm.transfer_amount < 0) {
-      toast.error('Los montos no pueden ser negativos');
       return;
     }
     try {
       await api.createCashRegisterEntry({
         type: 'capital',
-        cash_amount: capitalForm.cash_amount,
-        transfer_amount: capitalForm.transfer_amount,
-        notes: capitalForm.notes || 'Aporte de capital',
+        cash_amount: cashAmount,
+        transfer_amount: transferAmount,
+        notes: capitalForm.notes || 'Ajuste de capital',
       });
-      toast.success('Aporte de capital registrado');
+      toast.success('Ajuste de capital registrado');
       notifyShiftSummaryChanged();
       setShowCapitalModal(false);
-      setCapitalForm({ cash_amount: 0, transfer_amount: 0, notes: '' });
+      setCapitalForm({ cash_amount: '', transfer_amount: '', notes: '' });
       load();
     } catch (e) {
       if (e instanceof Error) toast.error(e.message);
@@ -124,16 +128,22 @@ export default function ContabilidadPage() {
   }
 
   async function handleAdjustment() {
-    if (!adjustForm.cash_amount && !adjustForm.transfer_amount) {
+    const cashAmount = Number(adjustForm.cash_amount) || 0;
+    const transferAmount = Number(adjustForm.transfer_amount) || 0;
+    if (!cashAmount && !transferAmount) {
       toast.error('Debes ajustar al menos un monto');
       return;
     }
     try {
-      await api.createCashRegisterEntry(adjustForm);
+      await api.createCashRegisterEntry({
+        ...adjustForm,
+        cash_amount: cashAmount,
+        transfer_amount: transferAmount,
+      });
       toast.success('Ajuste registrado');
       notifyShiftSummaryChanged();
       setShowAdjustModal(false);
-      setAdjustForm({ type: 'adjustment', cash_amount: 0, transfer_amount: 0, notes: '' });
+      setAdjustForm({ type: 'adjustment', cash_amount: '', transfer_amount: '', notes: '' });
       load();
     } catch (e) {
       if (e instanceof Error) toast.error(e.message);
@@ -192,6 +202,14 @@ export default function ContabilidadPage() {
   const capitalInjectedCash = Number(data.capital_injected_cash ?? 0);
   const capitalInjectedTransfer = Number(data.capital_injected_transfer ?? 0);
 
+  // Ganancias del periodo seleccionado (la API devuelve las claves
+  // `<periodo>_sales`, `_cogs`, `_gross_profit`, `_net_profit`, etc.).
+  const profitSales = Number(data[`${periodFilter}_sales` as keyof R] ?? 0);
+  const profitCogs = Number(data[`${periodFilter}_cogs` as keyof R] ?? 0);
+  const profitOperatingExpenses = Number(data[`${periodFilter}_operating_expenses` as keyof R] ?? 0);
+  const grossProfit = Number(data[`${periodFilter}_gross_profit` as keyof R] ?? 0);
+  const netProfit = Number(data[`${periodFilter}_net_profit` as keyof R] ?? 0);
+
   // Filtro de búsqueda
   const q = search.toLowerCase();
   const filteredMovements = q
@@ -248,7 +266,7 @@ export default function ContabilidadPage() {
             </button>
           )}
           <button onClick={() => setShowCapitalModal(true)} className="btn-secondary flex items-center gap-1.5 text-sm">
-            <TrendingUp className="w-4 h-4" />Aportar capital
+            <TrendingUp className="w-4 h-4" />Ajustar capital
           </button>
           <button onClick={() => setShowAdjustModal(true)} className="btn-secondary flex items-center gap-1.5 text-sm">
             <Settings className="w-4 h-4" />Ajustar
@@ -372,14 +390,16 @@ export default function ContabilidadPage() {
           </div>
           <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-xl p-4">
             <p className="text-xs text-emerald-400 font-medium flex items-center gap-1.5 mb-1">
-              <ArrowUpRight className="w-3 h-3" /> Aportes de capital
+              <ArrowUpRight className="w-3 h-3" /> Capital neto
             </p>
-            <p className="text-lg font-semibold text-emerald-400">{formatCurrency(totalCapitalInjected)}</p>
+            <p className={cn('text-lg font-semibold', totalCapitalInjected < 0 ? 'text-red-400' : 'text-emerald-400')}>
+              {totalCapitalInjected < 0 ? '-' : ''}{formatCurrency(Math.abs(totalCapitalInjected))}
+            </p>
             <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
-              {capitalInjectedCash > 0 ? `Ef: ${formatCurrency(capitalInjectedCash)}` : ''}
-              {capitalInjectedCash > 0 && capitalInjectedTransfer > 0 ? ' · ' : ''}
-              {capitalInjectedTransfer > 0 ? `Tr: ${formatCurrency(capitalInjectedTransfer)}` : ''}
-              {totalCapitalInjected === 0 ? 'Sin aportes registrados' : ''}
+              {capitalInjectedCash !== 0 ? `Ef: ${capitalInjectedCash < 0 ? '-' : ''}${formatCurrency(Math.abs(capitalInjectedCash))}` : ''}
+              {capitalInjectedCash !== 0 && capitalInjectedTransfer !== 0 ? ' · ' : ''}
+              {capitalInjectedTransfer !== 0 ? `Tr: ${capitalInjectedTransfer < 0 ? '-' : ''}${formatCurrency(Math.abs(capitalInjectedTransfer))}` : ''}
+              {totalCapitalInjected === 0 ? 'Sin movimientos de capital' : ''}
             </p>
           </div>
         </div>
@@ -527,7 +547,7 @@ export default function ContabilidadPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="card p-4">
             <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-3">
               Ingresos {periodFilter === 'total' ? 'históricos' : periodFilter === 'week' ? 'esta semana' : periodFilter === 'month' ? 'este mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
@@ -614,6 +634,36 @@ export default function ContabilidadPage() {
               </div>
             </div>
           </div>
+          <div className="card p-4">
+            <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+              Ganancias {periodFilter === 'total' ? 'históricas' : periodFilter === 'week' ? 'esta semana' : periodFilter === 'month' ? 'este mes' : periodFilter === '90days' ? 'últimos 90 días' : `del ${customFrom?.slice(5) ?? '—'} al ${customTo?.slice(5) ?? '—'}`}
+              <InfoTooltip content="Ganancia bruta = ventas − costo de lo vendido. Ganancia neta = ganancia bruta − gastos operativos del periodo. No incluye compras de inventario (esas son inversión, no gasto)." side="top">
+                <Info className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] cursor-help" />
+              </InfoTooltip>
+            </h4>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-[var(--text-secondary)]">Ventas</span>
+                <span className="text-[var(--text-primary)] font-medium">{fmtMoney(profitSales)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--text-secondary)]">Costo de ventas</span>
+                <span className="text-orange-400 font-medium">-{formatCurrency(Math.abs(profitCogs))}</span>
+              </div>
+              <div className="border-t border-[var(--border-primary)] pt-2 flex justify-between font-semibold">
+                <span className="text-[var(--text-primary)]">Ganancia bruta</span>
+                <span className={cn(grossProfit >= 0 ? 'text-green-400' : 'text-red-400')}>{fmtMoney(grossProfit)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--text-secondary)]">Gastos operativos</span>
+                <span className="text-red-400 font-medium">-{formatCurrency(Math.abs(profitOperatingExpenses))}</span>
+              </div>
+              <div className="border-t border-[var(--border-primary)] pt-2 flex justify-between font-semibold">
+                <span className="text-[var(--text-primary)]">Ganancia neta</span>
+                <span className={cn(netProfit >= 0 ? 'text-emerald-400' : 'text-red-400')}>{fmtMoney(netProfit)}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -647,15 +697,20 @@ export default function ContabilidadPage() {
               const totalAmount = Number(m.total_amount ?? 0);
               const cashAmt = Number(m.cash_amount ?? 0);
               const transferAmt = Number(m.transfer_amount ?? 0);
-              const isInflow = type === 'Venta' || type === 'Abono cliente' || type === 'Saldo inicial' || type === 'Aporte de capital';
-              const isOutflow = type.startsWith('Gasto') || type === 'Compra inventario';
-              // El signo se antepone según el tipo; los montos de caja (compras)
-              // pueden venir negativos, así que se muestra la magnitud.
-              const displayAmount = isInflow || isOutflow ? Math.abs(totalAmount) : totalAmount;
+              // Los movimientos de caja (saldo inicial, ajustes, aportes de capital
+              // y compras) se muestran con el signo real de sus montos, ya que un
+              // ajuste o aporte puede ser negativo (resta del saldo).
+              const isRegister = method === 'register';
+              const isPositiveRegister = isRegister && totalAmount > 0;
+              const isNegativeRegister = isRegister && totalAmount < 0;
+              const isInflow = !isRegister && (type === 'Venta' || type === 'Abono cliente');
+              const isOutflow = !isRegister && (type.startsWith('Gasto') || type === 'Compra inventario');
+              const displayAmount = Math.abs(totalAmount);
+              const signPrefix = isPositiveRegister ? '+' : isNegativeRegister ? '-' : isInflow ? '+' : isOutflow ? '-' : '';
 
-              const TypeIcon = isInflow ? TrendingUp : isOutflow ? TrendingDown : Settings;
-              let typeColor = isInflow ? 'text-green-400 bg-green-500/10' :
-                isOutflow ? 'text-red-400 bg-red-500/10' :
+              const TypeIcon = isPositiveRegister || isInflow ? TrendingUp : isNegativeRegister || isOutflow ? TrendingDown : Settings;
+              let typeColor = isPositiveRegister || isInflow ? 'text-green-400 bg-green-500/10' :
+                isNegativeRegister || isOutflow ? 'text-red-400 bg-red-500/10' :
                 'text-brand-400 bg-brand-500/10';
 
               let methodLabel = '';
@@ -692,8 +747,8 @@ export default function ContabilidadPage() {
                       </p>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className={cn('text-sm font-semibold', isInflow ? 'text-green-400' : isOutflow ? 'text-red-400' : 'text-[var(--text-primary)]')}>
-                        {isInflow ? '+' : isOutflow ? '-' : ''}{formatCurrency(displayAmount)}
+                      <p className={cn('text-sm font-semibold', isPositiveRegister || isInflow ? 'text-green-400' : isNegativeRegister || isOutflow ? 'text-red-400' : 'text-[var(--text-primary)]')}>
+                        {signPrefix}{formatCurrency(displayAmount)}
                       </p>
                       <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
                         {m.date ? formatDateTime(String(m.date)) : '—'}
@@ -747,35 +802,36 @@ export default function ContabilidadPage() {
       </Modal>
 
       {/* Modal: Aporte de Capital */}
-      <Modal open={showCapitalModal} onClose={() => setShowCapitalModal(false)} title="Registrar aporte de capital">
+      <Modal open={showCapitalModal} onClose={() => setShowCapitalModal(false)} title="Registrar ajuste de capital">
         <div className="space-y-4">
           <p className="text-sm text-[var(--text-secondary)]">
-            Registra un aporte de capital del dueño al negocio. Esto incrementará el saldo disponible.
+            Registra un ajuste de capital del dueño (aporte o retiro). Usa valores positivos para
+            incrementar el saldo disponible y negativos para reducirlo.
           </p>
           <div>
-            <label className="label">Efectivo aportado</label>
-            <input type="number" min="0" step="1" className="input"
-              value={capitalForm.cash_amount || ''}
-              onChange={e => setCapitalForm(f => ({ ...f, cash_amount: parseFloat(e.target.value) || 0 }))}
+            <label className="label">Ajuste en efectivo</label>
+            <input type="number" step="1" className="input" placeholder="Ej: 5000 o -5000"
+              value={capitalForm.cash_amount}
+              onChange={e => setCapitalForm(f => ({ ...f, cash_amount: e.target.value }))}
             />
           </div>
           <div>
-            <label className="label">Transferencia aportada</label>
-            <input type="number" min="0" step="1" className="input"
-              value={capitalForm.transfer_amount || ''}
-              onChange={e => setCapitalForm(f => ({ ...f, transfer_amount: parseFloat(e.target.value) || 0 }))}
+            <label className="label">Ajuste en transferencia</label>
+            <input type="number" step="1" className="input" placeholder="Ej: 5000 o -5000"
+              value={capitalForm.transfer_amount}
+              onChange={e => setCapitalForm(f => ({ ...f, transfer_amount: e.target.value }))}
             />
           </div>
           <div>
             <label className="label">Nota (opcional)</label>
-            <input type="text" className="input" placeholder="Ej: Aporte para nueva mercancía"
+            <input type="text" className="input" placeholder="Ej: Retiro de capital para gastos personales"
               value={capitalForm.notes}
               onChange={e => setCapitalForm(f => ({ ...f, notes: e.target.value }))}
             />
           </div>
           <div className="flex flex-col xs:flex-row gap-2 justify-end pt-2">
             <button onClick={() => setShowCapitalModal(false)} className="btn-secondary flex-1 xs:flex-none">Cancelar</button>
-            <button onClick={handleCapitalInjection} className="btn-primary flex-1 xs:flex-none">Registrar aporte</button>
+            <button onClick={handleCapitalInjection} className="btn-primary flex-1 xs:flex-none">Registrar ajuste</button>
           </div>
         </div>
       </Modal>
@@ -790,15 +846,15 @@ export default function ContabilidadPage() {
           <div>
             <label className="label">Ajuste en efectivo</label>
             <input type="number" step="1" className="input" placeholder="Ej: -5000 o 3000"
-              value={adjustForm.cash_amount || ''}
-              onChange={e => setAdjustForm(f => ({ ...f, cash_amount: parseFloat(e.target.value) || 0 }))}
+              value={adjustForm.cash_amount}
+              onChange={e => setAdjustForm(f => ({ ...f, cash_amount: e.target.value }))}
             />
           </div>
           <div>
             <label className="label">Ajuste en transferencia</label>
             <input type="number" step="1" className="input" placeholder="Ej: -5000 o 3000"
-              value={adjustForm.transfer_amount || ''}
-              onChange={e => setAdjustForm(f => ({ ...f, transfer_amount: parseFloat(e.target.value) || 0 }))}
+              value={adjustForm.transfer_amount}
+              onChange={e => setAdjustForm(f => ({ ...f, transfer_amount: e.target.value }))}
             />
           </div>
           <div>

@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 import { requireRole } from '@/lib/api-helpers';
 import { query, execute } from '@/lib/db/mysql';
 import { handle, ok, err } from '@/lib/api-helpers';
-import { requireNonNegativeNumber } from '@/lib/validate';
+import { requireNonNegativeNumber, requireFiniteNumber } from '@/lib/validate';
 import { getOpenShiftId } from '@/lib/settings-server';
 const randomUUID = () => crypto.randomUUID();
 
@@ -32,11 +32,13 @@ export const POST = handle(async (req: Request) => {
   if (cash_amount == null || transfer_amount == null) {
     return err('Se requieren cash_amount y transfer_amount');
   }
-  // Validar que no sean negativos (un ajuste o aporte no puede ser menor a 0)
-  const cashAmount = requireNonNegativeNumber(cash_amount, 'Efectivo');
-  const transferAmount = requireNonNegativeNumber(transfer_amount, 'Transferencia');
+  // El saldo inicial no puede ser negativo. Los ajustes y los aportes de
+  // capital sí admiten valores negativos (retiros/correcciones que restan).
+  const validateAmount = type === 'initial' ? requireNonNegativeNumber : requireFiniteNumber;
+  const cashAmount = validateAmount(cash_amount, 'Efectivo');
+  const transferAmount = validateAmount(transfer_amount, 'Transferencia');
   if (cashAmount === 0 && transferAmount === 0) {
-    return err('Debe registrar al menos un monto (efectivo o transferencia) mayor a 0');
+    return err('Debe registrar al menos un monto (efectivo o transferencia) distinto de 0');
   }
 
   const id = randomUUID();

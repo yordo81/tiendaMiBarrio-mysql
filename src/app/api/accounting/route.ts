@@ -113,6 +113,34 @@ export const GET = handle(async (req) => {
      WHERE type = 'capital'`
   );
 
+  // ── 9d. Ganancias bruta y neta por periodo ──
+  // Ganancia bruta = ventas (convertidas a moneda base) − costo de lo vendido.
+  // Ganancia neta = ganancia bruta − gastos operativos del periodo.
+  const salesTotalBase = `CASE WHEN s.currency_code IS NOT NULL AND s.currency_code!='' AND s.currency_code!=${baseSub} THEN s.total*COALESCE(s.exchange_rate,1) ELSE s.total END`;
+  const salesCostBase = `CASE WHEN s.currency_code IS NOT NULL AND s.currency_code!='' AND s.currency_code!=${baseSub} THEN si.cost*COALESCE(s.exchange_rate,1) ELSE si.cost END`;
+  const profitPeriods: { key: string; cond: (alias: string) => string }[] = [
+    { key: 'week', cond: a => `${a}.date >= DATE_SUB(CURDATE(), INTERVAL DAYOFWEEK(CURDATE())-1 DAY)` },
+    { key: 'month', cond: a => `${a}.date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')` },
+    { key: '90days', cond: a => `${a}.date >= DATE_SUB(NOW(), INTERVAL 90 DAY)` },
+    { key: 'total', cond: () => '1=1' },
+  ];
+  // Cada consulta devuelve una fila por periodo (columna `period`, valor `total`).
+  // `build` devuelve la expresión con su cláusula FROM/WHERE y el alias `total`.
+  const profitUnion = (build: (cond: (alias: string) => string) => string) =>
+    profitPeriods.map(p => `SELECT '${p.key}' AS period, ${build(p.cond)}`).join(' UNION ALL ');
+
+  const [profitSalesRows, profitCogsRows, profitExpenseRows] = await Promise.all([
+    query<{ period: string; total: number }>(profitUnion(cond =>
+      `COALESCE(SUM(${salesTotalBase}), 0) AS total FROM sales s
+       WHERE s.status != 'cancelled' AND ${cond('s')}`)),
+    query<{ period: string; total: number }>(profitUnion(cond =>
+      `COALESCE(SUM(si.quantity * ${salesCostBase}), 0) AS total FROM sale_items si
+       JOIN sales s ON s.id = si.sale_id
+       WHERE s.status != 'cancelled' AND ${cond('s')}`)),
+    query<{ period: string; total: number }>(profitUnion(cond =>
+      `COALESCE(SUM(e.amount), 0) AS total FROM expenses e WHERE ${cond('e')}`)),
+  ]);
+
   // ── Ingresos por periodo (pagos de ventas) ──
   const periodSalesInflows = await query<{ cash: number; transfer: number; period: string }>(`
     SELECT
@@ -546,6 +574,7 @@ export const GET = handle(async (req) => {
   let customExpensesTotal = 0;
   let customExpensesCash = 0;
   let customExpensesTransfer = 0;
+  const customProfit = { sales: 0, cogs: 0, expenses: 0 };
 
   if (hasCustomRange) {
     const cSales = await query<{ total_cash: number; total_transfer: number }>(
@@ -598,6 +627,32 @@ export const GET = handle(async (req) => {
     customExpensesCash = expCash + (expMixed / 2);
     customExpensesTransfer = expTransfer + (expMixed / 2);
     customExpensesTotal = customExpensesCash + customExpensesTransfer + purchases;
+
+    // Ganancias del rango personalizado (mismas fórmulas que los periodos fijos)
+    const [cProfitSales, cProfitCogs, cProfitExp] = await Promise.all([
+      query<{ total: number }>(
+        `SELECT COALESCE(SUM(${salesTotalBase}), 0) AS total
+         FROM sales s
+         WHERE s.status != 'cancelled' AND s.date >= ? AND s.date <= ?`,
+        [from!, to! + ' 23:59:59']
+      ),
+      query<{ total: number }>(
+        `SELECT COALESCE(SUM(si.quantity * ${salesCostBase}), 0) AS total
+         FROM sale_items si
+         JOIN sales s ON s.id = si.sale_id
+         WHERE s.status != 'cancelled' AND s.date >= ? AND s.date <= ?`,
+        [from!, to! + ' 23:59:59']
+      ),
+      query<{ total: number }>(
+        `SELECT COALESCE(SUM(e.amount), 0) AS total
+         FROM expenses e
+         WHERE e.date >= ? AND e.date <= ?`,
+        [from!, to! + ' 23:59:59']
+      ),
+    ]);
+    customProfit.sales = Number(cProfitSales[0]?.total ?? 0);
+    customProfit.cogs = Number(cProfitCogs[0]?.total ?? 0);
+    customProfit.expenses = Number(cProfitExp[0]?.total ?? 0);
   }
 
   // ── Calculate period-filtered totals ──
@@ -625,6 +680,23 @@ export const GET = handle(async (req) => {
     const totalCash = exp.cash + (exp.mixed / 2);
     const totalTransfer = exp.transfer + (exp.mixed / 2);
     return { cash: totalCash, transfer: totalTransfer, total: totalCash + totalTransfer };
+  }
+
+  // ── Armar las ganancias por periodo para la respuesta ──
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const profitTotalFor = (rows: { period: string; total: number }[], periodKey: string) =>
+    Number(rows.find(r => r.period === periodKey)?.total ?? 0);
+  const profitPayload: Record<string, number> = {};
+  for (const { key } of profitPeriods) {
+    const sales = profitTotalFor(profitSalesRows, key);
+    const cogs = profitTotalFor(profitCogsRows, key);
+    const operatingExpenses = profitTotalFor(profitExpenseRows, key);
+    const grossProfit = sales - cogs;
+    profitPayload[`${key}_sales`] = round2(sales);
+    profitPayload[`${key}_cogs`] = round2(cogs);
+    profitPayload[`${key}_operating_expenses`] = round2(operatingExpenses);
+    profitPayload[`${key}_gross_profit`] = round2(grossProfit);
+    profitPayload[`${key}_net_profit`] = round2(grossProfit - operatingExpenses);
   }
 
   const weekIn = calcPeriodInflows('week');
@@ -680,6 +752,9 @@ export const GET = handle(async (req) => {
     capital_injected_cash: Math.round(Number(capitalInjections[0]?.total_cash ?? 0) * 100) / 100,
     capital_injected_transfer: Math.round(Number(capitalInjections[0]?.total_transfer ?? 0) * 100) / 100,
 
+    // Ganancias bruta y neta por periodo
+    ...profitPayload,
+
     // No clasificados
     unclassified_expenses: Math.round(Number(unclassifiedExpenses[0]?.total ?? 0) * 100) / 100,
 
@@ -705,6 +780,11 @@ export const GET = handle(async (req) => {
       custom_expenses: Math.round(customExpensesTotal * 100) / 100,
       custom_expenses_cash: Math.round(customExpensesCash * 100) / 100,
       custom_expenses_transfer: Math.round(customExpensesTransfer * 100) / 100,
+      custom_sales: round2(customProfit.sales),
+      custom_cogs: round2(customProfit.cogs),
+      custom_operating_expenses: round2(customProfit.expenses),
+      custom_gross_profit: round2(customProfit.sales - customProfit.cogs),
+      custom_net_profit: round2(customProfit.sales - customProfit.cogs - customProfit.expenses),
     } : {}),
   });
 });

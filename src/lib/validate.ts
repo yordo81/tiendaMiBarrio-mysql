@@ -165,6 +165,19 @@ export function requirePositiveNumber(value: unknown, label: string): number {
 }
 
 /**
+ * Valida que un valor sea un número finito (admite negativos).
+ * Útil para ajustes de caja/capital, donde restar es un caso válido.
+ * Lanza EnumValidationError (→ 400) si no lo es.
+ */
+export function requireFiniteNumber(value: unknown, label: string): number {
+  const n = typeof value === 'string' ? Number(value.trim()) : Number(value);
+  if (!isFinite(n)) {
+    throw new EnumValidationError(`${label} debe ser un número válido`);
+  }
+  return n;
+}
+
+/**
  * Valida que un valor sea un número finito mayor o igual a 0.
  * Lanza EnumValidationError (→ 400) si no lo es.
  */
