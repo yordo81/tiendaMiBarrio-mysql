@@ -5,6 +5,23 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 Basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y [Semantic Versioning](https://semver.org/lang/es/).
 
 
+# [1.4.0](https://github.com/yordo81/tiendaMiBarrio-mysql/compare/v1.3.0...v1.4.0) (2026-11-20)
+
+
+### Bug Fixes
+
+* **compras:** desajuste de placeholders en los INSERT con la nueva columna unit ([05f1036](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/05f10367ac7cf43caa5a8f9ac0231c9f1ce1b28a))
+* **ventas:** no perder la fecha al editarla en el POS táctil ([828eb42](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/828eb42270e9f536f1fcaf3db1e65811eef27f7b))
+
+
+### Features
+
+* **compras:** comprar en una unidad y vender en otra (factor 037) ([26d7677](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/26d7677b5c6db9f83ddde9c913d3a99d0e016b18))
+* **contabilidad:** ganancias bruta y neta por periodo y ajustes de caja negativos ([0d32d47](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/0d32d47b3a514c41ef7d025f8082037e8ca4ca16))
+* **db:** columnas de moneda en gastos (migration 035 y 036) ([514becc](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/514becc23e77f379c5932256751bd203e758b3b9))
+* **db:** unidades de compra y factor de conversión (migration 037) ([0e56602](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/0e566022c603480dfdbd51f47f03a4d3c2dbbe70))
+* **gastos:** registrar el gasto en su propia moneda y mixto multi-moneda ([2f61528](https://github.com/yordo81/tiendaMiBarrio-mysql/commit/2f615283fb7ec8e123d995cc4eefb62543ffb0cc))
+
 # [1.3.0](https://github.com/yordo81/tiendaMiBarrio-mysql/compare/v1.2.1...v1.3.0) (2026-10-06)
 
 
